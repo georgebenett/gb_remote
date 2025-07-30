@@ -121,3 +121,9 @@ This work is licensed under the Creative Commons Attribution-NonCommercial-NoDer
 
 ### Commercial Use:
 For commercial use, licensing, or commercial distribution of this project, please contact the author for licensing terms and fees.
+
+Useful Links: 
+
+Thingiverse: https://www.thingiverse.com/thing:7104863
+List of Parts: https://docs.google.com/spreadsheets/d/1dWc7UambJGHDQS4_GHVHaPw1IeZnQwx2AfN2q0adDvU/edit?usp=sharing
+
