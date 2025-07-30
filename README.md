@@ -1,5 +1,7 @@
 # GB Remote Lite
 
+![GB Controller Lite](https://github.com/georgebenett/gb_remote/blob/main/mechanics/gb_controller_lite.png)
+
 A sophisticated, open-source hand controller for electric skateboards built on the ESP32 platform. This project provides a complete wireless control solution with real-time telemetry monitoring, featuring a custom BLE SPP client that communicates with VESC motor controllers and BMS systems.
 
 ## Key Features
@@ -98,6 +100,12 @@ This controller is specifically designed to work with popular electric skateboar
 - **Kaly BMS**: Complete compatibility with all monitoring features
 - **Custom BMS**: Extensible protocol for other BMS systems
 
+## Useful Links
+
+**Thingiverse**: https://www.thingiverse.com/thing:7104863
+
+**List of Parts**: https://docs.google.com/spreadsheets/d/1dWc7UambJGHDQS4_GHVHaPw1IeZnQwx2AfN2q0adDvU/edit?usp=sharing
+
 ## Contributing
 
 This project is open source and welcomes contributions! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
@@ -121,9 +129,3 @@ This work is licensed under the Creative Commons Attribution-NonCommercial-NoDer
 
 ### Commercial Use:
 For commercial use, licensing, or commercial distribution of this project, please contact the author for licensing terms and fees.
-
-Useful Links: 
-
-Thingiverse: https://www.thingiverse.com/thing:7104863
-List of Parts: https://docs.google.com/spreadsheets/d/1dWc7UambJGHDQS4_GHVHaPw1IeZnQwx2AfN2q0adDvU/edit?usp=sharing
-
