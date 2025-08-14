@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(spp_client_demo)
+project(gb_controller_lite)
 
 set(PARTITION_TABLE_CSV "partitions.csv")
 #fix wrong spi host defined in the hagl library

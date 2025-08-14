@@ -12,7 +12,8 @@ static const vesc_config_t default_config = {
     .wheel_pulley = 33,        // 33T wheel pulley
     .wheel_diameter_mm = 115,   // 115mm wheels
     .motor_poles = 14,         // 14 pole motor
-    .invert_throttle = false   // Normal throttle direction
+    .invert_throttle = false,  // Normal throttle direction
+    .level_assistant = false   // Level assistant disabled by default
 };
 
 esp_err_t vesc_config_init(void) {
@@ -53,6 +54,16 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
     if (err != ESP_OK) goto cleanup;
     config->invert_throttle = (bool)inv_throttle;
 
+    uint8_t level_assist;
+    err = nvs_get_u8(nvs_handle, NVS_KEY_LEVEL_ASSIST, &level_assist);
+    if (err == ESP_OK) {
+        config->level_assistant = (bool)level_assist;
+    } else {
+        // Default to false if key doesn't exist (backward compatibility)
+        config->level_assistant = false;
+        err = ESP_OK; // Don't fail the entire load for missing level assistant setting
+    }
+
 cleanup:
     nvs_close(nvs_handle);
     return err;
@@ -81,6 +92,9 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
     err = nvs_set_u8(nvs_handle, NVS_KEY_INV_THROT, (uint8_t)config->invert_throttle);
     if (err != ESP_OK) goto cleanup;
 
+    err = nvs_set_u8(nvs_handle, NVS_KEY_LEVEL_ASSIST, (uint8_t)config->level_assistant);
+    if (err != ESP_OK) goto cleanup;
+
     err = nvs_commit(nvs_handle);
 
 cleanup:
@@ -90,25 +104,33 @@ cleanup:
 
 
 int32_t vesc_config_get_speed(const vesc_config_t *config) {
+    // Validate config and motor poles
+    if (config == NULL || config->motor_poles == 0 || config->motor_pulley == 0) {
+        return 0;
+    }
+
     int32_t erpm = get_latest_erpm();
     
-    // Validate ERPM
     if (erpm > 100000 || erpm < -100000) {
         ESP_LOGW(TAG, "Invalid ERPM for speed calculation: %ld", erpm);
         return 0;
     }
 
-    float rpm = (float)erpm/config->motor_poles;
+    float rpm = (float)erpm / (float)config->motor_poles;  // Convert to float early
     float gear_ratio = (float)config->wheel_pulley / (float)config->motor_pulley;
-    float wheel_circumference_m = (float)config->wheel_diameter_mm / 1000.0f * 3.14159f;
-    float wheel_RPM = rpm * gear_ratio;
-    float speed = wheel_RPM * wheel_circumference_m * 60.0f / 1000.0f;
-
-    // Validate final speed
-    if (speed > 100.0f || speed < -100.0f) {
-        ESP_LOGW(TAG, "Calculated speed out of range: %.2f", speed);
+    
+    // Check for division by zero in gear ratio
+    if (gear_ratio == 0.0f) {
         return 0;
     }
+    
+    float wheel_circumference_m = (float)config->wheel_diameter_mm / 1000.0f * M_PI;
+    float wheel_RPM = rpm / gear_ratio;  // Changed multiplication to division for gear reduction
+    float speed = wheel_RPM * wheel_circumference_m * 60.0f / 1000.0f;
 
-    return (int32_t)fabsf(speed);
+    if (speed < 0){
+        speed *= -1;
+    }
+
+    return (int32_t)speed;
 }

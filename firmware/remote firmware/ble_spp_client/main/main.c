@@ -16,6 +16,8 @@
 #include "esp_heap_caps.h"
 #include "ui_updater.h"
 #include "esp_timer.h"
+#include "usb_serial_handler.h"
+#include "level_assistant.h"
 
 #define TAG "MAIN"
 
@@ -91,6 +93,9 @@ void app_main(void)
     // Initialize VESC configuration
     ESP_ERROR_CHECK(vesc_config_init());
 
+    // Initialize level assistant
+    ESP_ERROR_CHECK(level_assistant_init());
+
     // Initialize ADC and start tasks
     ESP_ERROR_CHECK(adc_init());
     adc_start_task();
@@ -99,6 +104,14 @@ void app_main(void)
     while (!adc_is_calibrated()) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+
+    // Initialize USB Serial Handler FIRST (before BLE UART setup)
+    // Note: This is optional - if it fails, the device will still work without USB commands
+    ESP_LOGI(TAG, "Attempting to initialize USB Serial Handler...");
+    
+    // Initialize full USB serial handler
+    usb_serial_init();
+    usb_serial_start_task();
 
     // Initialize BLE
     spp_client_demo_init();

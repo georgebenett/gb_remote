@@ -30,9 +30,9 @@ static void lv_tick_task(void *arg);
 static void lvgl_handler_task(void *pvParameters);
 
 void lcd_init(void) {
-    // Configure GPIO20 and GPIO9
+    // Configure power gpios
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << GPIO_NUM_20) | (1ULL << GPIO_NUM_9),
+        .pin_bit_mask = (1ULL << TFT_GND_PIN) | (1ULL << TFT_VCC_PIN),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -40,9 +40,9 @@ void lcd_init(void) {
     };
     ESP_ERROR_CHECK(gpio_config(&io_conf));
 
-    // Set GPIO20 to 0 and GPIO9 to 1
-    ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_20, 0));
-    ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_9, 1));
+    // Turn on the LCD
+    ESP_ERROR_CHECK(gpio_set_level(TFT_GND_PIN, 0));
+    ESP_ERROR_CHECK(gpio_set_level(TFT_VCC_PIN, 1));
 
     spi_bus_config_t buscfg = {
         .mosi_io_num = TFT_MOSI_PIN,

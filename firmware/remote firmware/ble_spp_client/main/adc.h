@@ -23,8 +23,8 @@
 #define ADC_OUTPUT_MIN_VALUE 0
 
 // Calibration settings
-#define ADC_CALIBRATION_SAMPLES 300  // 300 samples over 6 seconds = 1 sample every 20ms
-#define ADC_CALIBRATION_DELAY_MS 20  // 20ms between samples
+#define ADC_CALIBRATION_SAMPLES 600  // 600 samples over 6 seconds = 1 sample every 10ms
+#define ADC_CALIBRATION_DELAY_MS 10  // 10ms between samples for more accurate timing
 
 #define NVS_NAMESPACE "adc_cal"
 #define NVS_KEY_MIN "min_val"
@@ -41,6 +41,9 @@ uint8_t map_adc_value(uint32_t adc_value);
 void adc_calibrate(void);
 bool adc_is_calibrated(void);
 void adc_deinit(void);
+void adc_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
+bool adc_get_calibration_status(void);
+bool adc_is_calibrating(void);
 
 // Add these function declarations for battery ADC
 esp_err_t adc_battery_init(void);
