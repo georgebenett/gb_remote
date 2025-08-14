@@ -28,7 +28,10 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "adc.h"
+#include "level_assistant.h"
 #include "ui_updater.h"
+#include "vesc_config.h"
+#include "ble_spp_client.h"
 #define DEVICE_NAME                 "GS-THUMB"
 #define GATTC_TAG                   "GATTC_SPP_DEMO"
 
@@ -185,12 +188,9 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
                              ((int32_t)p_data->notify.value[10] << 8) |
                              (int32_t)p_data->notify.value[11];
 
-            if (rpm_raw > 150000 || rpm_raw < -150000) {
-                ESP_LOGW(GATTC_TAG, "Invalid RPM value received: %ld", rpm_raw);
-                latest_erpm = 0;
-            } else {
-                latest_erpm = rpm_raw;
-            }
+
+            latest_erpm = rpm_raw;
+
 
             // voltage (bytes 12-13)
             int16_t voltage = (p_data->notify.value[12] << 8) | p_data->notify.value[13];
@@ -380,6 +380,31 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
     case ESP_GATTC_DISCONNECT_EVT:
         ESP_LOGI(GATTC_TAG, "disconnect");
+        
+        // Reset speed and battery values to 0 when disconnected
+        latest_erpm = 0;
+        latest_voltage = 0.0f;
+        latest_current_motor = 0.0f;
+        latest_current_in = 0.0f;
+        latest_temp_mos = 0.0f;
+        latest_temp_motor = 0.0f;
+        
+        // Reset BMS battery values to 0
+        bms_total_voltage = 0.0f;
+        bms_current = 0.0f;
+        bms_remaining_capacity = 0.0f;
+        bms_nominal_capacity = 0.0f;
+        bms_num_cells = 0;
+        
+        // Clear cell voltages array
+        memset(bms_cell_voltages, 0, sizeof(bms_cell_voltages));
+        
+        ESP_LOGI(GATTC_TAG, "Speed and battery values reset to 0 due to disconnection");
+        
+        // Trigger UI updates to show 0 values
+        ui_update_speed(0);
+        ui_update_skate_battery_percentage(0);
+        
         free_gattc_srv_db();
         esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
         break;
@@ -649,12 +674,31 @@ static void spp_uart_init(void)
     };
 
     //Install UART driver, and get the queue.
-    uart_driver_install(UART_NUM_0, 4096, 8192, 10, &spp_uart_queue, 0);
+    esp_err_t ret = uart_driver_install(UART_NUM_0, 4096, 8192, 10, &spp_uart_queue, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Failed to install UART driver: %s", esp_err_to_name(ret));
+        return;
+    }
+    
     //Set UART parameters
-    uart_param_config(UART_NUM_0, &uart_config);
+    ret = uart_param_config(UART_NUM_0, &uart_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Failed to configure UART: %s", esp_err_to_name(ret));
+        return;
+    }
+    
     //Set UART pins
-    uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    xTaskCreate(uart_task, "uTask", 2048, (void*)UART_NUM_0, 6, NULL);
+    ret = uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    if (ret != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Failed to set UART pins: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ESP_LOGI(GATTC_TAG, "UART initialized successfully for BLE data transmission");
+    
+    // Don't create the UART task here - it conflicts with USB Serial JTAG
+    // The UART is only used for BLE data transmission, not for user input
+    // xTaskCreate(uart_task, "uTask", 2048, (void*)UART_NUM_0, 6, NULL);
 }
 
 void spp_client_demo_init(void)
@@ -695,7 +739,7 @@ void spp_client_demo_init(void)
 
     ble_client_appRegister();
     spp_uart_init();
-    xTaskCreate(adc_send_task, "adc_send_task", 2048, NULL, 8, NULL);
+    xTaskCreate(adc_send_task, "adc_send_task", 4096, NULL, 8, NULL);
     xTaskCreate(log_rssi_task, "log_rssi_task", 2048, NULL, 4, NULL);
 }
 
@@ -707,8 +751,41 @@ static void adc_send_task(void *pvParameters) {
             ((db+SPP_IDX_SPP_DATA_RECV_VAL)->properties &
              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
 
-            uint32_t adc_value = adc_get_latest_value();
+            uint32_t adc_value;
+            
+            // Check if calibration is in progress - send neutral value if so
+            if (adc_is_calibrating()) {
+                adc_value = 127;  // Send neutral value (127) during calibration
+            } else {
+                adc_value = adc_get_latest_value();
+            }
 
+            // Load current configuration to check throttle inversion and level assistant
+            vesc_config_t config;
+            esp_err_t err = vesc_config_load(&config);
+            
+            // Apply level assistant processing if enabled
+            if (err == ESP_OK) {
+                int32_t current_erpm = get_latest_erpm();
+                adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
+                
+                // Log throttle processing every 20 cycles to avoid spam
+                static uint32_t throttle_log_counter = 0;
+                if (++throttle_log_counter >= 20) {
+                    throttle_log_counter = 0;
+                    /*ESP_LOGI("THROTTLE", "ADC: %lu->%lu | ERPM: %ld | Level Assist: %s | Invert: %s", 
+                             original_adc, adc_value, current_erpm,
+                             config.level_assistant ? "ON" : "OFF",
+                             config.invert_throttle ? "ON" : "OFF");*/
+                }
+                
+                // Apply throttle inversion after level assistant processing
+                if (config.invert_throttle) {
+                    // Apply throttle inversion by inverting the ADC value
+                    // Since ADC is 12-bit (0-4095), we invert by subtracting from max value
+                    adc_value = 4095 - adc_value;
+                }
+            }
 
             // Pack the ADC value into 2 bytes (little-endian)
             data_buffer[0] = (uint8_t)(adc_value & 0xFF);         // Low byte

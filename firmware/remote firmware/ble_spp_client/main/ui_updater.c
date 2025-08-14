@@ -18,6 +18,9 @@
 static SemaphoreHandle_t lvgl_mutex = NULL;
 static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(100); // 100ms timeout
 
+// Add flag to force configuration reload
+static volatile bool force_config_reload = false;
+
 static uint8_t connection_quality = 0;
 static float total_trip_km = 0.0f;
 static uint32_t last_update_time = 0;
@@ -28,7 +31,7 @@ static int previous_battery_percentage = -1;
 extern volatile bool entering_sleep_mode;
 
 // Add these at the top with other defines
-#define SPEED_UPDATE_MS       10    // 100Hz for responsive speed
+#define SPEED_UPDATE_MS       20    // 50Hz instead of 100Hz for better stability
 #define TRIP_UPDATE_MS       100    // 10Hz for distance
 #define BATTERY_UPDATE_MS    500    // 2Hz for battery
 #define CONNECTION_UPDATE_MS 5000    // 0.2Hz for connection
@@ -368,21 +371,34 @@ void ui_check_mutex_health(void) {
 }
 
 static void speed_update_task(void *pvParameters) {
-    static vesc_config_t config;
+    vesc_config_t config;
     ESP_ERROR_CHECK(vesc_config_load(&config));
 
     TickType_t last_wake_time = xTaskGetTickCount();
     const TickType_t frequency = pdMS_TO_TICKS(SPEED_UPDATE_MS);
+    uint32_t config_reload_counter = 0;
+    const uint32_t CONFIG_RELOAD_INTERVAL = 50; // Reload config every 50 updates (1 second at 50Hz)
 
     while (1) {
         vTaskDelayUntil(&last_wake_time, frequency);
+
+        // Reload configuration periodically to pick up any changes
+        config_reload_counter++;
+        if (config_reload_counter >= CONFIG_RELOAD_INTERVAL || force_config_reload) {
+            esp_err_t err = vesc_config_load(&config);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to reload configuration: %s", esp_err_to_name(err));
+            }
+            config_reload_counter = 0;
+            force_config_reload = false; // Reset the flag
+        }
 
         if (is_connect) {
             int32_t speed = vesc_config_get_speed(&config);
             if (speed >= 0 && speed <= 100) {  // Adjust max speed as needed
                 ui_update_speed(speed);
             } else {
-                ESP_LOGW(TAG, "Invalid speed value received: %ld", speed);
+                //ESP_LOGW(TAG, "Invalid speed value received: %ld", speed);
             }
         }
     }
@@ -391,8 +407,22 @@ static void speed_update_task(void *pvParameters) {
 static void trip_distance_update_task(void *pvParameters) {
     vesc_config_t config;
     ESP_ERROR_CHECK(vesc_config_load(&config));
+    
+    uint32_t config_reload_counter = 0;
+    const uint32_t CONFIG_RELOAD_INTERVAL = 10; // Reload config every 10 updates (1 second at 10Hz)
 
     while (1) {
+        // Reload configuration periodically to pick up any changes
+        config_reload_counter++;
+        if (config_reload_counter >= CONFIG_RELOAD_INTERVAL || force_config_reload) {
+            esp_err_t err = vesc_config_load(&config);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to reload configuration: %s", esp_err_to_name(err));
+            }
+            config_reload_counter = 0;
+            force_config_reload = false; // Reset the flag
+        }
+        
         int32_t speed = vesc_config_get_speed(&config);
         ui_update_trip_distance(speed);
         vTaskDelay(pdMS_TO_TICKS(TRIP_UPDATE_MS));
@@ -425,14 +455,18 @@ static void connection_update_task(void *pvParameters) {
 }
 
 void ui_start_update_tasks(void) {
-    // Speed updates - High priority (4)
+    // Speed updates - High priority (4) - Increased stack size to 4096
     xTaskCreate(speed_update_task, "speed_update",
-                2048, NULL, 4, NULL);
+                4096, NULL, 4, NULL);
 
-    // Other tasks with lower priorities
-    xTaskCreate(trip_distance_update_task, "trip_update", 2048, NULL, 3, NULL);
-    xTaskCreate(battery_update_task, "battery_update", 2048, NULL, 2, NULL);
-    xTaskCreate(connection_update_task, "conn_update", 2048, NULL, 2, NULL);
+    // Other tasks with lower priorities - Also increased stack sizes
+    xTaskCreate(trip_distance_update_task, "trip_update", 4096, NULL, 3, NULL);
+    xTaskCreate(battery_update_task, "battery_update", 4096, NULL, 2, NULL);
+    xTaskCreate(connection_update_task, "conn_update", 4096, NULL, 2, NULL);
+}
+
+void ui_force_config_reload(void) {
+    force_config_reload = true;
 }
 
 

@@ -12,6 +12,7 @@
 #define NVS_KEY_WHEEL_DIAM "wheel_diam"
 #define NVS_KEY_MOTOR_POLES "motor_poles"
 #define NVS_KEY_INV_THROT "inv_throttle"
+#define NVS_KEY_LEVEL_ASSIST "level_assist"
 
 typedef struct {
     uint8_t motor_pulley;      // Number of teeth on motor pulley
@@ -19,6 +20,7 @@ typedef struct {
     uint8_t wheel_diameter_mm; // Wheel diameter in millimeters
     uint8_t motor_poles;      // Number of motor poles
     bool invert_throttle;     // Whether to invert the throttle direction
+    bool level_assistant;     // Whether to enable level assistant for inclines
 } vesc_config_t;
 
 esp_err_t vesc_config_init(void);

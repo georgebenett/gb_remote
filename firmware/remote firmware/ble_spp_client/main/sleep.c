@@ -9,6 +9,7 @@
 #include "ui_updater.h"
 #include "esp_log_internal.h"
 #include "esp_err.h"
+#include "driver/rtc_io.h"
 
 #define TAG "SLEEP"
 
@@ -34,13 +35,12 @@ static void set_bar_value(void * obj, int32_t v)
         entering_sleep_mode = true;
 
         // Give UI tasks time to see the flag
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(500));
 
-        ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << MAIN_BUTTON_GPIO,
-                                                      ESP_GPIO_WAKEUP_GPIO_LOW));
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        ui_save_trip_distance();
-        esp_deep_sleep_start();
+        gpio_set_level(TFT_GND_PIN, 0);
+        gpio_set_level(TFT_VCC_PIN, 0);
+
+        sleep_enter_deep_sleep();
     }
 }
 
@@ -125,13 +125,8 @@ void sleep_check_inactivity(bool is_ble_connected)
         ESP_LOGI(TAG, "System inactive for %lu ms and no BLE connection. Entering deep sleep.",
                  elapsed_time);
 
-        // Configure wakeup on button press (transition from HIGH to LOW)
-        ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << MAIN_BUTTON_GPIO,
-                                                      ESP_GPIO_WAKEUP_GPIO_LOW));
-
         // Enter deep sleep
-        ui_save_trip_distance();
-        esp_deep_sleep_start();
+        sleep_enter_deep_sleep();
     }
 }
 
@@ -153,13 +148,23 @@ void sleep_enter_deep_sleep(void) {
                 ESP_LOGE(TAG, "Failed to save trip distance on second attempt");
             }
         }
-
+        #if defined(CONFIG_IDF_TARGET_ESP32C3)
         // Configure wakeup
         ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << MAIN_BUTTON_GPIO,
                                                       ESP_GPIO_WAKEUP_GPIO_LOW));
+        #elif defined(CONFIG_IDF_TARGET_ESP32S3)
+            // Make sure digital function is disabled
+        rtc_gpio_deinit(MAIN_BUTTON_GPIO);
+         // Configure as RTC input with pull-up
+        rtc_gpio_set_direction(MAIN_BUTTON_GPIO, RTC_GPIO_MODE_INPUT_ONLY);
+        rtc_gpio_pullup_en(MAIN_BUTTON_GPIO);
+        rtc_gpio_pulldown_dis(MAIN_BUTTON_GPIO);
+        // Set EXT0 wakeup (assuming wake on LOW when button pressed)
+        esp_sleep_enable_ext0_wakeup(MAIN_BUTTON_GPIO, 0);
+        #endif
 
         // Small delay to allow logs to be printed
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(2000));
 
         // Enter deep sleep (we never release the mutex since we're going to sleep)
         esp_deep_sleep_start();
@@ -168,8 +173,22 @@ void sleep_enter_deep_sleep(void) {
 
         // Continue with normal shutdown
         ui_save_trip_distance();
+        #if defined(CONFIG_IDF_TARGET_ESP32C3)
+        // Configure wakeup
         ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << MAIN_BUTTON_GPIO,
                                                       ESP_GPIO_WAKEUP_GPIO_LOW));
+        #elif defined(CONFIG_IDF_TARGET_ESP32S3)
+            // Make sure digital function is disabled
+        rtc_gpio_deinit(MAIN_BUTTON_GPIO);
+         // Configure as RTC input with pull-up
+        rtc_gpio_set_direction(MAIN_BUTTON_GPIO, RTC_GPIO_MODE_INPUT_ONLY);
+        rtc_gpio_pullup_en(MAIN_BUTTON_GPIO);
+        rtc_gpio_pulldown_dis(MAIN_BUTTON_GPIO);
+        // Set EXT0 wakeup (assuming wake on LOW when button pressed)
+        esp_sleep_enable_ext0_wakeup(MAIN_BUTTON_GPIO, 0);
+        #endif
+
+        vTaskDelay(pdMS_TO_TICKS(2000));
         esp_deep_sleep_start();
     }
 }

@@ -13,6 +13,8 @@ idf_component_register(
         "vesc_config.c"
         "ui_updater.c"
         "battery.c"
+        "usb_serial_handler.c"
+        "level_assistant.c"
         ${UI_SOURCES}
     INCLUDE_DIRS
         "."

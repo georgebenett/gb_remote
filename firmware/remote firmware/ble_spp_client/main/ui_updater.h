@@ -42,4 +42,7 @@ esp_err_t ui_init_trip_nvs(void);
 // Add after the other function declarations
 void ui_start_update_tasks(void);
 
+// Add function to force configuration reload
+void ui_force_config_reload(void);
+
 #endif // UI_UPDATER_H

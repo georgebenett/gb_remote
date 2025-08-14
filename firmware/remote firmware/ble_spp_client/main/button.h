@@ -6,7 +6,11 @@
 #include "esp_err.h"
 
 // Button GPIO definitions
-#define MAIN_BUTTON_GPIO GPIO_NUM_4
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+    #define MAIN_BUTTON_GPIO GPIO_NUM_4
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    #define MAIN_BUTTON_GPIO GPIO_NUM_5
+#endif
 
 // Button timing definitions
 #define BUTTON_LONG_PRESS_TIME_MS 500

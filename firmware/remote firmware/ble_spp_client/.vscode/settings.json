@@ -24,6 +24,14 @@
     "button.h": "c",
     "esp_sleep.h": "c",
     "esp_log.h": "c",
-    "esp_log_internal.h": "c"
+    "esp_log_internal.h": "c",
+    "nvs.h": "c",
+    "stdint.h": "c",
+    "queue.h": "c",
+    "task.h": "c",
+    "adc_oneshot.h": "c"
+  },
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32c3"
   }
 }

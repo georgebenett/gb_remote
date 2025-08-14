@@ -48,7 +48,7 @@ void ui_home_screen_screen_init(void)
     lv_obj_set_width(ui_controller_battery_text, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_controller_battery_text, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_controller_battery_text, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_controller_battery_text, "0");
+    lv_label_set_text(ui_controller_battery_text, "--");
     lv_obj_set_style_text_color(ui_controller_battery_text, lv_color_hex(0x232222), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_controller_battery_text, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_controller_battery_text, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -106,7 +106,7 @@ void ui_home_screen_screen_init(void)
     lv_obj_set_width(ui_skate_battery_text, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_skate_battery_text, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_skate_battery_text, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_skate_battery_text, "0");
+    lv_label_set_text(ui_skate_battery_text, "--");
     lv_obj_set_style_text_color(ui_skate_battery_text, lv_color_hex(0x232222), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_skate_battery_text, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_skate_battery_text, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);
