@@ -114,7 +114,7 @@ This project is open source and welcomes contributions! Whether you're fixing bu
 
 ## License
 
-**Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International (CC BY-NC-ND 4.0)**
+**Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**
 
 This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License. To view a copy of this license, visit [http://creativecommons.org/licenses/by-nc-nd/4.0/](http://creativecommons.org/licenses/by-nc-nd/4.0/) or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 
@@ -122,6 +122,7 @@ This work is licensed under the Creative Commons Attribution-NonCommercial-NoDer
 
 ✅ **You are free to:**
 - Share — copy and redistribute the material in any medium or format
+- Adapt — remix, transform, and build upon the material
 - Use for personal, educational, and research purposes
 
 ❌ **You may NOT:**
@@ -131,3 +132,4 @@ This work is licensed under the Creative Commons Attribution-NonCommercial-NoDer
 
 ### Commercial Use:
 For commercial use, licensing, or commercial distribution of this project, please contact the author for licensing terms and fees.
+
