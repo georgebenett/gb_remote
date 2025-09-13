@@ -7,7 +7,7 @@
 #define APP_VERSION_PATCH 0
 
 // Version string
-#define APP_VERSION_STRING "1.0.0"
+#define APP_VERSION_STRING "1.0.1"
 
 // Build information
 #define BUILD_DATE __DATE__

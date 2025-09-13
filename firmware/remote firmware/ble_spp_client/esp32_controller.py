@@ -25,7 +25,7 @@ class HandControllerConfig:
     def __init__(self, root):
         self.root = root
         self.root.title("ESP32 Hand Controller Configuration")
-        self.root.geometry("1100x800")
+        self.root.geometry("1500x1200")
         
         # Serial connection
         self.serial_port = None
