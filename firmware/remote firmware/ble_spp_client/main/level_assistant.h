@@ -6,20 +6,20 @@
 #include "esp_err.h"
 
 // Level assistant configuration
-#define LEVEL_ASSIST_NEUTRAL_THRESHOLD 5    // ADC units around neutral position (127) to consider "neutral"
+#define LEVEL_ASSIST_NEUTRAL_THRESHOLD 10    // ADC units around neutral position (127) to consider "neutral"
 #define LEVEL_ASSIST_ERPM_THRESHOLD 5       // ERPM threshold for level assist activation
-#define LEVEL_ASSIST_MAX_THROTTLE 200       // Maximum throttle value level assistant can apply (127-255)
+#define LEVEL_ASSIST_MAX_THROTTLE 160       // Maximum throttle value level assistant can apply (127-255)
 #define LEVEL_ASSIST_NEUTRAL_CENTER 127     // Center neutral position
-#define LEVEL_ASSIST_ADC_CHANGE_THRESHOLD 3 // ADC change threshold to detect manual input
+#define LEVEL_ASSIST_ADC_CHANGE_THRESHOLD 10 // ADC change threshold to detect manual input
 #define LEVEL_ASSIST_MANUAL_TIMEOUT_MS 500  // Time to consider throttle in manual mode after movement
 #define SETPOINT_RPM 0
 // Remove the slow update rate - run every time for smooth control
 // #define LEVEL_ASSIST_UPDATE_RATE_MS 50      // How often to update assist (smooth continuous control)
 
 // PID Controller parameters - Reduced gains for stability
-#define LEVEL_ASSIST_PID_KP 0.1f            // Proportional gain
-#define LEVEL_ASSIST_PID_KI 0.05f            // Integral gain
-#define LEVEL_ASSIST_PID_KD 0.01f           // Derivative gain
+#define LEVEL_ASSIST_PID_KP 0.05f            // Proportional gain
+#define LEVEL_ASSIST_PID_KI 0.005f            // Integral gain
+#define LEVEL_ASSIST_PID_KD 0.001f           // Derivative gain
 #define LEVEL_ASSIST_PID_SETPOINT 0.0f      // Target ERPM (0 = no rolling)
 #define LEVEL_ASSIST_PID_OUTPUT_MAX 48.0f   // Max PID output (throttle units from neutral)
 

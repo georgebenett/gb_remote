@@ -768,16 +768,7 @@ static void adc_send_task(void *pvParameters) {
             if (err == ESP_OK) {
                 int32_t current_erpm = get_latest_erpm();
                 adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
-                
-                // Log throttle processing every 20 cycles to avoid spam
-                static uint32_t throttle_log_counter = 0;
-                if (++throttle_log_counter >= 20) {
-                    throttle_log_counter = 0;
-                    /*ESP_LOGI("THROTTLE", "ADC: %lu->%lu | ERPM: %ld | Level Assist: %s | Invert: %s", 
-                             original_adc, adc_value, current_erpm,
-                             config.level_assistant ? "ON" : "OFF",
-                             config.invert_throttle ? "ON" : "OFF");*/
-                }
+
                 
                 // Apply throttle inversion after level assistant processing
                 if (config.invert_throttle) {
