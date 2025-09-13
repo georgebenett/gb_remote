@@ -31,7 +31,7 @@
 #define NVS_KEY_MAX "max_val"
 #define NVS_KEY_CALIBRATED "cal_done"
 
-#define ADC_THROTTLE_OFFSET 18
+#define ADC_THROTTLE_OFFSET 0
 
 esp_err_t adc_init(void);
 int32_t adc_read_value(void);

@@ -12,7 +12,6 @@
 #define LEVEL_ASSIST_NEUTRAL_CENTER 127     // Center neutral position
 #define LEVEL_ASSIST_ADC_CHANGE_THRESHOLD 3 // ADC change threshold to detect manual input
 #define LEVEL_ASSIST_MANUAL_TIMEOUT_MS 500  // Time to consider throttle in manual mode after movement
-#define ADAPT_INTERVAL_MS 200
 #define SETPOINT_RPM 0
 // Remove the slow update rate - run every time for smooth control
 // #define LEVEL_ASSIST_UPDATE_RATE_MS 50      // How often to update assist (smooth continuous control)
@@ -27,12 +26,6 @@
 // Add deadband for ERPM to prevent jitter
 #define LEVEL_ASSIST_ERPM_DEADBAND 3        // Don't react to ERPM changes smaller than this
 
-// Add adaptive PID configuration
-#define LEVEL_ASSIST_ADAPTIVE_ENABLED 1         // Enable adaptive PID
-#define LEVEL_ASSIST_LEARNING_RATE 0.01f        // How fast to adapt (0.001-0.1)
-#define LEVEL_ASSIST_PERFORMANCE_WINDOW 50      // Number of samples to evaluate performance
-#define LEVEL_ASSIST_MAX_ERROR_THRESHOLD 10.0f  // Max acceptable error for good performance
-#define LEVEL_ASSIST_OSCILLATION_THRESHOLD 3    // Number of sign changes to detect oscillation
 
 typedef struct {
     bool enabled;                   // Is level assistant enabled
@@ -50,16 +43,6 @@ typedef struct {
     float pid_output;              // Current PID output
     uint32_t pid_last_time_ms;     // Last time PID was calculated
     
-    // Adaptive PID state
-    float error_history[LEVEL_ASSIST_PERFORMANCE_WINDOW];  // Recent error history
-    float output_history[LEVEL_ASSIST_PERFORMANCE_WINDOW]; // Recent output history
-    int history_index;             // Current position in circular buffer
-    int samples_collected;         // Number of samples collected so far
-    float avg_error;               // Average absolute error over window
-    float error_variance;          // Error variance (measures stability)
-    int oscillation_count;         // Count of output sign changes (detects oscillation)
-    float last_output_sign;        // Sign of last output for oscillation detection
-    uint32_t last_adaptation_ms;   // Last time parameters were adapted
 } level_assistant_state_t;
 
 /**
@@ -103,7 +86,7 @@ float level_assistant_get_pid_kd(void);
 float level_assistant_get_pid_output_max(void);
 
 /**
- * Save/Load learned PID parameters to/from NVS
+ * Save/Load PID parameters to/from NVS
  */
 esp_err_t level_assistant_save_pid_to_nvs(void);
 esp_err_t level_assistant_load_pid_from_nvs(void);
