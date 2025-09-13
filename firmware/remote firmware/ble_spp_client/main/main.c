@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "usb_serial_handler.h"
 #include "level_assistant.h"
+#include "version.h"
 
 #define TAG "MAIN"
 
@@ -78,6 +79,11 @@ static void splash_timer_cb(lv_timer_t * timer)
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting Application");
+
+    ESP_LOGI(TAG, "Firmware version: %s", APP_VERSION_STRING);
+    ESP_LOGI(TAG, "Build date: %s %s", BUILD_DATE, BUILD_TIME);
+    ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
+    ESP_LOGI(TAG, "IDF version: %s", esp_get_idf_version());
 
     // Initialize sleep module
     sleep_init();

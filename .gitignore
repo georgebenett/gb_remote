@@ -1,0 +1,53 @@
+# Build directories
+firmware/build
+debug/
+release/
+out/
+build/
+
+# IDE specific files
+firmware/.vscode
+firmware/.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*.code-workspace
+ble_spp_client.code-workspace
+
+# Object files and binaries
+*.o
+*.ko
+*.obj
+*.elf
+*.hex
+
+# Dependencies
+*.d
+firmware/dependencies.lock
+dependencies.lock
+
+# Libraries
+*.lib
+*.a
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Python virtual environment (if using any Python tools)
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+

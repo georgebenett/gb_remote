@@ -51,6 +51,7 @@ typedef enum {
     CMD_GET_PID_PARAMS,
     CMD_SAVE_PID_NVS,
     CMD_RESET_PID_DEFAULTS,
+    CMD_GET_FIRMWARE_VERSION,
     CMD_HELP,
     CMD_UNKNOWN
 } usb_command_t;

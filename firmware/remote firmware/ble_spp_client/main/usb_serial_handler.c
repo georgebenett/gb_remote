@@ -12,6 +12,7 @@
 #include "ui_updater.h"
 #include "adc.h"
 #include "level_assistant.h"
+#include "version.h"
 
 #define TAG "USB_SERIAL"
 #define MAX_COMMAND_LENGTH 256
@@ -39,6 +40,7 @@ static const char* CMD_STRINGS[] = {
     "get_pid_params",
     "save_pid_nvs",
     "reset_pid_defaults",
+    "get_firmware_version",
     "help"
 };
 
@@ -66,6 +68,7 @@ static void handle_set_pid_output_max(const char* command);
 static void handle_get_pid_params(const char* command);
 static void handle_save_pid_nvs(const char* command);
 static void handle_reset_pid_defaults(const char* command);
+static void handle_get_firmware_version(const char* command);
 
 void usb_serial_init(void)
 {
@@ -321,6 +324,9 @@ void usb_serial_process_command(const char* command)
         case CMD_RESET_PID_DEFAULTS:
             handle_reset_pid_defaults(command);
             break;
+        case CMD_GET_FIRMWARE_VERSION:
+            handle_get_firmware_version(command);
+            break;
         case CMD_UNKNOWN:
         default:
             printf("Unknown command: %s\n", command);
@@ -382,6 +388,7 @@ static void print_help(void)
     printf("  get_pid_params                - Show current PID parameters\n");
     printf("  save_pid_nvs                  - Save current PID params to NVS\n");
     printf("  reset_pid_defaults            - Reset PID to defaults & clear NVS\n");
+    printf("  get_firmware_version          - Show current firmware version\n");
     printf("\n");
 }
 
@@ -555,6 +562,7 @@ static void handle_get_config(const char* command)
     }
     
     printf("\n=== Current Configuration ===\n");
+    printf("Firmware Version: %s\n", APP_VERSION_STRING);
     printf("Throttle Inverted: %s\n", 
            hand_controller_config.invert_throttle ? "Yes" : "No");
     printf("Level Assistant: %s\n", 
@@ -726,4 +734,12 @@ static void handle_reset_pid_defaults(const char* command)
     } else {
         printf("Failed to reset PID parameters: %s\n", esp_err_to_name(err));
     }
+}
+
+static void handle_get_firmware_version(const char* command)
+{
+    printf("Firmware version: %s\n", APP_VERSION_STRING);
+    printf("Build date: %s %s\n", BUILD_DATE, BUILD_TIME);
+    printf("Target: %s\n", CONFIG_IDF_TARGET);
+    printf("IDF version: %s\n", esp_get_idf_version());
 } 

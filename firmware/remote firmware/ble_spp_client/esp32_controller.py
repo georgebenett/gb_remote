@@ -5,7 +5,7 @@ A GUI application to configure hand controller settings via USB serial
 """
 
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 import serial
 import threading
 import time
@@ -13,6 +13,13 @@ import queue
 import sys
 from datetime import datetime
 import json
+import requests
+import re
+from packaging import version
+import subprocess
+import os
+import tempfile
+import shutil
 
 class HandControllerConfig:
     def __init__(self, root):
@@ -34,6 +41,7 @@ class HandControllerConfig:
             'wheel_diameter_mm': 115,
             'motor_poles': 14,
             'ble_connected': False,
+            'firmware_version': 'Unknown',
             # PID parameters
             'pid_kp': 0.8,
             'pid_ki': 0.5,
@@ -58,11 +66,15 @@ class HandControllerConfig:
             "set_pid_kd",
             "set_pid_output_max",
             "get_pid_params",
+            "get_firmware_version",
             "help"
         ]
         
         self.setup_ui()
         self.start_response_thread()
+        
+        # Handle window closing gracefully
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
     def setup_ui(self):
         # Main frame
@@ -224,15 +236,52 @@ class HandControllerConfig:
         ttk.Button(pid_actions_frame, text="Get PID Parameters", command=self.get_pid_params).grid(row=0, column=0, padx=5)
         ttk.Button(pid_actions_frame, text="Load PID Defaults", command=self.load_pid_defaults).grid(row=0, column=1, padx=5)
         
+        # Firmware Flashing section
+        flash_frame = ttk.LabelFrame(config_frame, text="Firmware Flashing", padding="5")
+        flash_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        flash_frame.columnconfigure(0, weight=1)
+        flash_frame.columnconfigure(1, weight=1)
+        flash_frame.columnconfigure(2, weight=1)
+        
+        # ESP-IDF Path configuration
+        idf_path_frame = ttk.Frame(flash_frame)
+        idf_path_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        idf_path_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(idf_path_frame, text="ESP-IDF Path:", width=20, anchor='w').grid(row=0, column=0, padx=(0, 10), sticky='w')
+        self.idf_path_var = tk.StringVar(value=self.detect_esp_idf_path())
+        self.idf_path_entry = ttk.Entry(idf_path_frame, textvariable=self.idf_path_var, width=40)
+        self.idf_path_entry.grid(row=0, column=1, padx=(0, 10), sticky='w')
+        ttk.Button(idf_path_frame, text="Browse", command=self.browse_idf_path).grid(row=0, column=2, sticky='e')
+        
+        # Flashing actions
+        flash_actions_frame = ttk.Frame(flash_frame)
+        flash_actions_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        ttk.Button(flash_actions_frame, text="Download Latest Firmware", command=self.download_latest_firmware).grid(row=0, column=0, padx=5)
+        ttk.Button(flash_actions_frame, text="Flash Firmware", command=self.flash_firmware).grid(row=0, column=1, padx=5)
+        ttk.Button(flash_actions_frame, text="Select Firmware File", command=self.select_firmware_file).grid(row=0, column=2, padx=5)
+        
+        # Firmware file path
+        firmware_path_frame = ttk.Frame(flash_frame)
+        firmware_path_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        firmware_path_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(firmware_path_frame, text="Firmware File:", width=20, anchor='w').grid(row=0, column=0, padx=(0, 10), sticky='w')
+        self.firmware_path_var = tk.StringVar()
+        self.firmware_path_entry = ttk.Entry(firmware_path_frame, textvariable=self.firmware_path_var, width=40)
+        self.firmware_path_entry.grid(row=0, column=1, padx=(0, 10), sticky='w')
+        ttk.Button(firmware_path_frame, text="Browse", command=self.browse_firmware_file).grid(row=0, column=2, sticky='e')
+        
         # Action buttons
         actions_frame = ttk.Frame(config_frame)
-        actions_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        actions_frame.grid(row=9, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
         
         ttk.Button(actions_frame, text="Reset Odometer", command=self.reset_odometer).grid(row=0, column=0, padx=5)
         ttk.Button(actions_frame, text="Get Config", command=self.get_config).grid(row=0, column=1, padx=5)
         ttk.Button(actions_frame, text="Calibrate Throttle", command=self.calibrate_throttle).grid(row=0, column=2, padx=5)
         ttk.Button(actions_frame, text="Get Calibration", command=self.get_calibration).grid(row=0, column=3, padx=5)
-        ttk.Button(actions_frame, text="Help", command=self.show_help).grid(row=0, column=4, padx=5)
+        ttk.Button(actions_frame, text="Check Firmware Update", command=self.check_firmware_update).grid(row=0, column=4, padx=5)
+        ttk.Button(actions_frame, text="Help", command=self.show_help).grid(row=0, column=5, padx=5)
         
         # Response frame
         resp_frame = ttk.LabelFrame(main_frame, text="Response", padding="5")
@@ -261,6 +310,7 @@ class HandControllerConfig:
         self.config_labels = {}
         
         config_items = [
+            ("Firmware Version", "firmware_version"),
             ("Throttle Inverted", "invert_throttle"),
             ("Level Assistant", "level_assistant"),
             ("Motor Pulley Teeth", "motor_pulley"),
@@ -285,6 +335,9 @@ class HandControllerConfig:
     def update_config_display(self):
         """Update the configuration display"""
         if hasattr(self, 'config_labels'):
+            self.config_labels['firmware_version'].config(
+                text=str(self.config['firmware_version'])
+            )
             self.config_labels['invert_throttle'].config(
                 text="Yes" if self.config['invert_throttle'] else "No"
             )
@@ -360,8 +413,12 @@ class HandControllerConfig:
     def disconnect(self):
         """Disconnect from ESP32"""
         if self.serial_port:
-            self.serial_port.close()
-            self.serial_port = None
+            try:
+                self.serial_port.close()
+            except Exception as e:
+                print(f"Warning: Error closing serial port: {e}")
+            finally:
+                self.serial_port = None
         self.is_connected = False
         self.connect_btn.config(text="Connect")
         self.status_label.config(text="Disconnected", foreground="red")
@@ -376,8 +433,16 @@ class HandControllerConfig:
                         line = self.serial_port.readline().decode('utf-8', errors='ignore').strip()
                         if line:
                             self.response_queue.put(line)
+                except (OSError, ValueError) as e:
+                    # Handle "Bad file descriptor" and other serial errors gracefully
+                    if "Bad file descriptor" in str(e) or "bad file descriptor" in str(e).lower():
+                        # Port was closed, exit gracefully
+                        break
+                    else:
+                        print(f"Serial read error: {e}")
+                        break
                 except Exception as e:
-                    print(f"Serial read error: {e}")
+                    print(f"Unexpected serial read error: {e}")
                     break
                 time.sleep(0.01)
         
@@ -634,6 +699,439 @@ class HandControllerConfig:
         self.response_text.insert(tk.END, "Loaded default PID values into GUI\n")
         self.response_text.see(tk.END)
     
+    def check_firmware_update(self):
+        """Check for firmware updates"""
+        if not self.is_connected:
+            messagebox.showwarning("Not Connected", "Please connect to ESP32 first")
+            return
+        
+        # First get the current firmware version from the device
+        self.response_text.insert(tk.END, "Checking firmware version...\n")
+        self.response_text.see(tk.END)
+        self.send_serial_command("get_firmware_version")
+        
+        # Start a thread to check for updates after getting the version
+        def check_updates():
+            time.sleep(2)  # Wait for version response
+            self.check_online_updates()
+        
+        thread = threading.Thread(target=check_updates, daemon=True)
+        thread.start()
+    
+    def check_online_updates(self):
+        """Check for updates online"""
+        try:
+            self.response_text.insert(tk.END, "Checking for updates online...\n")
+            self.response_text.see(tk.END)
+            
+            # GitHub API endpoint for releases
+            repo_url = "https://api.github.com/repos/georgebenett/gb_remote/releases/latest"
+            
+            # Get the latest release from GitHub API
+            try:
+                response = requests.get(repo_url, timeout=10)
+                response.raise_for_status()
+                release_data = response.json()
+                latest_version = release_data['tag_name'].lstrip('v')  # Remove 'v' prefix if present
+                self.response_text.insert(tk.END, f"[INFO] Latest release found: {latest_version}\n")
+                self.response_text.see(tk.END)
+            except requests.exceptions.RequestException as e:
+                self.response_text.insert(tk.END, f"[ERROR] Failed to fetch latest release: {str(e)}\n")
+                self.response_text.see(tk.END)
+                return
+            except KeyError as e:
+                self.response_text.insert(tk.END, f"[ERROR] Invalid release data format: {str(e)}\n")
+                self.response_text.see(tk.END)
+                return
+            
+            current_version = self.config.get('firmware_version', 'Unknown')
+            
+            if current_version == 'Unknown':
+                self.response_text.insert(tk.END, f"[INFO] Current version: {current_version}\n")
+                self.response_text.insert(tk.END, f"[INFO] Could not determine current firmware version\n")
+                self.response_text.see(tk.END)
+                return
+            
+            try:
+                # Compare versions using packaging library
+                if version.parse(current_version) < version.parse(latest_version):
+                    self.response_text.insert(tk.END, f"[UPDATE AVAILABLE] Current: {current_version}, Latest: {latest_version}\n")
+                    self.response_text.see(tk.END)
+                    
+                    # Show update dialog
+                    result = messagebox.askyesno(
+                        "Firmware Update Available",
+                        f"New firmware version {latest_version} is available!\n\n"
+                        f"Current version: {current_version}\n"
+                        f"Latest version: {latest_version}\n\n"
+                        "Would you like to download the update?",
+                        icon='question'
+                    )
+                    
+                    if result:
+                        self.download_firmware_update(latest_version)
+                else:
+                    self.response_text.insert(tk.END, f"[UP TO DATE] Current version {current_version} is the latest\n")
+                    self.response_text.see(tk.END)
+                    
+            except Exception as e:
+                self.response_text.insert(tk.END, f"[ERROR] Version comparison failed: {str(e)}\n")
+                self.response_text.see(tk.END)
+                
+        except Exception as e:
+            self.response_text.insert(tk.END, f"[ERROR] Update check failed: {str(e)}\n")
+            self.response_text.see(tk.END)
+    
+    def download_firmware_update(self, version):
+        """Download firmware update"""
+        try:
+            self.response_text.insert(tk.END, f"[INFO] Preparing to download firmware version {version}...\n")
+            self.response_text.see(tk.END)
+            
+            # Get release information
+            repo_url = "https://api.github.com/repos/georgebenett/gb_remote/releases/latest"
+            response = requests.get(repo_url, timeout=10)
+            response.raise_for_status()
+            release_data = response.json()
+            
+            # Show release information
+            release_name = release_data.get('name', f'Release {version}')
+            release_notes = release_data.get('body', 'No release notes available')
+            assets = release_data.get('assets', [])
+            
+            # Find firmware binary assets
+            firmware_assets = [asset for asset in assets if asset['name'].endswith(('.bin', '.elf', '.zip'))]
+            
+            self.response_text.insert(tk.END, f"[INFO] Release: {release_name}\n")
+            self.response_text.insert(tk.END, f"[INFO] Available assets: {len(firmware_assets)} files\n")
+            for asset in firmware_assets:
+                self.response_text.insert(tk.END, f"  - {asset['name']} ({asset['size']} bytes)\n")
+            self.response_text.see(tk.END)
+            
+            # Show download dialog with release information
+            messagebox.showinfo(
+                "Firmware Update Available",
+                f"Release: {release_name}\n"
+                f"Version: {version}\n\n"
+                f"Available files:\n" + 
+                "\n".join([f"• {asset['name']}" for asset in firmware_assets[:5]]) + 
+                (f"\n• ... and {len(firmware_assets)-5} more files" if len(firmware_assets) > 5 else "") +
+                f"\n\nTo download and install:\n"
+                f"1. Visit: https://github.com/georgebenett/gb_remote/releases/tag/{version}\n"
+                f"2. Download the appropriate firmware file for your ESP32\n"
+                f"3. Use ESP-IDF or your preferred flashing tool to install\n\n"
+                f"Release Notes:\n{release_notes[:200]}{'...' if len(release_notes) > 200 else ''}"
+            )
+            
+            self.response_text.insert(tk.END, f"[INFO] Update information displayed for version {version}\n")
+            self.response_text.see(tk.END)
+            
+        except Exception as e:
+            self.response_text.insert(tk.END, f"[ERROR] Failed to get release information: {str(e)}\n")
+            self.response_text.see(tk.END)
+    
+    def detect_esp_idf_path(self):
+        """Detect ESP-IDF installation path or esptool"""
+        # First try to find esptool in PATH
+        try:
+            result = subprocess.run(['esptool', '--help'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                return "esptool"  # esptool is available in PATH
+        except:
+            pass
+        
+        # Try to find esptool via pip
+        try:
+            result = subprocess.run([sys.executable, '-m', 'esptool', '--help'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                return "pip_esptool"  # esptool available via pip
+        except:
+            pass
+        
+        # Common ESP-IDF installation paths
+        possible_paths = [
+            os.path.expanduser("~/esp/esp-idf"),
+            os.path.expanduser("~/.espressif/esp-idf"),
+            "/opt/esp/esp-idf",
+            "/usr/local/esp/esp-idf",
+            "C:\\Espressif\\frameworks\\esp-idf-v5.1.2",
+            "C:\\Espressif\\frameworks\\esp-idf-v5.2",
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path) and os.path.exists(os.path.join(path, "export.sh")):
+                return path
+        
+        # Try to find from environment
+        idf_path = os.environ.get('IDF_PATH')
+        if idf_path and os.path.exists(idf_path):
+            return idf_path
+            
+        return ""
+    
+    def browse_idf_path(self):
+        """Browse for ESP-IDF installation path or esptool"""
+        path = filedialog.askdirectory(title="Select ESP-IDF Installation Directory")
+        if path:
+            # Check if it's a valid ESP-IDF installation
+            if os.path.exists(os.path.join(path, "export.sh")):
+                self.idf_path_var.set(path)
+                self.response_text.insert(tk.END, f"[INFO] ESP-IDF path set to: {path}\n")
+                self.response_text.see(tk.END)
+            else:
+                messagebox.showerror("Invalid ESP-IDF Path", 
+                                   "Selected directory does not appear to be a valid ESP-IDF installation.\n"
+                                   "Please select a directory containing export.sh or install esptool via pip")
+    
+    def browse_firmware_file(self):
+        """Browse for firmware file"""
+        file_path = filedialog.askopenfilename(
+            title="Select Firmware File",
+            filetypes=[("Binary files", "*.bin"), ("All files", "*.*")]
+        )
+        if file_path:
+            self.firmware_path_var.set(file_path)
+            self.response_text.insert(tk.END, f"[INFO] Firmware file selected: {os.path.basename(file_path)}\n")
+            self.response_text.see(tk.END)
+    
+    def select_firmware_file(self):
+        """Select firmware file using file dialog"""
+        self.browse_firmware_file()
+    
+    def download_latest_firmware(self):
+        """Download the latest firmware from GitHub releases"""
+        try:
+            self.response_text.insert(tk.END, "[INFO] Downloading latest firmware...\n")
+            self.response_text.see(tk.END)
+            
+            # Get latest release information
+            repo_url = "https://api.github.com/repos/georgebenett/gb_remote/releases/latest"
+            response = requests.get(repo_url, timeout=10)
+            response.raise_for_status()
+            release_data = response.json()
+            
+            # Find firmware binary
+            assets = release_data.get('assets', [])
+            firmware_assets = [asset for asset in assets if asset['name'].endswith('.bin')]
+            
+            if not firmware_assets:
+                self.response_text.insert(tk.END, "[ERROR] No firmware binary found in latest release\n")
+                self.response_text.see(tk.END)
+                return
+            
+            # Use the first firmware binary found
+            firmware_asset = firmware_assets[0]
+            download_url = firmware_asset['browser_download_url']
+            filename = firmware_asset['name']
+            
+            self.response_text.insert(tk.END, f"[INFO] Downloading {filename}...\n")
+            self.response_text.see(tk.END)
+            
+            # Download the firmware
+            response = requests.get(download_url, timeout=30)
+            response.raise_for_status()
+            
+            # Save to temporary directory
+            temp_dir = tempfile.mkdtemp(prefix="esp32_firmware_")
+            firmware_path = os.path.join(temp_dir, filename)
+            
+            with open(firmware_path, 'wb') as f:
+                f.write(response.content)
+            
+            self.firmware_path_var.set(firmware_path)
+            self.response_text.insert(tk.END, f"[SUCCESS] Firmware downloaded to: {firmware_path}\n")
+            self.response_text.see(tk.END)
+            
+        except Exception as e:
+            self.response_text.insert(tk.END, f"[ERROR] Failed to download firmware: {str(e)}\n")
+            self.response_text.see(tk.END)
+    
+    def flash_firmware(self):
+        """Flash firmware to ESP32"""
+        firmware_path = self.firmware_path_var.get()
+        idf_path = self.idf_path_var.get()
+        
+        if not firmware_path or not os.path.exists(firmware_path):
+            messagebox.showerror("Invalid Firmware", "Please select a valid firmware file first")
+            return
+        
+        if not idf_path:
+            messagebox.showerror("No ESP-IDF/esptool", "Please set ESP-IDF path or install esptool via pip")
+            return
+        
+        # Check if it's a valid ESP-IDF installation or esptool
+        if idf_path not in ["esptool", "pip_esptool"] and not os.path.exists(os.path.join(idf_path, "export.sh")):
+            messagebox.showerror("Invalid ESP-IDF Path", "Please set a valid ESP-IDF installation path or install esptool via pip")
+            return
+        
+        # Get the serial port
+        port = self.port_var.get()
+        if not port:
+            messagebox.showerror("No Port Selected", "Please select a serial port first")
+            return
+        
+        # Confirm flashing
+        result = messagebox.askyesno(
+            "Confirm Flashing",
+            f"Are you sure you want to flash firmware to ESP32?\n\n"
+            f"Port: {port}\n"
+            f"Firmware: {os.path.basename(firmware_path)}\n\n"
+            f"WARNING: This will overwrite the current firmware!"
+        )
+        
+        if not result:
+            return
+        
+        # Start flashing in a separate thread
+        def flash_thread():
+            self.flash_firmware_worker(port, firmware_path, idf_path)
+        
+        thread = threading.Thread(target=flash_thread, daemon=True)
+        thread.start()
+    
+    def flash_firmware_worker(self, port, firmware_path, idf_path):
+        """Worker function for flashing firmware"""
+        try:
+            self.response_text.insert(tk.END, f"[INFO] Starting firmware flash...\n")
+            self.response_text.insert(tk.END, f"[INFO] Port: {port}\n")
+            self.response_text.insert(tk.END, f"[INFO] Firmware: {os.path.basename(firmware_path)}\n")
+            self.response_text.see(tk.END)
+            
+            # Disconnect from serial port if connected
+            if self.is_connected:
+                self.response_text.insert(tk.END, f"[INFO] Disconnecting from serial port for flashing...\n")
+                self.response_text.see(tk.END)
+                self.disconnect()
+                time.sleep(2)  # Wait longer for port to be fully released
+            
+            # Set up environment
+            env = os.environ.copy()
+            
+            # Flash offset for ESP32 firmware binaries
+            # 0x10000 (64KB) is the standard offset for ESP32 application firmware
+            flash_offset = "0x10000"
+            
+            # Determine esptool command based on detection method
+            if idf_path == "esptool":
+                # esptool is in PATH
+                cmd = [
+                    "esptool",
+                    "--chip", "esp32c3",  # Adjust based on your target
+                    "--port", port,
+                    "--baud", "921600",
+                    "--before", "default_reset",
+                    "--after", "hard_reset",
+                    "write_flash",
+                    flash_offset, firmware_path
+                ]
+            elif idf_path == "pip_esptool":
+                # esptool installed via pip
+                cmd = [
+                    sys.executable, "-m", "esptool",
+                    "--chip", "esp32c3",  # Adjust based on your target
+                    "--port", port,
+                    "--baud", "921600",
+                    "--before", "default_reset",
+                    "--after", "hard_reset",
+                    "write_flash",
+                    flash_offset, firmware_path
+                ]
+            else:
+                # ESP-IDF installation
+                env['IDF_PATH'] = idf_path
+                
+                # Find esptool.py
+                esptool_path = os.path.join(idf_path, "components", "esptool_py", "esptool.py")
+                if not os.path.exists(esptool_path):
+                    # Try alternative location
+                    esptool_path = os.path.join(idf_path, "tools", "esptool_py", "esptool.py")
+                
+                if not os.path.exists(esptool_path):
+                    self.response_text.insert(tk.END, f"[ERROR] esptool.py not found in ESP-IDF installation\n")
+                    self.response_text.see(tk.END)
+                    return
+                
+                cmd = [
+                    sys.executable, esptool_path,
+                    "--chip", "esp32c3",  # Adjust based on your target
+                    "--port", port,
+                    "--baud", "921600",
+                    "--before", "default_reset",
+                    "--after", "hard_reset",
+                    "write_flash",
+                    flash_offset, firmware_path
+                ]
+            
+            self.response_text.insert(tk.END, f"[INFO] Flash offset: {flash_offset} (64KB)\n")
+            self.response_text.insert(tk.END, f"[INFO] Running: {' '.join(cmd)}\n")
+            self.response_text.see(tk.END)
+            
+            # Run esptool
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                env=env
+            )
+            
+            # Stream output
+            for line in iter(process.stdout.readline, ''):
+                self.response_text.insert(tk.END, f"[FLASH] {line.strip()}\n")
+                self.response_text.see(tk.END)
+                self.root.update()  # Update GUI
+            
+            process.wait()
+            
+            if process.returncode == 0:
+                self.response_text.insert(tk.END, f"[SUCCESS] Firmware flashed successfully!\n")
+                self.response_text.insert(tk.END, f"[INFO] ESP32 is resetting...\n")
+                self.response_text.see(tk.END)
+                
+                # Give the ESP32 time to reset
+                for i in range(5, 0, -1):
+                    self.response_text.insert(tk.END, f"[INFO] Waiting for ESP32 reset... {i} seconds\n")
+                    self.response_text.see(tk.END)
+                    self.root.update()
+                    time.sleep(1)
+                
+                self.response_text.insert(tk.END, f"[INFO] Ready to reconnect - click 'Connect' when ready\n")
+                self.response_text.see(tk.END)
+                
+                # Show success dialog with reconnection instructions
+                messagebox.showinfo(
+                    "Flash Complete", 
+                    "Firmware flashed successfully!\n\n"
+                    "The ESP32 is now resetting. Please:\n"
+                    "1. Wait 5-10 seconds for the device to restart\n"
+                    "2. Click 'Connect' to reconnect to the ESP32\n"
+                    "3. The new firmware should now be running"
+                )
+            else:
+                self.response_text.insert(tk.END, f"[ERROR] Flashing failed with return code {process.returncode}\n")
+                self.response_text.see(tk.END)
+                messagebox.showerror("Flash Failed", "Firmware flashing failed. Check the output for details.")
+                
+        except Exception as e:
+            self.response_text.insert(tk.END, f"[ERROR] Flashing error: {str(e)}\n")
+            self.response_text.see(tk.END)
+            messagebox.showerror("Flash Error", f"An error occurred during flashing:\n{str(e)}")
+    
+    def on_closing(self):
+        """Handle window closing gracefully"""
+        try:
+            # Disconnect from serial port if connected
+            if self.is_connected:
+                self.disconnect()
+            # Close the window
+            self.root.destroy()
+        except Exception as e:
+            print(f"Error during window close: {e}")
+            # Force close even if there are errors
+            self.root.destroy()
+    
     def send_serial_command(self, command):
         """Send command via serial"""
         try:
@@ -829,13 +1327,22 @@ class HandControllerConfig:
                 except:
                     pass
             
+            # Parse firmware version
+            if "Firmware version:" in response or "Firmware Version:" in response:
+                try:
+                    version_text = response.split(":")[1].strip()
+                    self.config['firmware_version'] = version_text
+                    self.update_config_display()
+                except:
+                    pass
+            
             # Parse configuration display - this handles the "get_config" response
             if "Current Configuration" in response or "Configuration:" in response:
                 self.parse_config_display(response)
             # Also parse individual configuration lines
             elif any(keyword in response for keyword in [
                 "Throttle Inverted:", "Motor Pulley Teeth:", "Wheel Pulley Teeth:", 
-                "Wheel Diameter:", "Motor Poles:", "BLE Connected:"
+                "Wheel Diameter:", "Motor Poles:", "BLE Connected:", "Firmware Version:"
             ]):
                 self.parse_config_display(response)
                 
@@ -854,7 +1361,9 @@ class HandControllerConfig:
                     value = value.strip()
                     
                     # Handle different possible key names
-                    if key in ["Throttle Inverted", "Throttle inversion"]:
+                    if key in ["Firmware Version", "Firmware version"]:
+                        self.config['firmware_version'] = value
+                    elif key in ["Throttle Inverted", "Throttle inversion"]:
                         self.config['invert_throttle'] = (value.lower() in ["yes", "enabled", "true"])
                         self.throttle_var.set(self.config['invert_throttle'])
                     elif key in ["Level Assistant", "Level assistant"]:
