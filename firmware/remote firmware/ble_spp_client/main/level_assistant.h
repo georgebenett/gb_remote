@@ -17,9 +17,9 @@
 // #define LEVEL_ASSIST_UPDATE_RATE_MS 50      // How often to update assist (smooth continuous control)
 
 // PID Controller parameters - Reduced gains for stability
-#define LEVEL_ASSIST_PID_KP 0.3f            // Proportional gain (reduced from 0.8f)
-#define LEVEL_ASSIST_PID_KI 0.1f            // Integral gain (reduced from 0.5f)
-#define LEVEL_ASSIST_PID_KD 0.02f           // Derivative gain (reduced from 0.05f)
+#define LEVEL_ASSIST_PID_KP 0.1f            // Proportional gain
+#define LEVEL_ASSIST_PID_KI 0.05f            // Integral gain
+#define LEVEL_ASSIST_PID_KD 0.01f           // Derivative gain
 #define LEVEL_ASSIST_PID_SETPOINT 0.0f      // Target ERPM (0 = no rolling)
 #define LEVEL_ASSIST_PID_OUTPUT_MAX 48.0f   // Max PID output (throttle units from neutral)
 
