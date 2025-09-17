@@ -41,6 +41,7 @@ static const char* CMD_STRINGS[] = {
     "save_pid_nvs",
     "reset_pid_defaults",
     "get_firmware_version",
+    "toggle_speed_unit",
     "help"
 };
 
@@ -69,6 +70,7 @@ static void handle_get_pid_params(const char* command);
 static void handle_save_pid_nvs(const char* command);
 static void handle_reset_pid_defaults(const char* command);
 static void handle_get_firmware_version(const char* command);
+static void handle_toggle_speed_unit(const char* command);
 
 void usb_serial_init(void)
 {
@@ -104,6 +106,7 @@ void usb_serial_init(void)
         hand_controller_config.motor_poles = 14;
         hand_controller_config.invert_throttle = false;
         hand_controller_config.level_assistant = false;
+        hand_controller_config.speed_unit_mph = false; // Default to km/h
     }
     
     ESP_LOGI(TAG, "USB Serial Handler initialization complete");
@@ -270,8 +273,8 @@ void usb_serial_process_command(const char* command)
     ESP_LOGI(TAG, "Parsed command type: %d", cmd);
     
     switch (cmd) {
-        case CMD_HELP:
-            print_help();
+        case CMD_TOGGLE_SPEED_UNIT:
+            handle_toggle_speed_unit(command);
             break;
         case CMD_INVERT_THROTTLE:
             handle_invert_throttle(command);
@@ -370,25 +373,26 @@ static void print_help(void)
 {
     printf("\n=== Hand Controller Configuration Interface ===\n");
     printf("Available commands:\n");
-    printf("  help                          - Show this help message\n");
-    printf("  invert_throttle <0|1>         - Set throttle inversion (0=normal, 1=inverted)\n");
-    printf("  level_assistant <0|1>         - Enable/disable level assistant\n");
-    printf("  reset_odometer                - Reset trip distance to 0\n");
-    printf("  set_motor_pulley <teeth>      - Set motor pulley teeth count\n");
-    printf("  set_wheel_pulley <teeth>      - Set wheel pulley teeth count\n");
-    printf("  set_wheel_size <mm>           - Set wheel diameter in mm\n");
-    printf("  set_motor_poles <poles>       - Set motor pole count\n");
-    printf("  get_config                    - Show current configuration\n");
-    printf("  calibrate_throttle            - Start throttle calibration\n");
-    printf("  get_calibration               - Show calibration values\n");
-    printf("  set_pid_kp <value>            - Set PID proportional gain (0.0-10.0)\n");
-    printf("  set_pid_ki <value>            - Set PID integral gain (0.0-2.0)\n");
-    printf("  set_pid_kd <value>            - Set PID derivative gain (0.0-1.0)\n");
-    printf("  set_pid_output_max <value>    - Set PID max output (10.0-100.0)\n");
-    printf("  get_pid_params                - Show current PID parameters\n");
-    printf("  save_pid_nvs                  - Save current PID params to NVS\n");
-    printf("  reset_pid_defaults            - Reset PID to defaults & clear NVS\n");
-    printf("  get_firmware_version          - Show current firmware version\n");
+    printf("  invert_throttle          - Toggle throttle inversion\n");
+    printf("  level_assistant          - Toggle level assistant\n");
+    printf("  toggle_speed_unit        - Toggle between km/h and mi/h\n");
+    printf("  reset_odometer           - Reset trip odometer\n");
+    printf("  set_motor_pulley <teeth> - Set motor pulley teeth\n");
+    printf("  set_wheel_pulley <teeth> - Set wheel pulley teeth\n");
+    printf("  set_wheel_size <mm>      - Set wheel diameter in mm\n");
+    printf("  set_motor_poles <poles>  - Set motor pole count\n");
+    printf("  get_config               - Display current configuration\n");
+    printf("  calibrate_throttle       - Start throttle calibration\n");
+    printf("  get_calibration          - Get calibration status\n");
+    printf("  set_pid_kp <value>       - Set PID Kp parameter\n");
+    printf("  set_pid_ki <value>       - Set PID Ki parameter\n");
+    printf("  set_pid_kd <value>       - Set PID Kd parameter\n");
+    printf("  set_pid_output_max <val> - Set PID output max\n");
+    printf("  get_pid_params           - Get current PID parameters\n");
+    printf("  save_pid_nvs             - Save PID parameters to NVS\n");
+    printf("  reset_pid_defaults       - Reset PID to defaults\n");
+    printf("  get_firmware_version     - Get firmware version\n");
+    printf("  help                     - Show this help\n");
     printf("\n");
 }
 
@@ -567,6 +571,8 @@ static void handle_get_config(const char* command)
            hand_controller_config.invert_throttle ? "Yes" : "No");
     printf("Level Assistant: %s\n", 
            hand_controller_config.level_assistant ? "Yes" : "No");
+    printf("Speed Unit: %s\n", 
+           hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     printf("Motor Pulley Teeth: %d\n", hand_controller_config.motor_pulley);
     printf("Wheel Pulley Teeth: %d\n", hand_controller_config.wheel_pulley);
     printf("Wheel Diameter: %d mm\n", hand_controller_config.wheel_diameter_mm);
@@ -576,7 +582,8 @@ static void handle_get_config(const char* command)
     // Calculate and display current speed if connected
     if (is_connect) {
         int32_t speed = vesc_config_get_speed(&hand_controller_config);
-        printf("Current Speed: %ld km/h\n", speed);
+        printf("Current Speed: %ld %s\n", speed, 
+               hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     }
     printf("\n");
 }
@@ -742,4 +749,26 @@ static void handle_get_firmware_version(const char* command)
     printf("Build date: %s %s\n", BUILD_DATE, BUILD_TIME);
     printf("Target: %s\n", CONFIG_IDF_TARGET);
     printf("IDF version: %s\n", esp_get_idf_version());
+} 
+
+static void handle_toggle_speed_unit(const char* command)
+{
+    hand_controller_config.speed_unit_mph = !hand_controller_config.speed_unit_mph;
+    printf("Speed unit: %s\n", 
+           hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
+    
+    // Save configuration to NVS
+    esp_err_t err = vesc_config_save(&hand_controller_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
+        printf("Warning: Failed to save setting to memory\n");
+    } else {
+        ESP_LOGI(TAG, "Speed unit saved to NVS: %s", 
+                 hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
+    }
+    
+    // Immediately update the speed unit label in the UI
+    ui_update_speed_unit(hand_controller_config.speed_unit_mph);
+    
+    ui_force_config_reload(); // Force UI to reload config
 } 

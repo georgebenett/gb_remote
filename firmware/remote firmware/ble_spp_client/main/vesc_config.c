@@ -13,7 +13,8 @@ static const vesc_config_t default_config = {
     .wheel_diameter_mm = 115,   // 115mm wheels
     .motor_poles = 14,         // 14 pole motor
     .invert_throttle = false,  // Normal throttle direction
-    .level_assistant = false   // Level assistant disabled by default
+    .level_assistant = false,  // Level assistant disabled by default
+    .speed_unit_mph = false    // Speed unit: km/h by default
 };
 
 esp_err_t vesc_config_init(void) {
@@ -64,6 +65,16 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
         err = ESP_OK; // Don't fail the entire load for missing level assistant setting
     }
 
+    uint8_t speed_unit;
+    err = nvs_get_u8(nvs_handle, NVS_KEY_SPEED_UNIT, &speed_unit);
+    if (err == ESP_OK) {
+        config->speed_unit_mph = (bool)speed_unit;
+    } else {
+        // Default to km/h if key doesn't exist (backward compatibility)
+        config->speed_unit_mph = false;
+        err = ESP_OK; // Don't fail the entire load for missing speed unit setting
+    }
+
 cleanup:
     nvs_close(nvs_handle);
     return err;
@@ -95,13 +106,15 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
     err = nvs_set_u8(nvs_handle, NVS_KEY_LEVEL_ASSIST, (uint8_t)config->level_assistant);
     if (err != ESP_OK) goto cleanup;
 
+    err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_UNIT, (uint8_t)config->speed_unit_mph);
+    if (err != ESP_OK) goto cleanup;
+
     err = nvs_commit(nvs_handle);
 
 cleanup:
     nvs_close(nvs_handle);
     return err;
 }
-
 
 int32_t vesc_config_get_speed(const vesc_config_t *config) {
     // Validate config and motor poles
@@ -126,11 +139,16 @@ int32_t vesc_config_get_speed(const vesc_config_t *config) {
     
     float wheel_circumference_m = (float)config->wheel_diameter_mm / 1000.0f * M_PI;
     float wheel_RPM = rpm / gear_ratio;  // Changed multiplication to division for gear reduction
-    float speed = wheel_RPM * wheel_circumference_m * 60.0f / 1000.0f;
+    float speed_kmh = wheel_RPM * wheel_circumference_m * 60.0f / 1000.0f;
 
-    if (speed < 0){
-        speed *= -1;
+    if (speed_kmh < 0){
+        speed_kmh *= -1;
     }
 
-    return (int32_t)speed;
+    // Convert to mph if needed (1 km/h = 0.621371 mph)
+    if (config->speed_unit_mph) {
+        speed_kmh *= 0.621371f;
+    }
+
+    return (int32_t)speed_kmh;
 }

@@ -25,7 +25,9 @@ class HandControllerConfig:
     def __init__(self, root):
         self.root = root
         self.root.title("ESP32 Hand Controller Configuration")
-        self.root.geometry("1500x1200")
+        
+        # Get screen dimensions and set responsive window size
+        self.setup_responsive_window()
         
         # Serial connection
         self.serial_port = None
@@ -36,6 +38,7 @@ class HandControllerConfig:
         self.config = {
             'invert_throttle': False,
             'level_assistant': False,
+            'speed_unit_mph': False,
             'motor_pulley': 15,
             'wheel_pulley': 33,
             'wheel_diameter_mm': 115,
@@ -54,6 +57,7 @@ class HandControllerConfig:
             "invert_throttle",
             "level_assistant",
             "reset_odometer", 
+            "toggle_speed_unit",
             "set_motor_pulley",
             "set_wheel_pulley",
             "set_wheel_size",
@@ -75,11 +79,56 @@ class HandControllerConfig:
         
         # Handle window closing gracefully
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # Bind window resize event
+        self.root.bind('<Configure>', self.on_window_resize)
+    
+    def setup_responsive_window(self):
+        """Setup responsive window sizing based on screen resolution"""
+        # Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Calculate window size as percentage of screen (max 90% of screen)
+        window_width = min(int(screen_width * 0.9), 1500)  # Max 1500px width
+        window_height = min(int(screen_height * 0.9), 1200)  # Max 1200px height
+        
+        # Set minimum window size
+        window_width = max(window_width, 800)   # Minimum 800px width
+        window_height = max(window_height, 600) # Minimum 600px height
+        
+        # Center the window on screen
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.root.minsize(800, 600)  # Set minimum window size
+        
+        # Store dimensions for responsive calculations
+        self.window_width = window_width
+        self.window_height = window_height
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+    
+    def on_window_resize(self, event):
+        """Handle window resize events"""
+        if event.widget == self.root:
+            self.window_width = self.root.winfo_width()
+            self.window_height = self.root.winfo_height()
+            self.update_responsive_layout()
+    
+    def update_responsive_layout(self):
+        """Update layout elements based on current window size"""
+        # This method can be used to dynamically adjust layout elements
+        # For now, we'll rely on the grid system's natural responsiveness
+        pass
     
     def setup_ui(self):
+        # Create main container with scrollbar
+        self.create_scrollable_main()
+        
         # Main frame
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame = ttk.Frame(self.main_canvas, padding="10")
+        self.main_canvas.create_window((0, 0), window=main_frame, anchor="nw")
         
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -90,13 +139,14 @@ class HandControllerConfig:
         # Connection frame
         conn_frame = ttk.LabelFrame(main_frame, text="Connection", padding="5")
         conn_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        conn_frame.columnconfigure(1, weight=1)
         
         # Port selection
         ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, padx=(0, 5))
         self.port_var = tk.StringVar(value="/dev/ttyACM0")
         self.port_combo = ttk.Combobox(conn_frame, textvariable=self.port_var, width=15)
         self.port_combo['values'] = self.get_available_ports()
-        self.port_combo.grid(row=0, column=1, padx=(0, 10))
+        self.port_combo.grid(row=0, column=1, padx=(0, 10), sticky='ew')
         
         # Connect button
         self.connect_btn = ttk.Button(conn_frame, text="Connect", command=self.toggle_connection)
@@ -138,10 +188,21 @@ class HandControllerConfig:
                                                 variable=self.level_assist_var, 
                                                 command=self.toggle_level_assistant)
         self.level_assist_check.grid(row=0, column=1, sticky='w')
+
+        speed_unit_frame = ttk.Frame(config_frame)
+        speed_unit_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        speed_unit_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(speed_unit_frame, text="Speed Unit:", width=20, anchor='w').grid(row=0, column=0, padx=(0, 10), sticky='w')
+        self.speed_unit_var = tk.BooleanVar(value=False)
+        self.speed_unit_check = ttk.Checkbutton(speed_unit_frame, text="mi/h (unchecked = km/h)", 
+                                              variable=self.speed_unit_var, 
+                                              command=self.toggle_speed_unit)
+        self.speed_unit_check.grid(row=0, column=1, sticky='w')
         
         # Motor pulley configuration
         pulley_frame = ttk.Frame(config_frame)
-        pulley_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        pulley_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         pulley_frame.columnconfigure(1, weight=1)
         
         ttk.Label(pulley_frame, text="Motor Pulley Teeth:", width=20, anchor='w').grid(row=0, column=0, padx=(0, 10), sticky='w')
@@ -230,11 +291,14 @@ class HandControllerConfig:
         self.pid_output_max_entry.grid(row=0, column=1, padx=(0, 10), sticky='w')
         ttk.Button(output_max_frame, text="Set", command=self.set_pid_output_max).grid(row=0, column=2, sticky='e')
         
-        # PID Action buttons
+        # PID Action buttons - make them wrap on smaller screens
         pid_actions_frame = ttk.Frame(pid_frame)
         pid_actions_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        ttk.Button(pid_actions_frame, text="Get PID Parameters", command=self.get_pid_params).grid(row=0, column=0, padx=5)
-        ttk.Button(pid_actions_frame, text="Load PID Defaults", command=self.load_pid_defaults).grid(row=0, column=1, padx=5)
+        pid_actions_frame.columnconfigure(0, weight=1)
+        pid_actions_frame.columnconfigure(1, weight=1)
+        
+        ttk.Button(pid_actions_frame, text="Get PID Parameters", command=self.get_pid_params).grid(row=0, column=0, padx=5, sticky='ew')
+        ttk.Button(pid_actions_frame, text="Load PID Defaults", command=self.load_pid_defaults).grid(row=0, column=1, padx=5, sticky='ew')
         
         # Firmware Flashing section
         flash_frame = ttk.LabelFrame(config_frame, text="Firmware Flashing", padding="5")
@@ -251,15 +315,19 @@ class HandControllerConfig:
         ttk.Label(idf_path_frame, text="ESP-IDF Path:", width=20, anchor='w').grid(row=0, column=0, padx=(0, 10), sticky='w')
         self.idf_path_var = tk.StringVar(value=self.detect_esp_idf_path())
         self.idf_path_entry = ttk.Entry(idf_path_frame, textvariable=self.idf_path_var, width=40)
-        self.idf_path_entry.grid(row=0, column=1, padx=(0, 10), sticky='w')
+        self.idf_path_entry.grid(row=0, column=1, padx=(0, 10), sticky='ew')
         ttk.Button(idf_path_frame, text="Browse", command=self.browse_idf_path).grid(row=0, column=2, sticky='e')
         
-        # Flashing actions
+        # Flashing actions - make them wrap on smaller screens
         flash_actions_frame = ttk.Frame(flash_frame)
         flash_actions_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        ttk.Button(flash_actions_frame, text="Download Latest Firmware", command=self.download_latest_firmware).grid(row=0, column=0, padx=5)
-        ttk.Button(flash_actions_frame, text="Flash Firmware", command=self.flash_firmware).grid(row=0, column=1, padx=5)
-        ttk.Button(flash_actions_frame, text="Select Firmware File", command=self.select_firmware_file).grid(row=0, column=2, padx=5)
+        flash_actions_frame.columnconfigure(0, weight=1)
+        flash_actions_frame.columnconfigure(1, weight=1)
+        flash_actions_frame.columnconfigure(2, weight=1)
+        
+        ttk.Button(flash_actions_frame, text="Download Latest Firmware", command=self.download_latest_firmware).grid(row=0, column=0, padx=5, sticky='ew')
+        ttk.Button(flash_actions_frame, text="Flash Firmware", command=self.flash_firmware).grid(row=0, column=1, padx=5, sticky='ew')
+        ttk.Button(flash_actions_frame, text="Select Firmware File", command=self.select_firmware_file).grid(row=0, column=2, padx=5, sticky='ew')
         
         # Firmware file path
         firmware_path_frame = ttk.Frame(flash_frame)
@@ -269,19 +337,31 @@ class HandControllerConfig:
         ttk.Label(firmware_path_frame, text="Firmware File:", width=20, anchor='w').grid(row=0, column=0, padx=(0, 10), sticky='w')
         self.firmware_path_var = tk.StringVar()
         self.firmware_path_entry = ttk.Entry(firmware_path_frame, textvariable=self.firmware_path_var, width=40)
-        self.firmware_path_entry.grid(row=0, column=1, padx=(0, 10), sticky='w')
+        self.firmware_path_entry.grid(row=0, column=1, padx=(0, 10), sticky='ew')
         ttk.Button(firmware_path_frame, text="Browse", command=self.browse_firmware_file).grid(row=0, column=2, sticky='e')
         
-        # Action buttons
+        # Action buttons - make them wrap on smaller screens
         actions_frame = ttk.Frame(config_frame)
         actions_frame.grid(row=9, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
         
-        ttk.Button(actions_frame, text="Reset Odometer", command=self.reset_odometer).grid(row=0, column=0, padx=5)
-        ttk.Button(actions_frame, text="Get Config", command=self.get_config).grid(row=0, column=1, padx=5)
-        ttk.Button(actions_frame, text="Calibrate Throttle", command=self.calibrate_throttle).grid(row=0, column=2, padx=5)
-        ttk.Button(actions_frame, text="Get Calibration", command=self.get_calibration).grid(row=0, column=3, padx=5)
-        ttk.Button(actions_frame, text="Check Firmware Update", command=self.check_firmware_update).grid(row=0, column=4, padx=5)
-        ttk.Button(actions_frame, text="Help", command=self.show_help).grid(row=0, column=5, padx=5)
+        # Create a grid of buttons that will wrap
+        action_buttons = [
+            ("Reset Odometer", self.reset_odometer),
+            ("Get Config", self.get_config),
+            ("Calibrate Throttle", self.calibrate_throttle),
+            ("Get Calibration", self.get_calibration),
+            ("Check Firmware Update", self.check_firmware_update),
+            ("Help", self.show_help)
+        ]
+        
+        # Calculate number of columns based on window width
+        buttons_per_row = max(2, min(6, self.window_width // 150))
+        
+        for i, (text, command) in enumerate(action_buttons):
+            row = i // buttons_per_row
+            col = i % buttons_per_row
+            actions_frame.columnconfigure(col, weight=1)
+            ttk.Button(actions_frame, text=text, command=command).grid(row=row, column=col, padx=5, pady=2, sticky='ew')
         
         # Response frame
         resp_frame = ttk.LabelFrame(main_frame, text="Response", padding="5")
@@ -303,6 +383,42 @@ class HandControllerConfig:
         config_display_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         
         self.setup_config_display(config_display_frame)
+        
+        # Update the scroll region after all widgets are created
+        self.update_scroll_region()
+    
+    def create_scrollable_main(self):
+        """Create the main scrollable container"""
+        # Create main frame with canvas and scrollbar
+        self.main_frame = ttk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create canvas and scrollbar
+        self.main_canvas = tk.Canvas(self.main_frame)
+        self.scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.main_canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.main_canvas)
+        
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+        )
+        
+        self.main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        
+        self.main_canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.main_canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        # Bind mousewheel to canvas
+        def _on_mousewheel(event):
+            self.main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+    
+    def update_scroll_region(self):
+        """Update the scroll region of the canvas"""
+        self.main_canvas.update_idletasks()
+        self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
     
     def setup_config_display(self, parent):
         """Setup the configuration display widgets"""
@@ -313,6 +429,7 @@ class HandControllerConfig:
             ("Firmware Version", "firmware_version"),
             ("Throttle Inverted", "invert_throttle"),
             ("Level Assistant", "level_assistant"),
+            ("Speed Unit", "speed_unit_mph"),  # Make sure this line is present
             ("Motor Pulley Teeth", "motor_pulley"),
             ("Wheel Pulley Teeth", "wheel_pulley"),
             ("Wheel Diameter (mm)", "wheel_diameter_mm"),
@@ -344,6 +461,9 @@ class HandControllerConfig:
             self.config_labels['level_assistant'].config(
                 text="Yes" if self.config['level_assistant'] else "No"
             )
+            self.config_labels['speed_unit_mph'].config(
+                text="mi/h" if self.config['speed_unit_mph'] else "km/h"
+            )
             self.config_labels['motor_pulley'].config(
                 text=str(self.config['motor_pulley'])
             )
@@ -358,6 +478,21 @@ class HandControllerConfig:
             )
             self.config_labels['ble_connected'].config(
                 text="Yes" if self.config['ble_connected'] else "No"
+            )
+            self.config_labels['pid_kp'].config(
+                text=str(self.config['pid_kp'])
+            )
+            self.config_labels['pid_ki'].config(
+                text=str(self.config['pid_ki'])
+            )
+            self.config_labels['pid_kd'].config(
+                text=str(self.config['pid_kd'])
+            )
+            self.config_labels['pid_output_max'].config(
+                text=str(self.config['pid_output_max'])
+            )
+            self.config_labels['speed_unit_mph'].config(
+                text="mi/h" if self.config['speed_unit_mph'] else "km/h"
             )
     
     def get_available_ports(self):
@@ -481,6 +616,16 @@ class HandControllerConfig:
             return
         
         self.send_serial_command("level_assistant")
+    
+    def toggle_speed_unit(self):
+        """Toggle speed unit between km/h and mi/h"""
+        if not self.is_connected:
+            messagebox.showwarning("Not Connected", "Please connect to ESP32 first")
+            # Reset checkbox to previous state if not connected
+            self.speed_unit_var.set(not self.speed_unit_var.get())
+            return
+        
+        self.send_serial_command("toggle_speed_unit")
     
     def reset_odometer(self):
         """Reset odometer"""
@@ -1216,6 +1361,11 @@ class HandControllerConfig:
                 self.level_assist_var.set(False)
                 self.update_config_display()
             
+            # Parse speed unit
+            if "Speed Unit:" in response:
+                self.config['speed_unit_mph'] = "mi/h" in response
+                self.speed_unit_var.set(self.config['speed_unit_mph'])
+            
             # Parse PID parameter responses
             if "PID Kp set to:" in response:
                 try:
@@ -1369,6 +1519,9 @@ class HandControllerConfig:
                     elif key in ["Level Assistant", "Level assistant"]:
                         self.config['level_assistant'] = (value.lower() in ["yes", "enabled", "true"])
                         self.level_assist_var.set(self.config['level_assistant'])
+                    elif key in ["Speed Unit", "Speed unit"]:
+                        self.config['speed_unit_mph'] = (value.lower() in ["mi/h", "true"])
+                        self.speed_unit_var.set(self.config['speed_unit_mph'])
                     elif key in ["Motor Pulley Teeth", "Motor pulley teeth"]:
                         self.config['motor_pulley'] = int(value)
                         self.pulley_var.set(self.config['motor_pulley'])

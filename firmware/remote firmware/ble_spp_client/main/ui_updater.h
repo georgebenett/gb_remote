@@ -45,4 +45,7 @@ void ui_start_update_tasks(void);
 // Add function to force configuration reload
 void ui_force_config_reload(void);
 
+// Add this function declaration
+void ui_update_speed_unit(bool is_mph);
+
 #endif // UI_UPDATER_H

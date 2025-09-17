@@ -208,14 +208,15 @@ void ui_update_trip_distance(int32_t speed_kmh) {
         float elapsed_hours = (current_time - last_update_time) / 3600000.0f;
 
         // Calculate distance traveled during this period (speed * time)
-        float distance_km = (speed_kmh * elapsed_hours);
+        // Note: speed_kmh is already in the correct unit (km/h or mi/h) from vesc_config_get_speed
+        float distance = (speed_kmh * elapsed_hours);
 
         // Add to total trip distance
-        total_trip_km += distance_km;
+        total_trip_km += distance;
 
-        // Reset trip distance if it exceeds 999km
+        // Reset trip distance if it exceeds 999km (or 999mi)
         if (total_trip_km > 999.0f) {
-            ESP_LOGI(TAG, "Trip distance exceeded 999km, resetting to 0");
+            ESP_LOGI(TAG, "Trip distance exceeded 999 units, resetting to 0");
             total_trip_km = 0.0f;
         }
     }
@@ -370,6 +371,18 @@ void ui_check_mutex_health(void) {
     }
 }
 
+// Add this function after the existing UI update functions
+void ui_update_speed_unit(bool is_mph) {
+    if (entering_sleep_mode || !ui_Label2) return;
+
+    if (take_lvgl_mutex()) {
+        if (get_current_screen() == ui_home_screen) {
+            lv_label_set_text(ui_Label2, is_mph ? "mi/h" : "km/h");
+        }
+        give_lvgl_mutex();
+    }
+}
+
 static void speed_update_task(void *pvParameters) {
     vesc_config_t config;
     ESP_ERROR_CHECK(vesc_config_load(&config));
@@ -397,6 +410,7 @@ static void speed_update_task(void *pvParameters) {
             int32_t speed = vesc_config_get_speed(&config);
             if (speed >= 0 && speed <= 100) {  // Adjust max speed as needed
                 ui_update_speed(speed);
+                ui_update_speed_unit(config.speed_unit_mph);
             } else {
                 //ESP_LOGW(TAG, "Invalid speed value received: %ld", speed);
             }
