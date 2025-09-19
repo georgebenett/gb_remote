@@ -114,7 +114,7 @@ void app_main(void)
     // Initialize USB Serial Handler FIRST (before BLE UART setup)
     // Note: This is optional - if it fails, the device will still work without USB commands
     ESP_LOGI(TAG, "Attempting to initialize USB Serial Handler...");
-    
+
     // Initialize full USB serial handler
     usb_serial_init();
     usb_serial_start_task();
@@ -137,6 +137,18 @@ void app_main(void)
 
     // Initialize SquareLine Studio UI
     ui_init();
+
+    // Set initial speed unit from saved configuration
+    vesc_config_t config;
+    esp_err_t err = vesc_config_load(&config);
+    if (err == ESP_OK) {
+        ui_update_speed_unit(config.speed_unit_mph);
+        ESP_LOGI(TAG, "Initial speed unit set to: %s", config.speed_unit_mph ? "mi/h" : "km/h");
+    } else {
+        ESP_LOGW(TAG, "Failed to load speed unit configuration, using default km/h");
+        ui_update_speed_unit(false); // Default to km/h
+    }
+
     lv_disp_load_scr(ui_splash_screen);  // Load splash screen first
     lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 1000, NULL);  // Create timer for 1 seconds
     lv_timer_set_repeat_count(splash_timer, 1);  // Run only once

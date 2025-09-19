@@ -25,7 +25,7 @@ static int command_buffer_pos = 0;
 static const char* CMD_STRINGS[] = {
     "invert_throttle",
     "level_assistant",
-    "reset_odometer", 
+    "reset_odometer",
     "set_motor_pulley",
     "set_wheel_pulley",
     "set_wheel_size",
@@ -77,15 +77,15 @@ void usb_serial_init(void)
     ESP_LOGI(TAG, "Initializing USB Serial Handler for Hand Controller");
     ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
     ESP_LOGI(TAG, "USB CDC Enabled: %d", USB_CDC_ENABLED);
-    
+
     if (!USB_CDC_ENABLED) {
         ESP_LOGW(TAG, "USB CDC not enabled for this target");
         return;
     }
-    
+
     // Add target-specific initialization delay
     vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
-    
+
     // Use target-specific initialization
     #if defined(CONFIG_IDF_TARGET_ESP32C3)
         usb_serial_init_esp32c3();
@@ -94,7 +94,7 @@ void usb_serial_init(void)
     #else
         usb_serial_init_uart();
     #endif
-    
+
     // Load configuration from NVS
     esp_err_t err = vesc_config_load(&hand_controller_config);
     if (err != ESP_OK) {
@@ -108,7 +108,7 @@ void usb_serial_init(void)
         hand_controller_config.level_assistant = false;
         hand_controller_config.speed_unit_mph = false; // Default to km/h
     }
-    
+
     ESP_LOGI(TAG, "USB Serial Handler initialization complete");
 }
 
@@ -118,7 +118,7 @@ void usb_serial_start_task(void)
         ESP_LOGW(TAG, "USB CDC not enabled, skipping task creation");
         return;
     }
-    
+
     if (usb_task_handle == NULL) {
         xTaskCreate(usb_serial_task, "usb_serial_task", 4096, NULL, 5, &usb_task_handle);
     }
@@ -128,7 +128,7 @@ void usb_serial_start_task(void)
 void usb_serial_init_esp32c3(void)
 {
     ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-C3");
-    
+
     /* Disable buffering on stdin */
     setvbuf(stdin, NULL, _IONBF, 0);
 
@@ -155,17 +155,17 @@ void usb_serial_init_esp32c3(void)
 
     /* Tell vfs to use usb-serial-jtag driver */
     esp_vfs_usb_serial_jtag_use_driver();
-    
+
     // ESP32-C3 specific: Additional delay for USB enumeration
     vTaskDelay(pdMS_TO_TICKS(100));
-    
+
     ESP_LOGI(TAG, "USB Serial JTAG initialized successfully for ESP32-C3");
 }
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
 void usb_serial_init_esp32s3(void)
 {
     ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-S3");
-    
+
     /* Disable buffering on stdin */
     setvbuf(stdin, NULL, _IONBF, 0);
 
@@ -192,7 +192,7 @@ void usb_serial_init_esp32s3(void)
 
     /* Tell vfs to use usb-serial-jtag driver */
     esp_vfs_usb_serial_jtag_use_driver();
-    
+
     ESP_LOGI(TAG, "USB Serial JTAG initialized successfully for ESP32-S3");
 }
 #endif
@@ -200,7 +200,7 @@ void usb_serial_init_esp32s3(void)
 static void usb_serial_init_uart(void)
 {
     ESP_LOGI(TAG, "Setting up USB Serial JTAG interface (generic)");
-    
+
     /* Disable buffering on stdin */
     setvbuf(stdin, NULL, _IONBF, 0);
 
@@ -227,7 +227,7 @@ static void usb_serial_init_uart(void)
 
     /* Tell vfs to use usb-serial-jtag driver */
     esp_vfs_usb_serial_jtag_use_driver();
-    
+
     ESP_LOGI(TAG, "USB Serial JTAG initialized successfully");
 }
 
@@ -237,10 +237,10 @@ static void usb_serial_task(void *pvParameters)
 
     for (;;) {
         int ch = fgetc(stdin);
-        
+
         if (ch != EOF && ch != 0xFF) {
             ESP_LOGD(TAG, "Received character: 0x%02X (%c)", ch, (ch >= 32 && ch <= 126) ? ch : '?');
-            
+
             if (ch == '\r' || ch == '\n') {
                 // End of command, process it
                 if (command_buffer_pos > 0) {
@@ -261,7 +261,7 @@ static void usb_serial_task(void *pvParameters)
                 command_buffer[command_buffer_pos++] = ch;
             }
         }
-        
+
         vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
     }
 }
@@ -271,7 +271,7 @@ void usb_serial_process_command(const char* command)
     ESP_LOGI(TAG, "Processing command: '%s' (length: %d)", command, strlen(command));
     usb_command_t cmd = parse_command(command);
     ESP_LOGI(TAG, "Parsed command type: %d", cmd);
-    
+
     switch (cmd) {
         case CMD_TOGGLE_SPEED_UNIT:
             handle_toggle_speed_unit(command);
@@ -342,7 +342,7 @@ static usb_command_t parse_command(const char* input)
 {
     // Skip leading whitespace
     while (*input == ' ' || *input == '\t') input++;
-    
+
     // Find the first word (command)
     char command[64];
     int i = 0;
@@ -351,21 +351,21 @@ static usb_command_t parse_command(const char* input)
         i++;
     }
     command[i] = '\0';
-    
+
     // Convert to lowercase for case-insensitive comparison
     for (int j = 0; j < i; j++) {
         if (command[j] >= 'A' && command[j] <= 'Z') {
             command[j] = command[j] + 32;
         }
     }
-    
+
     // Compare with known commands
     for (int cmd = 0; cmd < sizeof(CMD_STRINGS) / sizeof(CMD_STRINGS[0]); cmd++) {
         if (strcmp(command, CMD_STRINGS[cmd]) == 0) {
             return (usb_command_t)cmd;
         }
     }
-    
+
     return CMD_UNKNOWN;
 }
 
@@ -399,16 +399,16 @@ static void print_help(void)
 static void handle_invert_throttle(const char* command)
 {
     hand_controller_config.invert_throttle = !hand_controller_config.invert_throttle;
-    printf("Throttle inversion: %s\n", 
+    printf("Throttle inversion: %s\n",
            hand_controller_config.invert_throttle ? "ENABLED" : "DISABLED");
-    
+
     // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save throttle inversion setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
     } else {
-        ESP_LOGI(TAG, "Throttle inversion saved to NVS: %s", 
+        ESP_LOGI(TAG, "Throttle inversion saved to NVS: %s",
                  hand_controller_config.invert_throttle ? "ENABLED" : "DISABLED");
     }
     ui_force_config_reload(); // Force UI to reload config
@@ -417,16 +417,16 @@ static void handle_invert_throttle(const char* command)
 static void handle_level_assistant(const char* command)
 {
     hand_controller_config.level_assistant = !hand_controller_config.level_assistant;
-    printf("Level assistant: %s\n", 
+    printf("Level assistant: %s\n",
            hand_controller_config.level_assistant ? "ENABLED" : "DISABLED");
-    
+
     // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save level assistant setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
     } else {
-        ESP_LOGI(TAG, "Level assistant saved to NVS: %s", 
+        ESP_LOGI(TAG, "Level assistant saved to NVS: %s",
                  hand_controller_config.level_assistant ? "ENABLED" : "DISABLED");
     }
     ui_force_config_reload(); // Force UI to reload config
@@ -435,12 +435,12 @@ static void handle_level_assistant(const char* command)
 static void handle_reset_odometer(const char* command)
 {
     printf("Odometer reset command received\n");
-    
+
     // Reset the local trip distance display
     ui_reset_trip_distance();
     ESP_LOGI(TAG, "Local trip distance reset");
 
-    
+
     printf("Odometer reset successfully\n");
 }
 
@@ -454,7 +454,7 @@ static void handle_set_motor_pulley(const char* command)
             hand_controller_config.motor_pulley = (uint8_t)teeth;
             printf("Motor pulley teeth set to: %d\n", teeth);
             ESP_LOGI(TAG, "Motor pulley teeth set to: %d", teeth);
-            
+
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -482,7 +482,7 @@ static void handle_set_wheel_pulley(const char* command)
             hand_controller_config.wheel_pulley = (uint8_t)teeth;
             printf("Wheel pulley teeth set to: %d\n", teeth);
             ESP_LOGI(TAG, "Wheel pulley teeth set to: %d", teeth);
-            
+
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -510,7 +510,7 @@ static void handle_set_wheel_size(const char* command)
             hand_controller_config.wheel_diameter_mm = (uint8_t)size_mm;
             printf("Wheel diameter set to: %d mm\n", size_mm);
             ESP_LOGI(TAG, "Wheel diameter set to: %d mm", size_mm);
-            
+
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -538,7 +538,7 @@ static void handle_set_motor_poles(const char* command)
             hand_controller_config.motor_poles = (uint8_t)poles;
             printf("Motor poles set to: %d\n", poles);
             ESP_LOGI(TAG, "Motor poles set to: %d", poles);
-            
+
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -564,25 +564,25 @@ static void handle_get_config(const char* command)
         ESP_LOGW(TAG, "Failed to reload configuration: %s", esp_err_to_name(err));
         printf("Warning: Failed to reload configuration\n");
     }
-    
+
     printf("\n=== Current Configuration ===\n");
     printf("Firmware Version: %s\n", APP_VERSION_STRING);
-    printf("Throttle Inverted: %s\n", 
+    printf("Throttle Inverted: %s\n",
            hand_controller_config.invert_throttle ? "Yes" : "No");
-    printf("Level Assistant: %s\n", 
+    printf("Level Assistant: %s\n",
            hand_controller_config.level_assistant ? "Yes" : "No");
-    printf("Speed Unit: %s\n", 
+    printf("Speed Unit: %s\n",
            hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     printf("Motor Pulley Teeth: %d\n", hand_controller_config.motor_pulley);
     printf("Wheel Pulley Teeth: %d\n", hand_controller_config.wheel_pulley);
     printf("Wheel Diameter: %d mm\n", hand_controller_config.wheel_diameter_mm);
     printf("Motor Poles: %d\n", hand_controller_config.motor_poles);
     printf("BLE Connected: %s\n", is_connect ? "Yes" : "No");
-    
+
     // Calculate and display current speed if connected
     if (is_connect) {
         int32_t speed = vesc_config_get_speed(&hand_controller_config);
-        printf("Current Speed: %ld %s\n", speed, 
+        printf("Current Speed: %ld %s\n", speed,
                hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     }
     printf("\n");
@@ -594,10 +594,10 @@ static void handle_calibrate_throttle(const char* command)
     printf("Starting manual throttle calibration...\n");
     printf("Please move the throttle through its full range during the next 6 seconds.\n");
     printf("Progress: ");
-    
+
     // Trigger the ADC calibration
     adc_calibrate();
-    
+
     // Check if calibration was successful
     if (adc_is_calibrated()) {
         printf("\n✓ Throttle calibration completed successfully!\n");
@@ -613,17 +613,17 @@ static void handle_calibrate_throttle(const char* command)
 static void handle_get_calibration(const char* command)
 {
     printf("\n=== Throttle Calibration Status ===\n");
-    
+
     bool is_calibrated = adc_is_calibrated();
     printf("Calibration Status: %s\n", is_calibrated ? "Calibrated" : "Not Calibrated");
-    
+
     if (is_calibrated) {
         uint32_t min_val, max_val;
         adc_get_calibration_values(&min_val, &max_val);
         printf("Calibrated Min Value: %lu\n", min_val);
         printf("Calibrated Max Value: %lu\n", max_val);
         printf("Calibrated Range: %lu\n", max_val - min_val);
-        
+
         // Show current ADC reading for reference
         int32_t current_adc = adc_read_value();
         if (current_adc != -1) {
@@ -642,13 +642,13 @@ static void handle_set_pid_kp(const char* command)
 {
     char* token = strtok((char*)command, " ");
     token = strtok(NULL, " "); // Skip command name
-    
+
     if (token == NULL) {
         printf("Error: Please provide a value (e.g., set_pid_kp 0.8)\n");
         printf("Valid range: 0.0 to 10.0\n");
         return;
     }
-    
+
     float kp = atof(token);
     level_assistant_set_pid_kp(kp);
     printf("PID Kp set to: %.3f\n", level_assistant_get_pid_kp());
@@ -658,13 +658,13 @@ static void handle_set_pid_ki(const char* command)
 {
     char* token = strtok((char*)command, " ");
     token = strtok(NULL, " "); // Skip command name
-    
+
     if (token == NULL) {
         printf("Error: Please provide a value (e.g., set_pid_ki 0.1)\n");
         printf("Valid range: 0.0 to 2.0\n");
         return;
     }
-    
+
     float ki = atof(token);
     level_assistant_set_pid_ki(ki);
     printf("PID Ki set to: %.3f\n", level_assistant_get_pid_ki());
@@ -674,13 +674,13 @@ static void handle_set_pid_kd(const char* command)
 {
     char* token = strtok((char*)command, " ");
     token = strtok(NULL, " "); // Skip command name
-    
+
     if (token == NULL) {
         printf("Error: Please provide a value (e.g., set_pid_kd 0.05)\n");
         printf("Valid range: 0.0 to 1.0\n");
         return;
     }
-    
+
     float kd = atof(token);
     level_assistant_set_pid_kd(kd);
     printf("PID Kd set to: %.3f\n", level_assistant_get_pid_kd());
@@ -690,13 +690,13 @@ static void handle_set_pid_output_max(const char* command)
 {
     char* token = strtok((char*)command, " ");
     token = strtok(NULL, " "); // Skip command name
-    
+
     if (token == NULL) {
         printf("Error: Please provide a value (e.g., set_pid_output_max 48.0)\n");
         printf("Valid range: 10.0 to 100.0\n");
         return;
     }
-    
+
     float output_max = atof(token);
     level_assistant_set_pid_output_max(output_max);
     printf("PID Output Max set to: %.1f\n", level_assistant_get_pid_output_max());
@@ -711,7 +711,7 @@ static void handle_get_pid_params(const char* command)
     printf("Output Max:        %.1f\n", level_assistant_get_pid_output_max());
     printf("Target ERPM:       0.0 (no rolling)\n");
     printf("\n");
-} 
+}
 
 static void handle_save_pid_nvs(const char* command)
 {
@@ -749,26 +749,26 @@ static void handle_get_firmware_version(const char* command)
     printf("Build date: %s %s\n", BUILD_DATE, BUILD_TIME);
     printf("Target: %s\n", CONFIG_IDF_TARGET);
     printf("IDF version: %s\n", esp_get_idf_version());
-} 
+}
 
 static void handle_toggle_speed_unit(const char* command)
 {
     hand_controller_config.speed_unit_mph = !hand_controller_config.speed_unit_mph;
-    printf("Speed unit: %s\n", 
+    printf("Speed unit: %s\n",
            hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
-    
+
     // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
     } else {
-        ESP_LOGI(TAG, "Speed unit saved to NVS: %s", 
+        ESP_LOGI(TAG, "Speed unit saved to NVS: %s",
                  hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     }
-    
+
     // Immediately update the speed unit label in the UI
     ui_update_speed_unit(hand_controller_config.speed_unit_mph);
-    
+
     ui_force_config_reload(); // Force UI to reload config
-} 
+}

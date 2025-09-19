@@ -123,7 +123,7 @@ int32_t vesc_config_get_speed(const vesc_config_t *config) {
     }
 
     int32_t erpm = get_latest_erpm();
-    
+
     if (erpm > 100000 || erpm < -100000) {
         ESP_LOGW(TAG, "Invalid ERPM for speed calculation: %ld", erpm);
         return 0;
@@ -131,12 +131,12 @@ int32_t vesc_config_get_speed(const vesc_config_t *config) {
 
     float rpm = (float)erpm / (float)config->motor_poles;  // Convert to float early
     float gear_ratio = (float)config->wheel_pulley / (float)config->motor_pulley;
-    
+
     // Check for division by zero in gear ratio
     if (gear_ratio == 0.0f) {
         return 0;
     }
-    
+
     float wheel_circumference_m = (float)config->wheel_diameter_mm / 1000.0f * M_PI;
     float wheel_RPM = rpm / gear_ratio;  // Changed multiplication to division for gear reduction
     float speed_kmh = wheel_RPM * wheel_circumference_m * 60.0f / 1000.0f;
