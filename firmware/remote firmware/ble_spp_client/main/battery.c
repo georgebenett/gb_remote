@@ -14,15 +14,6 @@ static const char *TAG = "BATTERY";
 static bool battery_initialized = false;
 static float latest_battery_voltage = 0.0f;
 
-// Voltage divider parameters (two 100K resistors)
-#define VOLTAGE_DIVIDER_RATIO 2.0f  // For two equal resistors
-#define ADC_REFERENCE_VOLTAGE 3.3f  // ESP32 ADC reference voltage
-#define ADC_RESOLUTION        4095  // 12-bit ADC resolution
-#define BATTERY_VOLTAGE_CALIBRATION_FACTOR 1.034f  // Adjusted based on multimeter reading (3.972V vs 4.00V)
-#define BATTERY_MAX_VOLTAGE 4.2f  // Fully charged LiPo cell
-#define BATTERY_MIN_VOLTAGE 3.3f  // Minimum safe LiPo cell voltage
-#define BATTERY_VOLTAGE_SAMPLES 10
-
 static float battery_voltage_samples[BATTERY_VOLTAGE_SAMPLES] = {0};
 static int battery_sample_index = 0;
 static bool battery_samples_filled = false;
