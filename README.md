@@ -76,16 +76,41 @@ idf.py set-target <chip_name>
 idf.py -p PORT flash monitor
 ```
 
+## 🔧 Configuration Tool
+
+**🌟 Easy Configuration via Web Interface**
+
+Configure your GB Remote Lite controller easily using our online configuration tool:
+
+**[🚀 GB Remote Lite Config Tool](https://georgebenett.github.io/gb_remote_tool/)**
+
+### Features:
+- **USB Serial Connection**: Connect directly via USB cable
+- **Real-time Configuration**: Adjust settings without recompiling firmware
+- **PID Tuning**: Fine-tune motor control parameters
+- **Firmware Updates**: Easy firmware flashing and updates
+- **Throttle Calibration**: Automatic ADC calibration
+- **Parameter Management**: Configure motor poles, pulley ratios, wheel diameter
+- **Status Monitoring**: Real-time device status and logs
+
+### Quick Setup:
+1. Flash the firmware to your ESP32
+2. Connect your controller via USB cable
+3. Open the [Config Tool](https://georgebenett.github.io/gb_remote_tool/)
+4. Click "Connect to Remote" to establish connection
+5. Configure your settings and calibrate throttle
+6. Pair with your electric skateboard's BLE server
+
 ### Configuration
 1. Flash the firmware to your ESP32
-2. Calibrate the throttle input on first use
-3. Configure VESC parameters in the settings
-4. Pair with your electric skateboard's BLE server
+2. Use the [online config tool](https://georgebenett.github.io/gb_remote_tool/) for easy setup
+3. Calibrate the throttle input on first use
+4. Configure VESC parameters in the settings
+5. Pair with your electric skateboard's BLE server
 
 ### Current Limitations
-- **Skateboard Parameters**: Wheel pulley, wheel size, and motor parameters are currently embedded in the firmware
-- **Configuration Tool**: No external configuration tool is available yet - parameters must be modified in the source code
 - **UI Development**: The user interface is developed using SquareLine Studio and requires the SquareLine Studio project files for modifications
+- **Advanced Customization**: For advanced modifications beyond the config tool, source code changes may be required
 
 ## Use Cases
 
@@ -103,6 +128,8 @@ This controller is specifically designed to work with popular electric skateboar
 - **Custom BMS**: Extensible protocol for other BMS systems
 
 ## Useful Links
+
+**🔧 Configuration Tool**: https://georgebenett.github.io/gb_remote_tool/
 
 **Thingiverse**: https://www.thingiverse.com/thing:7104863
 
