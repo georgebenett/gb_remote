@@ -34,7 +34,8 @@ static const char* CMD_STRINGS[] = {
     "calibrate_throttle",
     "get_calibration",
     "get_firmware_version",
-    "toggle_speed_unit",
+    "set_speed_unit_kmh",
+    "set_speed_unit_mph",
     "help"
 };
 
@@ -56,7 +57,8 @@ static void handle_get_config(const char* command);
 static void handle_calibrate_throttle(const char* command);
 static void handle_get_calibration(const char* command);
 static void handle_get_firmware_version(const char* command);
-static void handle_toggle_speed_unit(const char* command);
+static void handle_set_speed_unit_kmh(const char* command);
+static void handle_set_speed_unit_mph(const char* command);
 
 void usb_serial_init(void)
 {
@@ -259,9 +261,6 @@ void usb_serial_process_command(const char* command)
     ESP_LOGI(TAG, "Parsed command type: %d", cmd);
 
     switch (cmd) {
-        case CMD_TOGGLE_SPEED_UNIT:
-            handle_toggle_speed_unit(command);
-            break;
         case CMD_INVERT_THROTTLE:
             handle_invert_throttle(command);
             break;
@@ -294,6 +293,12 @@ void usb_serial_process_command(const char* command)
             break;
         case CMD_GET_FIRMWARE_VERSION:
             handle_get_firmware_version(command);
+            break;
+        case CMD_SET_SPEED_UNIT_KMH:
+            handle_set_speed_unit_kmh(command);
+            break;
+        case CMD_SET_SPEED_UNIT_MPH:
+            handle_set_speed_unit_mph(command);
             break;
         case CMD_UNKNOWN:
         default:
@@ -340,7 +345,8 @@ static void print_help(void)
     printf("Available commands:\n");
     printf("  invert_throttle          - Toggle throttle inversion\n");
     printf("  level_assistant          - Toggle level assistant\n");
-    printf("  toggle_speed_unit        - Toggle between km/h and mi/h\n");
+    printf("  set_speed_unit_kmh       - Set speed unit to km/h\n");
+    printf("  set_speed_unit_mph       - Set speed unit to mi/h\n");
     printf("  reset_odometer           - Reset trip odometer\n");
     printf("  set_motor_pulley <teeth> - Set motor pulley teeth\n");
     printf("  set_wheel_pulley <teeth> - Set wheel pulley teeth\n");
@@ -604,11 +610,10 @@ static void handle_get_firmware_version(const char* command)
     printf("IDF version: %s\n", esp_get_idf_version());
 }
 
-static void handle_toggle_speed_unit(const char* command)
+static void handle_set_speed_unit_kmh(const char* command)
 {
-    hand_controller_config.speed_unit_mph = !hand_controller_config.speed_unit_mph;
-    printf("Speed unit: %s\n",
-           hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
+    hand_controller_config.speed_unit_mph = false;
+    printf("Speed unit set to: km/h\n");
 
     // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
@@ -616,8 +621,27 @@ static void handle_toggle_speed_unit(const char* command)
         ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
     } else {
-        ESP_LOGI(TAG, "Speed unit saved to NVS: %s",
-                 hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
+        ESP_LOGI(TAG, "Speed unit saved to NVS: km/h");
+    }
+
+    // Immediately update the speed unit label in the UI
+    ui_update_speed_unit(hand_controller_config.speed_unit_mph);
+
+    ui_force_config_reload(); // Force UI to reload config
+}
+
+static void handle_set_speed_unit_mph(const char* command)
+{
+    hand_controller_config.speed_unit_mph = true;
+    printf("Speed unit set to: mi/h\n");
+
+    // Save configuration to NVS
+    esp_err_t err = vesc_config_save(&hand_controller_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
+        printf("Warning: Failed to save setting to memory\n");
+    } else {
+        ESP_LOGI(TAG, "Speed unit saved to NVS: mi/h");
     }
 
     // Immediately update the speed unit label in the UI
