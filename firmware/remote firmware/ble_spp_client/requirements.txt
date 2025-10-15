@@ -1,4 +1,0 @@
-pyserial>=3.5
-requests>=2.25.0
-packaging>=21.0
-esptool>=4.0.0

@@ -33,13 +33,6 @@ static const char* CMD_STRINGS[] = {
     "get_config",
     "calibrate_throttle",
     "get_calibration",
-    "set_pid_kp",
-    "set_pid_ki",
-    "set_pid_kd",
-    "set_pid_output_max",
-    "get_pid_params",
-    "save_pid_nvs",
-    "reset_pid_defaults",
     "get_firmware_version",
     "toggle_speed_unit",
     "help"
@@ -62,13 +55,6 @@ static void handle_set_motor_poles(const char* command);
 static void handle_get_config(const char* command);
 static void handle_calibrate_throttle(const char* command);
 static void handle_get_calibration(const char* command);
-static void handle_set_pid_kp(const char* command);
-static void handle_set_pid_ki(const char* command);
-static void handle_set_pid_kd(const char* command);
-static void handle_set_pid_output_max(const char* command);
-static void handle_get_pid_params(const char* command);
-static void handle_save_pid_nvs(const char* command);
-static void handle_reset_pid_defaults(const char* command);
 static void handle_get_firmware_version(const char* command);
 static void handle_toggle_speed_unit(const char* command);
 
@@ -306,27 +292,6 @@ void usb_serial_process_command(const char* command)
         case CMD_GET_CALIBRATION:
             handle_get_calibration(command);
             break;
-        case CMD_SET_PID_KP:
-            handle_set_pid_kp(command);
-            break;
-        case CMD_SET_PID_KI:
-            handle_set_pid_ki(command);
-            break;
-        case CMD_SET_PID_KD:
-            handle_set_pid_kd(command);
-            break;
-        case CMD_SET_PID_OUTPUT_MAX:
-            handle_set_pid_output_max(command);
-            break;
-        case CMD_GET_PID_PARAMS:
-            handle_get_pid_params(command);
-            break;
-        case CMD_SAVE_PID_NVS:
-            handle_save_pid_nvs(command);
-            break;
-        case CMD_RESET_PID_DEFAULTS:
-            handle_reset_pid_defaults(command);
-            break;
         case CMD_GET_FIRMWARE_VERSION:
             handle_get_firmware_version(command);
             break;
@@ -384,13 +349,6 @@ static void print_help(void)
     printf("  get_config               - Display current configuration\n");
     printf("  calibrate_throttle       - Start throttle calibration\n");
     printf("  get_calibration          - Get calibration status\n");
-    printf("  set_pid_kp <value>       - Set PID Kp parameter\n");
-    printf("  set_pid_ki <value>       - Set PID Ki parameter\n");
-    printf("  set_pid_kd <value>       - Set PID Kd parameter\n");
-    printf("  set_pid_output_max <val> - Set PID output max\n");
-    printf("  get_pid_params           - Get current PID parameters\n");
-    printf("  save_pid_nvs             - Save PID parameters to NVS\n");
-    printf("  reset_pid_defaults       - Reset PID to defaults\n");
     printf("  get_firmware_version     - Get firmware version\n");
     printf("  help                     - Show this help\n");
     printf("\n");
@@ -636,111 +594,6 @@ static void handle_get_calibration(const char* command)
         printf("Use 'calibrate_throttle' to perform calibration.\n");
     }
     printf("\n");
-}
-
-static void handle_set_pid_kp(const char* command)
-{
-    char* token = strtok((char*)command, " ");
-    token = strtok(NULL, " "); // Skip command name
-
-    if (token == NULL) {
-        printf("Error: Please provide a value (e.g., set_pid_kp 0.8)\n");
-        printf("Valid range: 0.0 to 10.0\n");
-        return;
-    }
-
-    float kp = atof(token);
-    level_assistant_set_pid_kp(kp);
-    printf("PID Kp set to: %.3f\n", level_assistant_get_pid_kp());
-}
-
-static void handle_set_pid_ki(const char* command)
-{
-    char* token = strtok((char*)command, " ");
-    token = strtok(NULL, " "); // Skip command name
-
-    if (token == NULL) {
-        printf("Error: Please provide a value (e.g., set_pid_ki 0.1)\n");
-        printf("Valid range: 0.0 to 2.0\n");
-        return;
-    }
-
-    float ki = atof(token);
-    level_assistant_set_pid_ki(ki);
-    printf("PID Ki set to: %.3f\n", level_assistant_get_pid_ki());
-}
-
-static void handle_set_pid_kd(const char* command)
-{
-    char* token = strtok((char*)command, " ");
-    token = strtok(NULL, " "); // Skip command name
-
-    if (token == NULL) {
-        printf("Error: Please provide a value (e.g., set_pid_kd 0.05)\n");
-        printf("Valid range: 0.0 to 1.0\n");
-        return;
-    }
-
-    float kd = atof(token);
-    level_assistant_set_pid_kd(kd);
-    printf("PID Kd set to: %.3f\n", level_assistant_get_pid_kd());
-}
-
-static void handle_set_pid_output_max(const char* command)
-{
-    char* token = strtok((char*)command, " ");
-    token = strtok(NULL, " "); // Skip command name
-
-    if (token == NULL) {
-        printf("Error: Please provide a value (e.g., set_pid_output_max 48.0)\n");
-        printf("Valid range: 10.0 to 100.0\n");
-        return;
-    }
-
-    float output_max = atof(token);
-    level_assistant_set_pid_output_max(output_max);
-    printf("PID Output Max set to: %.1f\n", level_assistant_get_pid_output_max());
-}
-
-static void handle_get_pid_params(const char* command)
-{
-    printf("\n=== Level Assistant PID Parameters ===\n");
-    printf("Kp (Proportional): %.3f\n", level_assistant_get_pid_kp());
-    printf("Ki (Integral):     %.3f\n", level_assistant_get_pid_ki());
-    printf("Kd (Derivative):   %.3f\n", level_assistant_get_pid_kd());
-    printf("Output Max:        %.1f\n", level_assistant_get_pid_output_max());
-    printf("Target ERPM:       0.0 (no rolling)\n");
-    printf("\n");
-}
-
-static void handle_save_pid_nvs(const char* command)
-{
-    esp_err_t err = level_assistant_save_pid_to_nvs();
-    if (err == ESP_OK) {
-        printf("PID parameters saved to NVS successfully\n");
-        printf("Current parameters: Kp=%.3f, Ki=%.3f, Kd=%.3f, OutMax=%.1f\n",
-               level_assistant_get_pid_kp(),
-               level_assistant_get_pid_ki(),
-               level_assistant_get_pid_kd(),
-               level_assistant_get_pid_output_max());
-    } else {
-        printf("Failed to save PID parameters: %s\n", esp_err_to_name(err));
-    }
-}
-
-static void handle_reset_pid_defaults(const char* command)
-{
-    esp_err_t err = level_assistant_reset_pid_to_defaults();
-    if (err == ESP_OK) {
-        printf("PID parameters reset to defaults and NVS cleared\n");
-        printf("Default parameters: Kp=%.3f, Ki=%.3f, Kd=%.3f, OutMax=%.1f\n",
-               level_assistant_get_pid_kp(),
-               level_assistant_get_pid_ki(),
-               level_assistant_get_pid_kd(),
-               level_assistant_get_pid_output_max());
-    } else {
-        printf("Failed to reset PID parameters: %s\n", esp_err_to_name(err));
-    }
 }
 
 static void handle_get_firmware_version(const char* command)
