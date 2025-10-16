@@ -11,11 +11,10 @@ typedef struct _objects_t {
     lv_obj_t *splash_screen;
     lv_obj_t *home_screen;
     lv_obj_t *shutdown_screen;
-    lv_obj_t *booting_bar;
+    lv_obj_t *firmware_version;
     lv_obj_t *firmware_text;
     lv_obj_t *connection_icon;
     lv_obj_t *controller_battery;
-    lv_obj_t *light;
     lv_obj_t *controller_battery_text;
     lv_obj_t *static_speed;
     lv_obj_t *skate_battery;

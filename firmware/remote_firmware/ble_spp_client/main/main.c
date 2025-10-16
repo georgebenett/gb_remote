@@ -150,7 +150,7 @@ void app_main(void)
     }
 
     lv_disp_load_scr(objects.splash_screen);  // Load splash screen first
-    lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 1000, NULL);  // Create timer for 1 seconds
+    lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 3000, NULL);  // Create timer for 3 seconds
     lv_timer_set_repeat_count(splash_timer, 1);  // Run only once
 
     // Create telemetry printing task
