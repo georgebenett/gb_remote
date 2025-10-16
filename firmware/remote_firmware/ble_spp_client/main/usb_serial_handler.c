@@ -569,7 +569,9 @@ static void handle_calibrate_throttle(const char* command)
         printf("Throttle signals were set to neutral during calibration.\n");
     } else {
         printf("\n✗ Throttle calibration failed!\n");
-        printf("Please try again and ensure the throttle is moved through its full range.\n");
+        printf("This usually means the throttle wasn't moved through its full range.\n");
+        printf("Please ensure you move the throttle from minimum to maximum position\n");
+        printf("and try the calibration again.\n");
     }
     printf("\n");
 }

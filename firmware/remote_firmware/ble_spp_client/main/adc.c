@@ -303,22 +303,32 @@ void adc_calibrate(void) {
 
     // Only update if we got valid readings
     if (min_value != UINT32_MAX && max_value != 0) {
-        // Add small margins to prevent edge cases (5% margin)
         uint32_t range = max_value - min_value;
-        adc_input_min_value = min_value + (range * 0.05);
-        adc_input_max_value = max_value - (range * 0.05);
-
-        calibration_done = true;
-
-        ESP_LOGI(TAG, "ADC calibration complete:");
-        ESP_LOGI(TAG, "Raw min value: %lu", min_value);
-        ESP_LOGI(TAG, "Raw max value: %lu", max_value);
-        ESP_LOGI(TAG, "Calibrated min value: %lu", adc_input_min_value);
-        ESP_LOGI(TAG, "Calibrated max value: %lu", adc_input_max_value);
         
-        printf("Calibration complete!\n");
-        printf("Raw range: %lu - %lu\n", min_value, max_value);
-        printf("Calibrated range: %lu - %lu\n", adc_input_min_value, adc_input_max_value);
+        // Check if the range is sufficient (at least 150 ADC units)
+        if (range < 150) {
+            ESP_LOGE(TAG, "ADC calibration failed - insufficient range: %lu (minimum required: 150)", range);
+            printf("Calibration failed - insufficient throttle movement detected!\n");
+            printf("Range detected: %lu ADC units (minimum required: 150)\n", range);
+            printf("Please move the throttle through its FULL range and try again.\n");
+            calibration_done = false;
+        } else {
+            // Add small margins to prevent edge cases (5% margin)
+            adc_input_min_value = min_value + (range * 0.05);
+            adc_input_max_value = max_value - (range * 0.05);
+
+            calibration_done = true;
+
+            ESP_LOGI(TAG, "ADC calibration complete:");
+            ESP_LOGI(TAG, "Raw min value: %lu", min_value);
+            ESP_LOGI(TAG, "Raw max value: %lu", max_value); 
+            ESP_LOGI(TAG, "Calibrated min value: %lu", adc_input_min_value);
+            ESP_LOGI(TAG, "Calibrated max value: %lu", adc_input_max_value);
+            
+            printf("Calibration complete!\n");
+            printf("Raw range: %lu - %lu\n", min_value, max_value);
+            printf("Calibrated range: %lu - %lu\n", adc_input_min_value, adc_input_max_value);
+        }
     } else {
         ESP_LOGE(TAG, "ADC calibration failed - invalid readings");
         printf("Calibration failed - no valid readings detected\n");
