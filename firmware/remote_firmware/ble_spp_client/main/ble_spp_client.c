@@ -756,6 +756,8 @@ static void adc_send_task(void *pvParameters) {
             // Check if calibration is in progress - send neutral value if so
             if (adc_is_calibrating()) {
                 adc_value = 127;  // Send neutral value (127) during calibration
+            } else if (!adc_is_calibrated()) {
+                adc_value = 127;  // Send neutral value (127) if not calibrated
             } else {
                 adc_value = adc_get_latest_value();
             }
