@@ -1,0 +1,36 @@
+# Ignore build artifacts
+build/
+dist/
+*.o
+*.a
+*.elf
+*.bin
+*.map
+
+# Ignore git files
+.git/
+.gitignore
+
+# Ignore IDE files
+.vscode/
+*.swp
+*.swo
+*~
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore temporary files
+*.tmp
+*.temp
+*.log
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore Docker files themselves
+Dockerfile
+.dockerignore
