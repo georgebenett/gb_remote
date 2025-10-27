@@ -4,20 +4,21 @@ file(GLOB_RECURSE UI_SOURCES
 
 idf_component_register(
     SRCS
-        "button.c"
-        "sleep.c"
-        "ble_spp_client.c"
-        "main.c"
-        "adc.c"
-        "lcd.c"
-        "vesc_config.c"
-        "ui_updater.c"
-        "battery.c"
-        "usb_serial_handler.c"
-        "level_assistant.c"
+        "src/button.c"
+        "src/sleep.c"
+        "src/ble_spp_client.c"
+        "src/main.c"
+        "src/adc.c"
+        "src/lcd.c"
+        "src/vesc_config.c"
+        "src/ui_updater.c"
+        "src/battery.c"
+        "src/usb_serial_handler.c"
+        "src/level_assistant.c"
         ${UI_SOURCES}
     INCLUDE_DIRS
         "."
         "ui"
+        "include"
     REQUIRES driver nvs_flash bt esp_adc spi_flash esp_lcd lvgl
 )

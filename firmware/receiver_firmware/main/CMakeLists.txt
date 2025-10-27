@@ -1,12 +1,16 @@
-idf_component_register(SRCS 
-            "main.c" 
-            "ble_spp_server.c" 
-            "adc.c"
-            "crc.c"
-            "buffer.c"
-            "bldc_interface.c"
-            "bldc_interface_uart.c"
-            "packet.c"
-            "led.c"
-            "bms.c"
-        INCLUDE_DIRS ".")
+idf_component_register(
+    SRCS 
+        "src/main.c" 
+        "src/ble_spp_server.c" 
+        "src/adc.c"
+        "src/crc.c"
+        "src/buffer.c"
+        "src/bldc_interface.c"
+        "src/bldc_interface_uart.c"
+        "src/packet.c"
+        "src/led.c"
+        "src/bms.c"
+    INCLUDE_DIRS
+        "."
+        "include"
+)
