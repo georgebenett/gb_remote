@@ -78,6 +78,17 @@ static void splash_timer_cb(lv_timer_t * timer)
 
 void app_main(void)
 {
+    // Set GPIO 4 to HIGH as first action
+    gpio_config_t gpio4_conf = {
+        .pin_bit_mask = (1ULL << GPIO_NUM_4),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    ESP_ERROR_CHECK(gpio_config(&gpio4_conf));
+    ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_4, 1));
+
     ESP_LOGI(TAG, "Starting Application");
 
     ESP_LOGI(TAG, "Firmware version: %s", APP_VERSION_STRING);

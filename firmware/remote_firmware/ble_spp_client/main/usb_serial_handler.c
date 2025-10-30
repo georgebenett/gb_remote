@@ -74,14 +74,7 @@ void usb_serial_init(void)
     // Add target-specific initialization delay
     vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
 
-    // Use target-specific initialization
-    #if defined(CONFIG_IDF_TARGET_ESP32C3)
-        usb_serial_init_esp32c3();
-    #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-        usb_serial_init_esp32s3();
-    #else
-        usb_serial_init_uart();
-    #endif
+    usb_serial_init_uart();
 
     // Load configuration from NVS
     esp_err_t err = vesc_config_load(&hand_controller_config);

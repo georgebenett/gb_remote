@@ -6,15 +6,6 @@
 #include "freertos/task.h"
 
 // Target-specific USB CDC configurations
-#if defined(CONFIG_IDF_TARGET_ESP32C3)
-    // ESP32-C3 specific USB CDC settings
-    #define USB_CDC_ENABLED 1
-    #define USB_CDC_USE_PRIMARY_CONSOLE 0
-    #define USB_CDC_USE_SECONDARY_CONSOLE 1
-    #define USB_CDC_INIT_DELAY_MS 200
-    #define USB_CDC_TASK_DELAY_MS 100
-    #define USB_CDC_BUFFER_SIZE 512
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
     // ESP32-S3 specific USB CDC settings
     #define USB_CDC_ENABLED 1
     #define USB_CDC_USE_PRIMARY_CONSOLE 1
@@ -56,14 +47,5 @@ void usb_serial_init(void);
 void usb_serial_start_task(void);
 void usb_serial_process_command(const char* command);
 
-// Target-specific initialization functions
-#if defined(CONFIG_IDF_TARGET_ESP32C3)
-void usb_serial_init_esp32c3(void);
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
-void usb_serial_init_esp32s3(void);
-#endif
-
 // External variables and functions that will be called from USB handler
 extern bool is_connect;
-
-#endif // USB_SERIAL_HANDLER_H 

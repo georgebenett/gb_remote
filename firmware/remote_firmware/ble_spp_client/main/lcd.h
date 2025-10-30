@@ -7,27 +7,15 @@
 #include "driver/gpio.h"
 
 // Display configuration
-#if defined(CONFIG_IDF_TARGET_ESP32C3)
-#define TFT_MOSI_PIN GPIO_NUM_10
-#define TFT_SCLK_PIN GPIO_NUM_8
-#define TFT_CS_PIN   GPIO_NUM_6
-#define TFT_DC_PIN   GPIO_NUM_7
-#define TFT_RST_PIN  GPIO_NUM_21
-#define TFT_GND_PIN GPIO_NUM_20
-#define TFT_VCC_PIN GPIO_NUM_9
 
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
-#define TFT_MOSI_PIN GPIO_NUM_40
-#define TFT_SCLK_PIN GPIO_NUM_41
-#define TFT_CS_PIN   GPIO_NUM_6
-#define TFT_DC_PIN   GPIO_NUM_7
-#define TFT_RST_PIN  GPIO_NUM_39
-#define TFT_GND_PIN GPIO_NUM_45
-#define TFT_VCC_PIN GPIO_NUM_47
-#endif
+#define TFT_MOSI_PIN GPIO_NUM_17
+#define TFT_SCLK_PIN GPIO_NUM_16
+#define TFT_CS_PIN   GPIO_NUM_15
+#define TFT_DC_PIN   GPIO_NUM_14
+#define TFT_RST_PIN  GPIO_NUM_18
+#define TFT_BL_PIN   GPIO_NUM_13
 
-
-#define LV_HOR_RES_MAX 240
+#define LV_HOR_RES_MAX 172   
 #define LV_VER_RES_MAX 320
 
 // Function declarations
@@ -36,5 +24,6 @@ lv_obj_t* lcd_create_label(const char* initial_text);
 void lcd_start_tasks(void);
 void lcd_enable_update(void);
 void lcd_disable_update(void);
+void lcd_set_backlight(uint8_t brightness);  // Set backlight brightness (0-255, where 255 is full brightness)
 
 

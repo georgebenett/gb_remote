@@ -1,6 +1,7 @@
 #include "lcd.h"
 #include "esp_log.h"
 #include "driver/spi_master.h"
+#include "driver/ledc.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -12,6 +13,13 @@
 #include "ui_updater.h"
 #include "battery.h"
 #include "esp_task_wdt.h"
+
+// Backlight LEDC configuration
+#define LEDC_TIMER              LEDC_TIMER_0
+#define LEDC_MODE               LEDC_LOW_SPEED_MODE
+#define LEDC_CHANNEL            LEDC_CHANNEL_0
+#define LEDC_DUTY_RES           LEDC_TIMER_8_BIT  // 8-bit resolution (0-255)
+#define LEDC_FREQUENCY          5000  // 5kHz frequency
 
 // Static variables
 static esp_lcd_panel_handle_t panel_handle = NULL;
@@ -30,19 +38,6 @@ static void lv_tick_task(void *arg);
 static void lvgl_handler_task(void *pvParameters);
 
 void lcd_init(void) {
-    // Configure power gpios
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << TFT_GND_PIN) | (1ULL << TFT_VCC_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    ESP_ERROR_CHECK(gpio_config(&io_conf));
-
-    // Turn on the LCD
-    ESP_ERROR_CHECK(gpio_set_level(TFT_GND_PIN, 0));
-    ESP_ERROR_CHECK(gpio_set_level(TFT_VCC_PIN, 1));
 
     spi_bus_config_t buscfg = {
         .mosi_io_num = TFT_MOSI_PIN,
@@ -84,6 +79,31 @@ void lcd_init(void) {
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
 
+    // Configure backlight using LEDC for PWM control
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode       = LEDC_MODE,
+        .timer_num        = LEDC_TIMER,
+        .duty_resolution  = LEDC_DUTY_RES,
+        .freq_hz          = LEDC_FREQUENCY,
+        .clk_cfg          = LEDC_AUTO_CLK
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+
+    ledc_channel_config_t ledc_channel = {
+        .speed_mode     = LEDC_MODE,
+        .channel        = LEDC_CHANNEL,
+        .timer_sel      = LEDC_TIMER,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .gpio_num       = TFT_BL_PIN,
+        .duty           = 0, // Start with 0, will set to full brightness
+        .hpoint         = 0
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+
+    // Set backlight to full brightness (255 = 100% duty cycle for 8-bit resolution)
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 255));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+
     lv_init();
 
     // Allocate two buffers for double buffering with 1/4 screen size
@@ -102,7 +122,7 @@ void lcd_init(void) {
     disp_drv.ver_res = LV_VER_RES_MAX;
     disp_drv.physical_hor_res = LV_HOR_RES_MAX;
     disp_drv.physical_ver_res = LV_VER_RES_MAX;
-    disp_drv.offset_x = 0;
+    disp_drv.offset_x = 34;
     disp_drv.offset_y = 0;
     lv_disp_drv_register(&disp_drv);
 
@@ -161,5 +181,12 @@ void lcd_start_tasks(void) {
 
     // Start all UI update tasks
     ui_start_update_tasks();
+}
+
+void lcd_set_backlight(uint8_t brightness) {
+    // Clamp brightness to valid range (0-255)
+    uint32_t duty = (brightness > 255) ? 255 : brightness;
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, duty));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
 }
 
