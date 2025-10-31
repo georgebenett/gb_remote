@@ -33,14 +33,14 @@
 #define ADC_THROTTLE_OFFSET 0
 
 esp_err_t adc_init(void);
-int32_t adc_read_value(void);
+int32_t throttle_read_value(void);
 void adc_start_task(void);
 uint32_t adc_get_latest_value(void);
-uint8_t map_adc_value(uint32_t adc_value);
+uint8_t map_throttle_value(uint32_t adc_value);
 void throttle_calibrate(void);
 bool throttle_is_calibrated(void);
 void adc_deinit(void);
-void adc_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
+void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 bool adc_get_calibration_status(void);
 bool adc_is_calibrating(void);
 

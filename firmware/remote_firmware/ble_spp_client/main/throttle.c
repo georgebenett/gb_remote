@@ -67,7 +67,7 @@ esp_err_t adc_init(void)
     return ESP_OK;
 }
 
-int32_t adc_read_value(void)
+int32_t throttle_read_value(void)
 {
     if (!adc_initialized || !adc1_handle) {
         ESP_LOGE(TAG, "ADC not properly initialized");
@@ -100,7 +100,7 @@ static void adc_task(void *pvParameters) {
     const uint32_t CHANGE_THRESHOLD = 2; // Adjust this threshold as needed
 
     while (1) {
-        uint32_t adc_value = adc_read_value();
+        uint32_t adc_value = throttle_read_value();
         if (adc_value == -1) {
             error_count++;
             if (error_count >= MAX_ERRORS) {
@@ -116,7 +116,7 @@ static void adc_task(void *pvParameters) {
         }
         error_count = 0;  // Reset error count on successful read
 
-        uint8_t mapped_value = map_adc_value(adc_value);
+        uint8_t mapped_value = map_throttle_value(adc_value);
         latest_adc_value = mapped_value;
         if(!is_connect){
             // Only monitor value changes and reset timer when BLE is not connected
@@ -280,7 +280,7 @@ void throttle_calibrate(void) {
 
     // Take multiple samples to find the actual range
     for (int i = 0; i < ADC_CALIBRATION_SAMPLES; i++) {
-        int32_t value = adc_read_value();
+        int32_t value = throttle_read_value();
         if (value != -1) {  // Valid reading
             if (value < min_value) min_value = value;
             if (value > max_value) max_value = value;
@@ -356,7 +356,7 @@ bool throttle_is_calibrated(void) {
     return calibration_done;
 }
 
-void adc_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
+void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
     if (min_val) *min_val = adc_input_min_value;
     if (max_val) *max_val = adc_input_max_value;
 }
@@ -369,7 +369,7 @@ bool adc_is_calibrating(void) {
     return calibration_in_progress;
 }
 
-uint8_t map_adc_value(uint32_t adc_value) {
+uint8_t map_throttle_value(uint32_t adc_value) {
     // Constrain input value to the calibrated range
     if (adc_value < adc_input_min_value) {
         adc_value = adc_input_min_value;

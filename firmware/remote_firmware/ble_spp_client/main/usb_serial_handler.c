@@ -552,7 +552,7 @@ static void handle_calibrate_throttle(const char* command)
     printf("Please move the throttle through its full range during the next 6 seconds.\n");
     printf("Progress: ");
 
-    // Trigger the ADC calibration
+    // Trigger the Throttle calibration
     throttle_calibrate();
 
     // Check if calibration was successful
@@ -578,16 +578,16 @@ static void handle_get_calibration(const char* command)
 
     if (is_calibrated) {
         uint32_t min_val, max_val;
-        adc_get_calibration_values(&min_val, &max_val);
+        throttle_get_calibration_values(&min_val, &max_val);
         printf("Calibrated Min Value: %lu\n", min_val);
         printf("Calibrated Max Value: %lu\n", max_val);
         printf("Calibrated Range: %lu\n", max_val - min_val);
 
         // Show current ADC reading for reference
-        int32_t current_adc = adc_read_value();
-        if (current_adc != -1) {
-            uint8_t mapped_value = map_adc_value(current_adc);
-            printf("Current ADC Reading: %ld\n", current_adc);
+        int32_t current_throttle = throttle_read_value();
+        if (current_throttle != -1) {
+            uint8_t mapped_value = map_throttle_value(current_throttle);
+            printf("Current ADC Reading: %ld\n", current_throttle);
             printf("Current Mapped Value: %d\n", mapped_value);
         }
     } else {
