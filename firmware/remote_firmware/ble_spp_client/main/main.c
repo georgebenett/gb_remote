@@ -30,52 +30,6 @@ static void splash_timer_cb(lv_timer_t * timer)
     lv_disp_load_scr(objects.home_screen);  // Switch to home screen after timeout
 }
 
-/*static void print_telemetry_task(void *pvParameters)
-{
-    while (1) {
-        if (is_connect) {
-            // Print VESC Data
-            ESP_LOGI(TAG, "-------- VESC Data --------");
-            ESP_LOGI(TAG, "Temperatures:");
-            ESP_LOGI(TAG, "  MOSFET: %.1f°C", get_latest_temp_mos());
-            ESP_LOGI(TAG, "  Motor:  %.1f°C", get_latest_temp_motor());
-            ESP_LOGI(TAG, "Current:");
-            ESP_LOGI(TAG, "  Motor:  %.1fA", get_latest_current_motor());
-            ESP_LOGI(TAG, "  Input:  %.1fA", get_latest_current_in());
-            ESP_LOGI(TAG, "Motor:");
-            ESP_LOGI(TAG, "  RPM:    %ld", get_latest_erpm());
-            ESP_LOGI(TAG, "  Speed:  %.1f km/h", get_latest_erpm() / 7.0f);
-            ESP_LOGI(TAG, "Battery:");
-            ESP_LOGI(TAG, "  Voltage: %.1fV", get_latest_voltage());
-            ESP_LOGI(TAG, "-------------------------\n");
-
-            // Print BMS Data
-            ESP_LOGI(TAG, "--------- BMS Data ---------");
-            ESP_LOGI(TAG, "Pack:");
-            ESP_LOGI(TAG, "  Voltage:   %.2fV", get_bms_total_voltage());
-            ESP_LOGI(TAG, "  Current:   %.2fA", get_bms_current());
-            ESP_LOGI(TAG, "Capacity:");
-            ESP_LOGI(TAG, "  Remaining: %.2fAh", get_bms_remaining_capacity());
-            ESP_LOGI(TAG, "  Nominal:   %.2fAh", get_bms_nominal_capacity());
-            ESP_LOGI(TAG, "  Percent:   %.1f%%",
-                    (get_bms_remaining_capacity() / get_bms_nominal_capacity()) * 100.0f);
-
-            uint8_t num_cells = get_bms_num_cells();
-            ESP_LOGI(TAG, "Cells (%d):", num_cells);
-
-            // Print cell voltages in a grid format
-            for (int i = 0; i < num_cells; i++) {
-                if (i % 4 == 0) {
-                    ESP_LOGI(TAG, "  ");
-                }
-                ESP_LOGI(TAG, "Cell %2d: %.3fV  ", i+1, get_bms_cell_voltage(i));
-            }
-            ESP_LOGI(TAG, "--------------------------\n");
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Print every second
-    }
-}*/
-
 void app_main(void)
 {
     // Set GPIO 4 to HIGH as first action

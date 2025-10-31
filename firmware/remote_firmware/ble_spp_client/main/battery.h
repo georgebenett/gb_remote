@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "esp_err.h"
+#include "adc.h"
 
 // Function declarations
 esp_err_t battery_init(void);
@@ -23,6 +24,5 @@ int battery_get_percentage(void);
 #define BATTERY_MIN_VOLTAGE 3.3f  // Minimum safe LiPo cell voltage
 #define BATTERY_VOLTAGE_SAMPLES 10
 
-#define BATTERY_ADC_CHANNEL ADC_CHANNEL_3
 
 #endif // BATTERY_H
