@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include "esp_err.h"
-#include "adc.h"
+#include "throttle.h"
 
 // Function declarations
 esp_err_t battery_init(void);

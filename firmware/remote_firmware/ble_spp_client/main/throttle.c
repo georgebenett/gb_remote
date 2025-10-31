@@ -1,4 +1,4 @@
-#include "adc.h"
+#include "throttle.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -141,7 +141,7 @@ void adc_start_task(void) {
     // Add delay after initialization
     vTaskDelay(pdMS_TO_TICKS(100));
 
-#if CALIBRATE_ADC
+#if CALIBRATE_THROTTLE
     ESP_LOGI(TAG, "Force calibration flag set, performing calibration");
     // Clear existing calibration
     nvs_handle_t nvs_handle;
@@ -150,11 +150,11 @@ void adc_start_task(void) {
         nvs_commit(nvs_handle);
         nvs_close(nvs_handle);
     }
-    adc_calibrate();
+    throttle_calibrate();
 #else
     // Only calibrate if no valid calibration exists
     if (load_calibration_from_nvs() != ESP_OK) {
-        adc_calibrate();
+        throttle_calibrate();
     }
 #endif
 
@@ -258,7 +258,7 @@ static esp_err_t save_calibration_to_nvs(void) {
     return err;
 }
 
-void adc_calibrate(void) {
+void throttle_calibrate(void) {
     ESP_LOGI(TAG, "Starting ADC calibration...");
     ESP_LOGI(TAG, "Please move throttle through full range during the next 6 seconds");
 
@@ -352,7 +352,7 @@ void adc_calibrate(void) {
     }
 }
 
-bool adc_is_calibrated(void) {
+bool throttle_is_calibrated(void) {
     return calibration_done;
 }
 

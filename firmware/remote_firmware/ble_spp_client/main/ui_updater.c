@@ -1,6 +1,6 @@
 #include "ui_updater.h"
 #include "esp_log.h"
-#include "adc.h"
+#include "throttle.h"
 #include "battery.h"
 #include "ble_spp_client.h"
 #include "esp_timer.h"

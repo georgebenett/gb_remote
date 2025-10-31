@@ -4,7 +4,7 @@
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "ble_spp_client.h"
-#include "adc.h"
+#include "throttle.h"
 #include "lcd.h"
 #include "driver/gpio.h"
 #include "esp_sleep.h"
@@ -72,7 +72,7 @@ void app_main(void)
     adc_start_task();
 
     // Wait for ADC calibration
-    while (!adc_is_calibrated()) {
+    while (!throttle_is_calibrated()) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 

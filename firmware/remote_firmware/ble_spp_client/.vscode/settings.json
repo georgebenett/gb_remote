@@ -15,7 +15,7 @@
     "esp_lcd_panel_dev.h": "c",
     "esp_lcd_panel_nt35510.h": "c",
     "esp_lcd_panel_st7789.h": "c",
-    "adc.h": "c",
+    "throttle.h": "c",
     "menu.h": "c",
     "freertos.h": "c",
     "ui.h": "c",

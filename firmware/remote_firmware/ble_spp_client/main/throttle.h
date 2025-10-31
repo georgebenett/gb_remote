@@ -10,7 +10,7 @@
 #include "esp_adc/adc_oneshot.h"
 #include "hw_config.h"
 
-#define CALIBRATE_ADC 0
+#define CALIBRATE_THROTTLE 0
 
 #define ADC_SAMPLING_TICKS 20
 
@@ -37,8 +37,8 @@ int32_t adc_read_value(void);
 void adc_start_task(void);
 uint32_t adc_get_latest_value(void);
 uint8_t map_adc_value(uint32_t adc_value);
-void adc_calibrate(void);
-bool adc_is_calibrated(void);
+void throttle_calibrate(void);
+bool throttle_is_calibrated(void);
 void adc_deinit(void);
 void adc_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 bool adc_get_calibration_status(void);

@@ -7,7 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ui/ui.h"
-#include "adc.h"
+#include "throttle.h"
 #include "ble_spp_client.h"
 #include "vesc_config.h"
 #include "ui_updater.h"

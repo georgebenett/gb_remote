@@ -27,7 +27,7 @@
 #include "esp_gatt_common_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "adc.h"
+#include "throttle.h"
 #include "level_assistant.h"
 #include "ui_updater.h"
 #include "vesc_config.h"
@@ -756,7 +756,7 @@ static void adc_send_task(void *pvParameters) {
             // Check if calibration is in progress - send neutral value if so
             if (adc_is_calibrating()) {
                 adc_value = 127;  // Send neutral value (127) during calibration
-            } else if (!adc_is_calibrated()) {
+            } else if (!throttle_is_calibrated()) {
                 adc_value = 127;  // Send neutral value (127) if not calibrated
             } else {
                 adc_value = adc_get_latest_value();

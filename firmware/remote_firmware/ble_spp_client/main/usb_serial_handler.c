@@ -10,7 +10,7 @@
 #include "ble_spp_client.h"
 #include "vesc_config.h"
 #include "ui_updater.h"
-#include "adc.h"
+#include "throttle.h"
 #include "level_assistant.h"
 #include "version.h"
 
@@ -553,10 +553,10 @@ static void handle_calibrate_throttle(const char* command)
     printf("Progress: ");
 
     // Trigger the ADC calibration
-    adc_calibrate();
+    throttle_calibrate();
 
     // Check if calibration was successful
-    if (adc_is_calibrated()) {
+    if (throttle_is_calibrated()) {
         printf("\n✓ Throttle calibration completed successfully!\n");
         printf("Calibration values have been saved to memory.\n");
         printf("Throttle signals were set to neutral during calibration.\n");
@@ -573,7 +573,7 @@ static void handle_get_calibration(const char* command)
 {
     printf("\n=== Throttle Calibration Status ===\n");
 
-    bool is_calibrated = adc_is_calibrated();
+    bool is_calibrated = throttle_is_calibrated();
     printf("Calibration Status: %s\n", is_calibrated ? "Calibrated" : "Not Calibrated");
 
     if (is_calibrated) {

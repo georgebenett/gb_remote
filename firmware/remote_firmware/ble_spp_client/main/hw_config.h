@@ -2,7 +2,6 @@
 #define HW_CONFIG_H
 
 #include "driver/gpio.h"
-#include "driver/adc.h"
 
 // ADC channel definitions
 #define THROTTLE_PIN ADC_CHANNEL_2
