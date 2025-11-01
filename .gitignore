@@ -6,7 +6,8 @@ out/
 build/
 
 # IDE specific files
-firmware/.vscode
+.vscode
+firmware/remote_firmware/ble_spp_client/.vscode
 firmware/.vscode/settings.json
 .idea/
 *.swp

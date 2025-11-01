@@ -9,6 +9,8 @@
 #include "esp_err.h"
 #include "freertos/semphr.h"
 #include "vesc_config.h"
+#include "hw_config.h"
+#include "driver/gpio.h"
 
 #define TAG "UI_UPDATER"
 #define TRIP_NVS_NAMESPACE "trip_data"
@@ -24,9 +26,6 @@ static volatile bool force_config_reload = false;
 static uint8_t connection_quality = 0;
 static float total_trip_km = 0.0f;
 static uint32_t last_update_time = 0;
-
-// Add this static variable to track previous battery percentage
-static int previous_battery_percentage = -1;
 
 extern volatile bool entering_sleep_mode;
 
@@ -103,26 +102,25 @@ void ui_update_battery_percentage(int percentage) {
 
     // Only update if home screen is active
     if (get_current_screen() == objects.home_screen) {
-        // Check if battery percentage has changed
-        if (previous_battery_percentage != -1) {
-            // Change icon based on whether percentage is increasing or decreasing
-            if (percentage > previous_battery_percentage + 2) {
-                // Battery percentage increased - show charging icon
-                lv_img_set_src(objects.controller_battery, &img_battery_charging);
-                lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+        // Read charging state from GPIO
+        // LOW = charging, HIGH = not charging (inverted logic)
+        int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
+        bool is_charging = (gpio_level == 0);  // Inverted: LOW means charging
 
-            } else if (percentage < previous_battery_percentage) {
-                // Battery percentage decreased - show normal icon
-                lv_img_set_src(objects.controller_battery, &img_battery);
-                lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-            }
+        // Always update icon and text together, even if state appears unchanged
+        // This ensures LVGL properly refreshes the icon on subsequent updates
+        if (is_charging) {
+            // GPIO is LOW - show charging icon
+            lv_img_set_src(objects.controller_battery, &img_battery_charging);
+            lv_label_set_text_fmt(objects.controller_battery_text, "%d", percentage);
+            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else {
+            // GPIO is HIGH - show normal icon
+            lv_img_set_src(objects.controller_battery, &img_battery);
+            lv_label_set_text_fmt(objects.controller_battery_text, "%d", percentage);
+            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
         }
 
-        // Update the previous percentage
-        previous_battery_percentage = percentage;
-
-        // Format with percentage symbol
-        lv_label_set_text_fmt(objects.controller_battery_text, "%d", percentage);
     }
 
     give_lvgl_mutex();
@@ -428,7 +426,7 @@ static void speed_update_task(void *pvParameters) {
 static void trip_distance_update_task(void *pvParameters) {
     vesc_config_t config;
     ESP_ERROR_CHECK(vesc_config_load(&config));
-    
+
     uint32_t config_reload_counter = 0;
     const uint32_t CONFIG_RELOAD_INTERVAL = 10; // Reload config every 10 updates (1 second at 10Hz)
 
@@ -443,7 +441,7 @@ static void trip_distance_update_task(void *pvParameters) {
             config_reload_counter = 0;
             force_config_reload = false; // Reset the flag
         }
-        
+
         int32_t speed = vesc_config_get_speed(&config);
         ui_update_trip_distance(speed);
         vTaskDelay(pdMS_TO_TICKS(TRIP_UPDATE_MS));

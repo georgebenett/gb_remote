@@ -4,15 +4,19 @@
 #include "driver/gpio.h"
 
 // ADC channel definitions
-#define THROTTLE_PIN ADC_CHANNEL_2
+#define THROTTLE_PIN ADC_CHANNEL_8
+#define BREAK_PIN ADC_CHANNEL_7
 
 
 // Battery ADC channel
-#define BATTERY_ADC_CHANNEL ADC_CHANNEL_3
-#define BATTERY_PIN  ADC_CHANNEL_3
+#define BATTERY_VOLTAGE_PIN ADC_CHANNEL_0
 
 // Button GPIO definitions
 #define MAIN_BUTTON_GPIO GPIO_NUM_10
+
+// Battery status GPIO
+#define BATTERY_IS_CHARGING_GPIO GPIO_NUM_2
+#define BATTERY_PROBE_PIN GPIO_NUM_7
 
 // TFT display GPIO definitions
 #define TFT_MOSI_PIN GPIO_NUM_17

@@ -28,19 +28,24 @@
 #define NVS_NAMESPACE "adc_cal"
 #define NVS_KEY_MIN "min_val"
 #define NVS_KEY_MAX "max_val"
+#define NVS_KEY_BRAKE_MIN "brake_min_val"
+#define NVS_KEY_BRAKE_MAX "brake_max_val"
 #define NVS_KEY_CALIBRATED "cal_done"
 
 #define ADC_THROTTLE_OFFSET 0
 
 esp_err_t adc_init(void);
 int32_t throttle_read_value(void);
+int32_t brake_read_value(void);
 void adc_start_task(void);
 uint32_t adc_get_latest_value(void);
 uint8_t map_throttle_value(uint32_t adc_value);
+uint8_t map_brake_value(uint32_t adc_value);
 void throttle_calibrate(void);
 bool throttle_is_calibrated(void);
 void adc_deinit(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
+void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 bool adc_get_calibration_status(void);
 bool adc_is_calibrating(void);
 

@@ -45,7 +45,6 @@ static vesc_config_t hand_controller_config;
 static void usb_serial_init_uart(void);
 static void usb_serial_task(void *pvParameters);
 static usb_command_t parse_command(const char* input);
-static void print_help(void);
 static void handle_invert_throttle(const char* command);
 static void handle_level_assistant(const char* command);
 static void handle_reset_odometer(const char* command);
@@ -330,27 +329,6 @@ static usb_command_t parse_command(const char* input)
     }
 
     return CMD_UNKNOWN;
-}
-
-static void print_help(void)
-{
-    printf("\n=== Hand Controller Configuration Interface ===\n");
-    printf("Available commands:\n");
-    printf("  invert_throttle          - Toggle throttle inversion\n");
-    printf("  level_assistant          - Toggle level assistant\n");
-    printf("  set_speed_unit_kmh       - Set speed unit to km/h\n");
-    printf("  set_speed_unit_mph       - Set speed unit to mi/h\n");
-    printf("  reset_odometer           - Reset trip odometer\n");
-    printf("  set_motor_pulley <teeth> - Set motor pulley teeth\n");
-    printf("  set_wheel_pulley <teeth> - Set wheel pulley teeth\n");
-    printf("  set_wheel_size <mm>      - Set wheel diameter in mm\n");
-    printf("  set_motor_poles <poles>  - Set motor pole count\n");
-    printf("  get_config               - Display current configuration\n");
-    printf("  calibrate_throttle       - Start throttle calibration\n");
-    printf("  get_calibration          - Get calibration status\n");
-    printf("  get_firmware_version     - Get firmware version\n");
-    printf("  help                     - Show this help\n");
-    printf("\n");
 }
 
 static void handle_invert_throttle(const char* command)

@@ -81,7 +81,7 @@ void create_screen_home_screen() {
             // skate_battery
             lv_obj_t *obj = lv_img_create(parent_obj);
             objects.skate_battery = obj;
-            lv_obj_set_pos(obj, -55, -115);
+            lv_obj_set_pos(obj, -55, -130);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_img_set_src(obj, &img_battery);
             lv_img_set_zoom(obj, 250);
@@ -106,7 +106,7 @@ void create_screen_home_screen() {
             // controller_battery
             lv_obj_t *obj = lv_img_create(parent_obj);
             objects.controller_battery = obj;
-            lv_obj_set_pos(obj, 55, -115);
+            lv_obj_set_pos(obj, 55, -130);
             lv_obj_set_size(obj, 50, 50);
             lv_img_set_src(obj, &img_battery);
             lv_img_set_zoom(obj, 250);
@@ -131,7 +131,7 @@ void create_screen_home_screen() {
             // connection_icon
             lv_obj_t *obj = lv_img_create(parent_obj);
             objects.connection_icon = obj;
-            lv_obj_set_pos(obj, 10, -115);
+            lv_obj_set_pos(obj, 10, -130);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_img_set_src(obj, &img_connection_0);
             lv_img_set_zoom(obj, 180);
@@ -164,7 +164,7 @@ void create_screen_home_screen() {
             // odometer
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.odometer = obj;
-            lv_obj_set_pos(obj, 0, -30);
+            lv_obj_set_pos(obj, 0, -15);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_font(obj, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);

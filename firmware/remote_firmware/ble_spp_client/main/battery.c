@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "throttle.h" // Include ADC header to access its functions
+#include "hw_config.h"
 
 static const char *TAG = "BATTERY";
 static bool battery_initialized = false;
@@ -37,12 +38,44 @@ esp_err_t battery_init(void) {
         return ret;
     }
 
+    // Initialize battery probe pin as OUTPUT
+    gpio_config_t probe_conf = {
+        .pin_bit_mask = (1ULL << BATTERY_PROBE_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    ret = gpio_config(&probe_conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure battery probe pin: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    // Start with probe pin LOW (disabled)
+    gpio_set_level(BATTERY_PROBE_PIN, 0);
+    ESP_LOGI(TAG, "Battery probe pin GPIO %d initialized", BATTERY_PROBE_PIN);
+
+    // Initialize battery charging status GPIO as INPUT
+    gpio_config_t charging_conf = {
+        .pin_bit_mask = (1ULL << BATTERY_IS_CHARGING_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    ret = gpio_config(&charging_conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure battery charging status GPIO: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    ESP_LOGI(TAG, "Battery charging status GPIO %d initialized", BATTERY_IS_CHARGING_GPIO);
+
     // Reduce GPIO log verbosity to avoid seeing configuration messages
     esp_log_level_set("gpio", ESP_LOG_WARN);
 
     battery_initialized = true;
     ESP_LOGI(TAG, "Battery monitoring initialized successfully for ADC1_CH%d",
-            BATTERY_ADC_CHANNEL);
+            BATTERY_VOLTAGE_PIN);
     return ESP_OK;
 }
 
@@ -51,7 +84,16 @@ void battery_start_monitoring(void) {
 }
 
 float battery_read_voltage(void) {
-    int32_t adc_value = adc_read_battery_voltage(BATTERY_ADC_CHANNEL);
+    // Enable battery probe before reading
+    gpio_set_level(BATTERY_PROBE_PIN, 1);
+
+    // Small delay to allow probe to stabilize
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    int32_t adc_value = adc_read_battery_voltage(BATTERY_VOLTAGE_PIN);
+
+    // Disable battery probe after reading
+    gpio_set_level(BATTERY_PROBE_PIN, 0);
 
     if (adc_value < 0) {
         ESP_LOGW(TAG, "No valid ADC samples obtained");

@@ -37,7 +37,7 @@ static void set_bar_value(void * obj, int32_t v)
         // Give UI tasks time to see the flag
         vTaskDelay(pdMS_TO_TICKS(500));
         sleep_enter_deep_sleep();
-        
+
     }
 }
 
@@ -93,7 +93,6 @@ void sleep_init(void) {
     ESP_ERROR_CHECK(button_init(&config));
     button_register_callback(sleep_button_callback, NULL);
 
-    ESP_ERROR_CHECK(esp_sleep_enable_gpio_wakeup());
     last_activity_time = xTaskGetTickCount();
 }
 

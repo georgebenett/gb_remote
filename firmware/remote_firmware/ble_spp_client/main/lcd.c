@@ -101,7 +101,7 @@ void lcd_init(void) {
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
 
     // Set backlight to full brightness (255 = 100% duty cycle for 8-bit resolution)
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 255));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 50));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
 
     lv_init();
@@ -184,9 +184,7 @@ void lcd_start_tasks(void) {
 }
 
 void lcd_set_backlight(uint8_t brightness) {
-    // Clamp brightness to valid range (0-255)
-    uint32_t duty = (brightness > 255) ? 255 : brightness;
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, duty));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, brightness));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
 }
 

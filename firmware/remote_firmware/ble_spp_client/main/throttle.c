@@ -22,6 +22,8 @@ static int error_count = 0;
 static const int MAX_ERRORS = 5;
 static uint32_t adc_input_max_value = ADC_INITIAL_MAX_VALUE;
 static uint32_t adc_input_min_value = ADC_INITIAL_MIN_VALUE;
+static uint32_t brake_input_max_value = ADC_INITIAL_MAX_VALUE;
+static uint32_t brake_input_min_value = ADC_INITIAL_MIN_VALUE;
 static bool calibration_done = false;
 static bool calibration_in_progress = false;
 static esp_err_t load_calibration_from_nvs(void);
@@ -63,6 +65,13 @@ esp_err_t adc_init(void)
         return ret;
     }
 
+    // Configure brake channel
+    ret = adc_oneshot_config_channel(adc1_handle, BREAK_PIN, &config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Brake ADC channel configuration failed");
+        return ret;
+    }
+
     adc_initialized = true;
     return ESP_OK;
 }
@@ -82,6 +91,34 @@ int32_t throttle_read_value(void)
     for (int i = 0; i < NUM_SAMPLES; i++) {
         int adc_raw = 0;
         esp_err_t ret = adc_oneshot_read(adc1_handle, THROTTLE_PIN, &adc_raw);
+
+        if (ret == ESP_OK) {
+            sum += adc_raw;
+            valid_samples++;
+        }
+
+        // Small delay between samples
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    return valid_samples > 0 ? (sum / valid_samples) : -1;
+}
+
+int32_t brake_read_value(void)
+{
+    if (!adc_initialized || !adc1_handle) {
+        ESP_LOGE(TAG, "ADC not properly initialized");
+        return -1;
+    }
+
+    // Take multiple readings and average
+    const int NUM_SAMPLES = 5;
+    int32_t sum = 0;
+    int valid_samples = 0;
+
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        int adc_raw = 0;
+        esp_err_t ret = adc_oneshot_read(adc1_handle, BREAK_PIN, &adc_raw);
 
         if (ret == ESP_OK) {
             sum += adc_raw;
@@ -204,7 +241,7 @@ static esp_err_t load_calibration_from_nvs(void) {
         return ESP_ERR_NOT_FOUND;
     }
 
-    // Read calibration values
+    // Read throttle calibration values
     err = nvs_get_u32(nvs_handle, NVS_KEY_MIN, &adc_input_min_value);
     if (err != ESP_OK) {
         nvs_close(nvs_handle);
@@ -215,6 +252,17 @@ static esp_err_t load_calibration_from_nvs(void) {
     if (err != ESP_OK) {
         nvs_close(nvs_handle);
         return err;
+    }
+
+    // Read brake calibration values (if available, use defaults otherwise)
+    err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MIN, &brake_input_min_value);
+    if (err != ESP_OK) {
+        brake_input_min_value = ADC_INITIAL_MIN_VALUE;
+    }
+
+    err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MAX, &brake_input_max_value);
+    if (err != ESP_OK) {
+        brake_input_max_value = ADC_INITIAL_MAX_VALUE;
     }
 
     nvs_close(nvs_handle);
@@ -232,7 +280,7 @@ static esp_err_t save_calibration_to_nvs(void) {
         return err;
     }
 
-    // Save calibration values
+    // Save throttle calibration values
     err = nvs_set_u32(nvs_handle, NVS_KEY_MIN, adc_input_min_value);
     if (err != ESP_OK) {
         nvs_close(nvs_handle);
@@ -240,6 +288,19 @@ static esp_err_t save_calibration_to_nvs(void) {
     }
 
     err = nvs_set_u32(nvs_handle, NVS_KEY_MAX, adc_input_max_value);
+    if (err != ESP_OK) {
+        nvs_close(nvs_handle);
+        return err;
+    }
+
+    // Save brake calibration values
+    err = nvs_set_u32(nvs_handle, NVS_KEY_BRAKE_MIN, brake_input_min_value);
+    if (err != ESP_OK) {
+        nvs_close(nvs_handle);
+        return err;
+    }
+
+    err = nvs_set_u32(nvs_handle, NVS_KEY_BRAKE_MAX, brake_input_max_value);
     if (err != ESP_OK) {
         nvs_close(nvs_handle);
         return err;
@@ -260,7 +321,7 @@ static esp_err_t save_calibration_to_nvs(void) {
 
 void throttle_calibrate(void) {
     ESP_LOGI(TAG, "Starting ADC calibration...");
-    ESP_LOGI(TAG, "Please move throttle through full range during the next 6 seconds");
+    ESP_LOGI(TAG, "Please move throttle and brake through full range during the next 6 seconds");
 
     // Set calibration in progress flag BEFORE any early returns
     calibration_in_progress = true;
@@ -273,17 +334,26 @@ void throttle_calibrate(void) {
         nvs_close(nvs_handle);
     }
 
-    uint32_t min_value = UINT32_MAX;
-    uint32_t max_value = 0;
+    uint32_t throttle_min = UINT32_MAX;
+    uint32_t throttle_max = 0;
+    uint32_t brake_min = UINT32_MAX;
+    uint32_t brake_max = 0;
     int progress = 0;
     int last_reported_progress = -1;
 
-    // Take multiple samples to find the actual range
+    // Take multiple samples to find the actual range for both throttle and brake
     for (int i = 0; i < ADC_CALIBRATION_SAMPLES; i++) {
-        int32_t value = throttle_read_value();
-        if (value != -1) {  // Valid reading
-            if (value < min_value) min_value = value;
-            if (value > max_value) max_value = value;
+        int32_t throttle_value = throttle_read_value();
+        int32_t brake_value = brake_read_value();
+
+        if (throttle_value != -1) {  // Valid reading
+            if (throttle_value < throttle_min) throttle_min = throttle_value;
+            if (throttle_value > throttle_max) throttle_max = throttle_value;
+        }
+
+        if (brake_value != -1) {  // Valid reading
+            if (brake_value < brake_min) brake_min = brake_value;
+            if (brake_value > brake_max) brake_max = brake_value;
         }
 
         // Calculate and report progress every 10%
@@ -301,36 +371,68 @@ void throttle_calibrate(void) {
     // Clear calibration in progress flag
     calibration_in_progress = false;
 
-    // Only update if we got valid readings
-    if (min_value != UINT32_MAX && max_value != 0) {
-        uint32_t range = max_value - min_value;
-        
+    bool throttle_valid = (throttle_min != UINT32_MAX && throttle_max != 0);
+    bool brake_valid = (brake_min != UINT32_MAX && brake_max != 0);
+
+    // Calibrate throttle
+    if (throttle_valid) {
+        uint32_t throttle_range = throttle_max - throttle_min;
+
         // Check if the range is sufficient (at least 150 ADC units)
-        if (range < 150) {
-            ESP_LOGE(TAG, "ADC calibration failed - insufficient range: %lu (minimum required: 150)", range);
-            printf("Calibration failed - insufficient throttle movement detected!\n");
-            printf("Range detected: %lu ADC units (minimum required: 150)\n", range);
-            printf("Please move the throttle through its FULL range and try again.\n");
-            calibration_done = false;
+        if (throttle_range < 150) {
+            ESP_LOGE(TAG, "Throttle calibration failed - insufficient range: %lu (minimum required: 150)", throttle_range);
+            printf("Throttle calibration failed - insufficient movement detected!\n");
         } else {
             // Add small margins to prevent edge cases (5% margin)
-            adc_input_min_value = min_value + (range * 0.05);
-            adc_input_max_value = max_value - (range * 0.05);
+            adc_input_min_value = throttle_min + (throttle_range * 0.05);
+            adc_input_max_value = throttle_max - (throttle_range * 0.05);
 
-            calibration_done = true;
-
-            ESP_LOGI(TAG, "ADC calibration complete:");
-            ESP_LOGI(TAG, "Raw min value: %lu", min_value);
-            ESP_LOGI(TAG, "Raw max value: %lu", max_value); 
+            ESP_LOGI(TAG, "Throttle calibration complete:");
+            ESP_LOGI(TAG, "Raw min value: %lu", throttle_min);
+            ESP_LOGI(TAG, "Raw max value: %lu", throttle_max);
             ESP_LOGI(TAG, "Calibrated min value: %lu", adc_input_min_value);
             ESP_LOGI(TAG, "Calibrated max value: %lu", adc_input_max_value);
-            
-            printf("Calibration complete!\n");
-            printf("Raw range: %lu - %lu\n", min_value, max_value);
-            printf("Calibrated range: %lu - %lu\n", adc_input_min_value, adc_input_max_value);
         }
     } else {
-        ESP_LOGE(TAG, "ADC calibration failed - invalid readings");
+        ESP_LOGE(TAG, "Throttle calibration failed - invalid readings");
+    }
+
+    // Calibrate brake
+    if (brake_valid) {
+        uint32_t brake_range = brake_max - brake_min;
+
+        // Check if the range is sufficient (at least 150 ADC units)
+        if (brake_range < 150) {
+            ESP_LOGE(TAG, "Brake calibration failed - insufficient range: %lu (minimum required: 150)", brake_range);
+            printf("Brake calibration failed - insufficient movement detected!\n");
+        } else {
+            // Add small margins to prevent edge cases (5% margin)
+            brake_input_min_value = brake_min + (brake_range * 0.05);
+            brake_input_max_value = brake_max - (brake_range * 0.05);
+
+            ESP_LOGI(TAG, "Brake calibration complete:");
+            ESP_LOGI(TAG, "Raw min value: %lu", brake_min);
+            ESP_LOGI(TAG, "Raw max value: %lu", brake_max);
+            ESP_LOGI(TAG, "Calibrated min value: %lu", brake_input_min_value);
+            ESP_LOGI(TAG, "Calibrated max value: %lu", brake_input_max_value);
+        }
+    } else {
+        ESP_LOGE(TAG, "Brake calibration failed - invalid readings");
+    }
+
+    // Mark calibration as done if at least throttle is valid
+    if (throttle_valid) {
+        calibration_done = true;
+        printf("Calibration complete!\n");
+        if (throttle_valid) {
+            printf("Throttle range: %lu - %lu\n", throttle_min, throttle_max);
+        }
+        if (brake_valid) {
+            printf("Brake range: %lu - %lu\n", brake_min, brake_max);
+        }
+    } else {
+        calibration_done = false;
+        ESP_LOGE(TAG, "ADC calibration failed");
         printf("Calibration failed - no valid readings detected\n");
     }
 
@@ -361,6 +463,11 @@ void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
     if (max_val) *max_val = adc_input_max_value;
 }
 
+void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
+    if (min_val) *min_val = brake_input_min_value;
+    if (max_val) *max_val = brake_input_max_value;
+}
+
 bool adc_get_calibration_status(void) {
     return calibration_done;
 }
@@ -388,7 +495,25 @@ uint8_t map_throttle_value(uint32_t adc_value) {
     if (mapped > 0) {
         mapped += ADC_THROTTLE_OFFSET;
     }
-    
+
+    return mapped;
+}
+
+uint8_t map_brake_value(uint32_t adc_value) {
+    // Constrain input value to the calibrated range
+    if (adc_value < brake_input_min_value) {
+        adc_value = brake_input_min_value;
+    }
+    if (adc_value > brake_input_max_value) {
+        adc_value = brake_input_max_value;
+    }
+
+    // Perform the mapping (no offset for brake)
+    uint8_t mapped = (uint8_t)((adc_value - brake_input_min_value) *
+           (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) /
+           (brake_input_max_value - brake_input_min_value) +
+           ADC_OUTPUT_MIN_VALUE);
+
     return mapped;
 }
 
@@ -404,13 +529,13 @@ esp_err_t adc_battery_init(void) {
         .bitwidth = ADC_BITWIDTH_12
     };
 
-    esp_err_t ret = adc_oneshot_config_channel(adc1_handle, BATTERY_PIN, &battery_config);
+    esp_err_t ret = adc_oneshot_config_channel(adc1_handle, BATTERY_VOLTAGE_PIN, &battery_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Battery ADC channel configuration failed");
         return ret;
     }
 
-    ESP_LOGI(TAG, "Battery ADC initialized successfully on ADC1_CH%d", BATTERY_PIN);
+    ESP_LOGI(TAG, "Battery ADC initialized successfully on ADC1_CH%d", BATTERY_VOLTAGE_PIN);
     return ESP_OK;
 }
 

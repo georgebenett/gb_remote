@@ -33,5 +33,6 @@
   },
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3"
-  }
+  },
+  "idf.pythonInstallPath": "/usr/bin/python3"
 }

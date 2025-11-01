@@ -22,12 +22,35 @@
 
 #define TAG "MAIN"
 
+#define TELEMETRY_LOG_INTERVAL_MS 1000  // Log every 1 second
 
 extern bool is_connect;
 
 static void splash_timer_cb(lv_timer_t * timer)
 {
     lv_disp_load_scr(objects.home_screen);  // Switch to home screen after timeout
+}
+
+static void telemetry_log_task(void *pvParameters)
+{
+    TickType_t last_wake_time = xTaskGetTickCount();
+    const TickType_t frequency = pdMS_TO_TICKS(TELEMETRY_LOG_INTERVAL_MS);
+
+    while (1) {
+        vTaskDelayUntil(&last_wake_time, frequency);
+
+        // Read throttle value
+        int32_t throttle_value = throttle_read_value();
+
+        // Read brake value
+        int32_t brake_value = brake_read_value();
+
+        // Read battery voltage
+        float battery_voltage = battery_get_voltage();
+
+        // Log all values
+        ESP_LOGI(TAG, "Throttle: %ld, Brake: %ld, Battery Voltage: %.2f V", throttle_value, brake_value, battery_voltage);
+    }
 }
 
 void app_main(void)
@@ -118,8 +141,8 @@ void app_main(void)
     lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 3000, NULL);  // Create timer for 3 seconds
     lv_timer_set_repeat_count(splash_timer, 1);  // Run only once
 
-    // Create telemetry printing task
-    //xTaskCreate(print_telemetry_task, "telemetry", 4096, NULL, 1, NULL);
+    // Create telemetry logging task
+    xTaskCreate(telemetry_log_task, "telemetry_log", 4096, NULL, 1, NULL);
 
     // Main task can now sleep
     while (1) {
