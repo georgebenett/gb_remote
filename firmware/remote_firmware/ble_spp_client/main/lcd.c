@@ -75,7 +75,7 @@ void lcd_init(void) {
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0, 0));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, false));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, true));  // 180 degree rotation
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
 
