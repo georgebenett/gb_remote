@@ -7,7 +7,8 @@ build/
 
 # IDE specific files
 .vscode
-firmware/remote_firmware/ble_spp_client/.vscode
+firmware/remote_firmware/ble_spp_client/.vscode/*
+firmware/remote_firmware/ble_spp_client/.cache/*
 firmware/.vscode/settings.json
 .idea/
 *.swp

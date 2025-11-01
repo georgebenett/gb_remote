@@ -18,7 +18,6 @@ extern void action_call_set_pole_pairs(lv_event_t * e);
 extern void action_call_set_motor_pulley(lv_event_t * e);
 extern void action_call_set_wheel_size(lv_event_t * e);
 extern void action_call_set_wheel_pulley(lv_event_t * e);
-extern void action_call_invert_throttle(lv_event_t * e);
 extern void action_call_disable_hand_sensor(lv_event_t * e);
 extern void action_call_calibrate_hand_sensor(lv_event_t * e);
 extern void action_call_reset_to_defaults(lv_event_t * e);

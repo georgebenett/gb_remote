@@ -45,11 +45,10 @@ static void telemetry_log_task(void *pvParameters)
         // Read brake value
         int32_t brake_value = brake_read_value();
 
-        // Read battery voltage
-        float battery_voltage = battery_get_voltage();
+        uint32_t ble_value = adc_get_latest_value();
 
         // Log all values
-        ESP_LOGI(TAG, "Throttle: %ld, Brake: %ld, Battery Voltage: %.2f V", throttle_value, brake_value, battery_voltage);
+        ESP_LOGI(TAG, "Throttle: %ld, Brake: %ld ble value: %ld", throttle_value, brake_value, ble_value);
     }
 }
 
