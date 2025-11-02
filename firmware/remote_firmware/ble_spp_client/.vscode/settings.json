@@ -8,7 +8,7 @@
   ],
   "files.associations": {
     "string.h": "c",
-    "ble_spp_client.h": "c",
+    "ble.h": "c",
     "lvgl.h": "c",
     "esp_lcd_panel_vendor.h": "c",
     "esp_lcd_panel_ops.h": "c",

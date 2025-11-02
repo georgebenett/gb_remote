@@ -8,7 +8,7 @@
 #include "freertos/task.h"
 #include "ui.h"
 #include "throttle.h"
-#include "ble_spp_client.h"
+#include "ble.h"
 #include "vesc_config.h"
 #include "ui_updater.h"
 #include "battery.h"

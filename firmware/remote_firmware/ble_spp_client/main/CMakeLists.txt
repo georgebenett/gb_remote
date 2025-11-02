@@ -28,7 +28,7 @@ idf_component_register(
     SRCS
         "button.c"
         "power.c"
-        "ble_spp_client.c"
+        "ble.c"
         "main.c"
         "throttle.c"
         "lcd.c"

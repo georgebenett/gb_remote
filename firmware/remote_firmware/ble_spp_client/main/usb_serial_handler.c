@@ -7,7 +7,7 @@
 #include "esp_vfs_usb_serial_jtag.h"
 #include "esp_vfs_dev.h"
 #include "fcntl.h"
-#include "ble_spp_client.h"
+#include "ble.h"
 #include "vesc_config.h"
 #include "ui_updater.h"
 #include "throttle.h"

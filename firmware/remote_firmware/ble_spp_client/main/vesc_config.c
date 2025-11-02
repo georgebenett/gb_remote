@@ -2,7 +2,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
-#include "ble_spp_client.h"
+#include "ble.h"
 #include <math.h>
 static const char *TAG = "VESC_CONFIG";
 

@@ -32,7 +32,7 @@
 #include "level_assistant.h"
 #include "ui_updater.h"
 #include "vesc_config.h"
-#include "ble_spp_client.h"
+#include "ble.h"
 #define DEVICE_NAME                 "GS-THUMB"
 #define GATTC_TAG                   "GATTC_SPP_DEMO"
 

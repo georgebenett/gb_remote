@@ -3,7 +3,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
-#include "ble_spp_client.h"
+#include "ble.h"
 #include "throttle.h"
 #include "lcd.h"
 #include "driver/gpio.h"

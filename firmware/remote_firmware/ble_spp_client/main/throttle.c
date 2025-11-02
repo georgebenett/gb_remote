@@ -9,7 +9,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "target_config.h"
-#include "ble_spp_client.h"
+#include "ble.h"
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 #include "power.h"

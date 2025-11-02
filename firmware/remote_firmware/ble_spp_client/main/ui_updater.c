@@ -2,7 +2,7 @@
 #include "esp_log.h"
 #include "throttle.h"
 #include "battery.h"
-#include "ble_spp_client.h"
+#include "ble.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
