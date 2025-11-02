@@ -16,6 +16,7 @@
 static TickType_t last_activity_time;
 static TickType_t last_reset_time = 0;
 #define RESET_DEBOUNCE_TIME_MS 2000
+#define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000)  // 5 minutes
 
 static lv_anim_t arc_anim;
 static bool arc_animation_active = false;
@@ -140,11 +141,12 @@ void power_check_inactivity(bool is_ble_connected)
     TickType_t current_time = xTaskGetTickCount();
     TickType_t elapsed_time = (current_time - last_activity_time) * portTICK_PERIOD_MS;
 
-    // Check if we should shut down (if inactive and not connected)
-    // Note: Inactivity timeout removed - power control is manual via button only
-    // This function can be used for future inactivity-based shutdown if needed
-    (void)elapsed_time;
-    (void)is_ble_connected;
+    if (!is_ble_connected &&
+        button_released_since_boot &&
+        elapsed_time >= INACTIVITY_TIMEOUT_MS) {
+        ESP_LOGI(TAG, "Inactivity timeout reached (%u ms) - shutting down", (unsigned int)elapsed_time);
+        power_shutdown();
+    }
 }
 
 void power_shutdown(void) {

@@ -192,11 +192,7 @@ static void adc_task(void *pvParameters) {
         if(!is_connect){
             // Only monitor value changes and reset timer when BLE is not connected
             if (abs((int32_t)mapped_value - (int32_t)last_value) > CHANGE_THRESHOLD) {
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
                 power_reset_inactivity_timer();
-#elif defined(CONFIG_TARGET_LITE)
-                power_reset_inactivity_timer();  // lite also uses power.h
-#endif
                 last_value = mapped_value;
             }
         }
