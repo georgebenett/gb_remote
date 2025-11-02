@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include "nvs_flash.h"
 #include "nvs.h"
-#include "sleep.h"
+#include "power.h"
 #include "ble_spp_client.h"
 
 static const char *TAG = "ADC";
@@ -159,7 +159,7 @@ static void adc_task(void *pvParameters) {
         if(!is_connect){
             // Only monitor value changes and reset timer when BLE is not connected
             if (abs((int32_t)mapped_value - (int32_t)last_value) > CHANGE_THRESHOLD) {
-                sleep_reset_inactivity_timer();
+                power_reset_inactivity_timer();
                 last_value = mapped_value;
             }
         }

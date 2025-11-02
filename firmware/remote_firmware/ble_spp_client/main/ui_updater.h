@@ -18,6 +18,7 @@ extern const lv_img_dsc_t img_100_connection;
 // Functions to update specific UI elements
 void ui_update_speed(int32_t value);
 void ui_update_battery_percentage(int percentage);
+void ui_update_battery_voltage_display(float voltage);
 void ui_update_battery_voltage(float voltage);
 void ui_update_motor_current(float current);
 void ui_update_battery_current(float current);
@@ -27,6 +28,7 @@ void ui_update_connection_icon(void);
 void ui_update_trip_distance(int32_t speed_kmh);
 void ui_reset_trip_distance(void);
 void ui_update_skate_battery_percentage(int percentage);
+void ui_update_skate_battery_voltage_display(float voltage);
 
 esp_err_t ui_save_trip_distance(void);
 esp_err_t ui_load_trip_distance(void);

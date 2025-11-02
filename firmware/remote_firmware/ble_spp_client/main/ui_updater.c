@@ -11,6 +11,8 @@
 #include "vesc_config.h"
 #include "hw_config.h"
 #include "driver/gpio.h"
+#include <stdio.h>
+#include <string.h>
 
 #define TAG "UI_UPDATER"
 #define TRIP_NVS_NAMESPACE "trip_data"
@@ -27,7 +29,7 @@ static uint8_t connection_quality = 0;
 static float total_trip_km = 0.0f;
 static uint32_t last_update_time = 0;
 
-extern volatile bool entering_sleep_mode;
+extern volatile bool entering_power_off_mode;
 
 // Add these at the top with other defines
 #define SPEED_UPDATE_MS       20    // 50Hz instead of 100Hz for better stability
@@ -73,7 +75,7 @@ void give_lvgl_mutex(void) {
 }
 
 void ui_update_speed(int32_t value) {
-    if (entering_sleep_mode || !objects.speedlabel) return;
+    if (entering_power_off_mode || !objects.speedlabel) return;
 
     static int32_t last_value = -1;
 
@@ -91,7 +93,7 @@ void ui_update_speed(int32_t value) {
 
 void ui_update_battery_percentage(int percentage) {
     // Skip updates if we're entering sleep mode
-    if (entering_sleep_mode) return;
+    if (entering_power_off_mode) return;
 
     if (objects.controller_battery_text == NULL || objects.controller_battery == NULL) return;
 
@@ -126,9 +128,44 @@ void ui_update_battery_percentage(int percentage) {
     give_lvgl_mutex();
 }
 
+void ui_update_battery_voltage_display(float voltage) {
+    // Skip updates if we're entering power off mode
+    if (entering_power_off_mode) return;
+
+    if (objects.controller_battery_text == NULL || objects.controller_battery == NULL) return;
+
+    if (!take_lvgl_mutex()) {
+        ESP_LOGW(TAG, "Failed to take LVGL mutex for battery voltage update");
+        return;
+    }
+
+    // Only update if home screen is active
+    if (get_current_screen() == objects.home_screen) {
+        // Read charging state from GPIO
+        // LOW = charging, HIGH = not charging (inverted logic)
+        int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
+        bool is_charging = (gpio_level == 0);  // Inverted: LOW means charging
+
+        // Always update icon and text together
+        if (is_charging) {
+            // GPIO is LOW - show charging icon
+            lv_img_set_src(objects.controller_battery, &img_battery_charging);
+            lv_label_set_text_fmt(objects.controller_battery_text, "%.1f", voltage);
+            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+        } else {
+            // GPIO is HIGH - show normal icon
+            lv_img_set_src(objects.controller_battery, &img_battery);
+            lv_label_set_text_fmt(objects.controller_battery_text, "%.1f", voltage);
+            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+        }
+    }
+
+    give_lvgl_mutex();
+}
+
 void ui_update_skate_battery_percentage(int percentage) {
     // Skip updates if we're entering sleep mode
-    if (entering_sleep_mode) return;
+    if (entering_power_off_mode) return;
 
     if (objects.skate_battery_text == NULL) return;
 
@@ -141,6 +178,35 @@ void ui_update_skate_battery_percentage(int percentage) {
     if (get_current_screen() == objects.home_screen) {
         // Format with percentage symbol
         lv_label_set_text_fmt(objects.skate_battery_text, "%d", percentage);
+    }
+
+    give_lvgl_mutex();
+}
+
+void ui_update_skate_battery_voltage_display(float voltage) {
+    // Skip updates if we're entering power off mode
+    if (entering_power_off_mode) return;
+
+    if (objects.skate_battery_text == NULL) return;
+
+    if (!take_lvgl_mutex()) {
+        ESP_LOGW(TAG, "Failed to take LVGL mutex for skate battery voltage update");
+        return;
+    }
+
+    // Only update if home screen is active
+    if (get_current_screen() == objects.home_screen) {
+        // Format voltage as string manually since LVGL may not support float formatting
+        // Format: "XX.X" (one decimal place)
+        char voltage_str[16];
+        int volts = (int)voltage;
+        int tenths = (int)((voltage - volts) * 10 + 0.5f);  // Round to nearest tenth
+        if (tenths >= 10) {
+            tenths = 0;
+            volts++;
+        }
+        snprintf(voltage_str, sizeof(voltage_str), "%d.%d", volts, tenths);
+        lv_label_set_text(objects.skate_battery_text, voltage_str);
     }
 
     give_lvgl_mutex();
@@ -168,7 +234,7 @@ void ui_update_connection_quality(int rssi) {
 
 void ui_update_connection_icon(void) {
     // Skip updates if we're entering sleep mode
-    if (entering_sleep_mode) return;
+    if (entering_power_off_mode) return;
 
     if (objects.connection_icon == NULL) return;
 
@@ -202,7 +268,7 @@ void ui_update_connection_icon(void) {
 
 void ui_update_trip_distance(int32_t speed_kmh) {
     // Skip updates if we're entering sleep mode
-    if (entering_sleep_mode) return;
+    if (entering_power_off_mode) return;
 
     if (objects.odometer == NULL) return;
 
@@ -378,7 +444,7 @@ void ui_check_mutex_health(void) {
 
 // Add this function after the existing UI update functions
 void ui_update_speed_unit(bool is_mph) {
-    if (entering_sleep_mode || !objects.static_speed) return;
+    if (entering_power_off_mode || !objects.static_speed) return;
 
     if (take_lvgl_mutex()) {
         if (get_current_screen() == objects.home_screen) {
@@ -450,15 +516,35 @@ static void trip_distance_update_task(void *pvParameters) {
 
 static void battery_update_task(void *pvParameters) {
     while (1) {
+        // Update controller battery percentage
         int battery_percentage = battery_get_percentage();
         if (battery_percentage >= 0) {
             ui_update_battery_percentage(battery_percentage);
         }
 
+        // Update skate battery display
         if (is_connect) {
-            int skate_battery_percentage = get_bms_battery_percentage();
-            if (skate_battery_percentage >= 0) {
-                ui_update_skate_battery_percentage(skate_battery_percentage);
+            // Check if BMS is connected (BMS voltage > 0 means BMS is connected)
+            float bms_voltage = get_bms_total_voltage();
+            bool bms_connected = (bms_voltage > 0.1f);  // Threshold to avoid noise
+
+            if (!bms_connected) {
+                // BMS not connected, display VESC voltage in skate_battery_text
+                float vesc_voltage = get_latest_voltage();
+
+                if (vesc_voltage > 0.1f) {
+                    // Display VESC voltage directly in skate_battery_text
+                    ui_update_skate_battery_voltage_display(vesc_voltage);
+                } else {
+                    // VESC voltage not available, clear or show 0
+                    ui_update_skate_battery_percentage(0);
+                }
+            } else {
+                // BMS connected, show BMS battery percentage
+                int skate_battery_percentage = get_bms_battery_percentage();
+                if (skate_battery_percentage >= 0) {
+                    ui_update_skate_battery_percentage(skate_battery_percentage);
+                }
             }
         }
 
