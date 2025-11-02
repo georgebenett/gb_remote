@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/3",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -196,10 +196,44 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 65,
-              "selected": -1,
+              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
-              "children": [],
+              "children": [
+                {
+                  "type": "tab",
+                  "id": "#636f985a-3742-4440-aabd-2bcbcb2db786",
+                  "name": "shutdown screen",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[eezproject.eez-project]:/userPages/2",
+                    "permanent": true
+                  },
+                  "icon": "svg:page"
+                },
+                {
+                  "type": "tab",
+                  "id": "#c881c365-1517-4cf8-ab69-fef4500899d7",
+                  "name": "home screen",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[eezproject.eez-project]:/userPages/1",
+                    "permanent": true
+                  },
+                  "icon": "svg:page"
+                },
+                {
+                  "type": "tab",
+                  "id": "#f7628938-c0e4-44c0-ac20-5ae7b9b1b467",
+                  "name": "splash screen",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[eezproject.eez-project]:/userPages/0",
+                    "permanent": true
+                  },
+                  "icon": "svg:page"
+                }
+              ],
               "active": true
             },
             {
@@ -1503,16 +1537,14 @@
       "selection": {
         "0": {
           "1": {
-            "0": {
-              "$selected": true
-            }
+            "0": {}
           }
         }
       },
       "transform": {
         "translate": {
-          "x": -137,
-          "y": -447
+          "x": -40,
+          "y": -218
         },
         "scale": 1.5
       },
@@ -1526,15 +1558,13 @@
     "[eezproject.eez-project]:/userPages/0[flow-state]": {
       "selection": {
         "0": {
-          "1": {
-            "0": {}
-          }
+          "1": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -151,
-          "y": -374
+          "x": -134,
+          "y": -252
         },
         "scale": 1.5
       },
