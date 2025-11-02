@@ -36,6 +36,7 @@ static esp_timer_handle_t periodic_timer;
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map);
 static void lv_tick_task(void *arg);
 static void lvgl_handler_task(void *pvParameters);
+void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms);
 
 void lcd_init(void) {
 
@@ -100,10 +101,6 @@ void lcd_init(void) {
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
 
-    // Set backlight to full brightness (255 = 100% duty cycle for 8-bit resolution)
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 50));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
-
     lv_init();
 
     // Allocate two buffers for double buffering with 1/4 screen size
@@ -138,7 +135,6 @@ void lcd_init(void) {
 
     // Initialize UI updater before starting display tasks
     ui_updater_init();
-
     // Start display tasks
     lcd_start_tasks();
 }
@@ -186,5 +182,37 @@ void lcd_start_tasks(void) {
 void lcd_set_backlight(uint8_t brightness) {
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, brightness));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+}
+
+void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms) {
+    if (start == end) {
+        // No fade needed, just set the value
+        lcd_set_backlight(end);
+        return;
+    }
+
+    const uint16_t num_steps = 100;  // Number of steps for smooth fade
+    const uint16_t step_delay_ms = duration_ms / num_steps;
+
+    int16_t start_val = (int16_t)start;
+    int16_t end_val = (int16_t)end;
+    int16_t delta = end_val - start_val;
+
+    // Perform the fade
+    for (uint16_t i = 0; i <= num_steps; i++) {
+        // Calculate current brightness value (linear interpolation)
+        int16_t current = start_val + (delta * i) / num_steps;
+
+        // Clamp to valid range (0-255)
+        if (current < 0) current = 0;
+        if (current > 255) current = 255;
+
+        ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, (uint8_t)current));
+        ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+
+        if (i < num_steps) {
+            vTaskDelay(pdMS_TO_TICKS(step_delay_ms));
+        }
+    }
 }
 

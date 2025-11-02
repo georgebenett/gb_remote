@@ -196,10 +196,21 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 54.39745508982036,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
+                {
+                  "type": "tab",
+                  "id": "#4747c15d-c8bf-4e06-b77d-39cbfb54cec1",
+                  "name": "Settings",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[eezproject.eez-project]:/settings",
+                    "subObjectPath": "[eezproject.eez-project]:/settings",
+                    "permanent": false
+                  },
+                  "icon": "material:settings"
+                },
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
@@ -210,18 +221,6 @@
                     "permanent": false
                   },
                   "icon": "svg:page"
-                },
-                {
-                  "type": "tab",
-                  "id": "#50de3ba1-0a5e-4b8f-b53f-cca4bb102297",
-                  "name": "Settings",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/settings",
-                    "subObjectPath": "[eezproject.eez-project]:/settings",
-                    "permanent": false
-                  },
-                  "icon": "material:settings"
                 },
                 {
                   "type": "tab",
@@ -1539,7 +1538,8 @@
         "0": {
           "1": {
             "0": {}
-          }
+          },
+          "2": {}
         }
       },
       "transform": {

@@ -515,14 +515,46 @@ static void trip_distance_update_task(void *pvParameters) {
 }
 
 static void battery_update_task(void *pvParameters) {
+    // Filter state for smoothing controller battery percentage when charging
+    static float filtered_controller_battery = -1.0f;
+    static bool filter_initialized = false;
+
+    // Smoothing factor (0.0-1.0): lower = more smoothing, higher = more responsive
+    // 0.1 means 10% new value, 90% old value - provides strong smoothing
+    const float filter_alpha = 0.1f;
+
     while (1) {
+        // Check if charger is plugged in
+        int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
+        bool is_charging = (gpio_level == 0);  // Inverted: LOW means charging
+
         // Update controller battery percentage
         int battery_percentage = battery_get_percentage();
         if (battery_percentage >= 0) {
-            ui_update_battery_percentage(battery_percentage);
+            int display_percentage = battery_percentage;
+
+            if (is_charging) {
+                // Apply filter when charging
+                if (!filter_initialized || filtered_controller_battery < 0) {
+                    // Initialize filter with first valid reading
+                    filtered_controller_battery = (float)battery_percentage;
+                    filter_initialized = true;
+                } else {
+                    // Apply exponential moving average filter
+                    filtered_controller_battery = filter_alpha * (float)battery_percentage +
+                                                   (1.0f - filter_alpha) * filtered_controller_battery;
+                }
+                display_percentage = (int)(filtered_controller_battery + 0.5f); // Round to nearest int
+            } else {
+                // Not charging - use direct value, reset filter for next charging cycle
+                filtered_controller_battery = -1.0f;
+                display_percentage = battery_percentage;
+            }
+
+            ui_update_battery_percentage(display_percentage);
         }
 
-        // Update skate battery display
+        // Update skate battery display (no filtering - direct values only)
         if (is_connect) {
             // Check if BMS is connected (BMS voltage > 0 means BMS is connected)
             float bms_voltage = get_bms_total_voltage();

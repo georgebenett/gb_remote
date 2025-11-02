@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -196,21 +196,10 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 54.39745508982036,
+              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
-                {
-                  "type": "tab",
-                  "id": "#298ea130-bd3a-4dd1-8c35-9a862f6a9114",
-                  "name": "Settings",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/settings",
-                    "subObjectPath": "[eezproject.eez-project]:/settings",
-                    "permanent": false
-                  },
-                  "icon": "material:settings"
-                },
                 {
                   "type": "tab",
                   "id": "#636f985a-3742-4440-aabd-2bcbcb2db786",

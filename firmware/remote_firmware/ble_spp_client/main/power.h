@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include "driver/gpio.h"
 
-#define POWER_OFF_GPIO GPIO_NUM_4
-
 // Add this global flag declaration
 extern volatile bool entering_power_off_mode;
 

@@ -19,5 +19,5 @@ void lcd_start_tasks(void);
 void lcd_enable_update(void);
 void lcd_disable_update(void);
 void lcd_set_backlight(uint8_t brightness);  // Set backlight brightness (0-255, where 255 is full brightness)
-
+void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms);
 

@@ -19,6 +19,7 @@
 #include "level_assistant.h"
 #include "version.h"
 #include "target_config.h"
+#include "viber.h"
 
 #define TAG "MAIN"
 
@@ -61,16 +62,6 @@ static void telemetry_log_task(void *pvParameters)
 
 void app_main(void)
 {
-    // Set GPIO 4 to HIGH as first action
-    gpio_config_t gpio4_conf = {
-        .pin_bit_mask = (1ULL << GPIO_NUM_4),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    ESP_ERROR_CHECK(gpio_config(&gpio4_conf));
-    ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_4, 1));
 
     ESP_LOGI(TAG, "Starting Application");
 
@@ -96,9 +87,15 @@ void app_main(void)
     // Initialize level assistant
     ESP_ERROR_CHECK(level_assistant_init());
 
+    // Initialize viber
+    ESP_ERROR_CHECK(viber_init());
+
     // Initialize ADC and start tasks
     ESP_ERROR_CHECK(adc_init());
     adc_start_task();
+    
+    // Initialize LCD and LVGL
+    lcd_init();
 
     // Wait for ADC calibration
     while (!throttle_is_calibrated()) {
@@ -116,12 +113,6 @@ void app_main(void)
     // Initialize BLE
     spp_client_demo_init();
     ESP_LOGI(TAG, "BLE Initialization complete");
-
-    // Add heap info logging
-    ESP_LOGI(TAG, "Free heap after BLE init: %lu", esp_get_free_heap_size());
-
-    // Initialize LCD and LVGL
-    lcd_init();
 
     ESP_ERROR_CHECK(battery_init());
     battery_start_monitoring();
@@ -144,8 +135,11 @@ void app_main(void)
     }
 
     lv_disp_load_scr(objects.splash_screen);  // Load splash screen first
-    lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 3000, NULL);  // Create timer for 3 seconds
+    lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);  // Create timer for 3 seconds
     lv_timer_set_repeat_count(splash_timer, 1);  // Run only once
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    // Fade up the backlight smoothly from 0 to target brightness
+    lcd_fade_backlight(0, 100, 2000);  // Fade from 0 to 100 over 1 second
 
     // Create telemetry logging task
     xTaskCreate(telemetry_log_task, "telemetry_log", 4096, NULL, 1, NULL);

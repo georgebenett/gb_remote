@@ -9,6 +9,7 @@
 #include "esp_err.h"
 #include "driver/gpio.h"
 #include "button.h"
+#include "viber.h"
 
 #define TAG "POWER"
 
@@ -21,6 +22,10 @@ static bool arc_animation_active = false;
 
 // Add a global flag to indicate when we're entering power off mode
 volatile bool entering_power_off_mode = false;
+
+// Flag to track if button has been released since boot
+// This prevents shutdown from triggering if button is held during boot
+static bool button_released_since_boot = false;
 
 static void set_bar_value(void * obj, int32_t v)
 {
@@ -48,6 +53,9 @@ static void power_button_callback(button_event_t event, void* user_data) {
             break;
 
         case BUTTON_EVENT_RELEASED:
+            // Mark that button has been released since boot
+            button_released_since_boot = true;
+
             if (arc_animation_active) {
                 // If released before full, cancel shutdown
                 lv_anim_del(objects.shutting_down_bar, set_bar_value);
@@ -59,6 +67,13 @@ static void power_button_callback(button_event_t event, void* user_data) {
             break;
 
         case BUTTON_EVENT_LONG_PRESS:
+            // Only allow shutdown sequence if button has been released since boot
+            // This prevents shutdown from triggering if button is held during boot
+            if (!button_released_since_boot) {
+                ESP_LOGI(TAG, "Long press ignored - button must be released first after boot");
+                break;
+            }
+
             if (!long_press_triggered) {
                 long_press_triggered = true;
                 // Switch to shutdown screen
@@ -87,6 +102,17 @@ void power_init(void) {
         .double_press_time_ms = BUTTON_DOUBLE_PRESS_TIME_MS,
         .active_low = false
     };
+
+    // Set POWER_OFF_GPIO to HIGH as first action
+    gpio_config_t gpio4_conf = {
+        .pin_bit_mask = (1ULL << GPIO_NUM_4),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    ESP_ERROR_CHECK(gpio_config(&gpio4_conf));
+    ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_4, 1));
 
     ESP_ERROR_CHECK(button_init(&config));
     button_register_callback(power_button_callback, NULL);
@@ -123,38 +149,15 @@ void power_check_inactivity(bool is_ble_connected)
 
 void power_shutdown(void) {
     ESP_LOGI(TAG, "Preparing for shutdown");
-
-    // Disable UI updates by taking and holding the mutex
-    if (take_lvgl_mutex()) {
-        ESP_LOGI(TAG, "Acquired LVGL mutex for shutdown");
-
-        // Save trip distance
-        esp_err_t err = ui_save_trip_distance();
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to save trip distance: %s", esp_err_to_name(err));
-            // Try one more time
-            vTaskDelay(pdMS_TO_TICKS(100));
-            err = ui_save_trip_distance();
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to save trip distance on second attempt");
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-
-        // Shut down by setting GPIO 4 to LOW
-        gpio_set_level(POWER_OFF_GPIO, 0);
-        ESP_LOGI(TAG, "GPIO %d set to LOW - MCU shutting down", POWER_OFF_GPIO);
-
-    } else {
-        ESP_LOGW(TAG, "Could not acquire LVGL mutex for shutdown, proceeding anyway");
-
-        // Continue with normal shutdown
-        ui_save_trip_distance();
-        vTaskDelay(pdMS_TO_TICKS(100));
-
-        // Shut down by setting GPIO 4 to LOW
-        gpio_set_level(POWER_OFF_GPIO, 0);
-        ESP_LOGI(TAG, "GPIO %d set to LOW - MCU shutting down", POWER_OFF_GPIO);
+    viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
+    lcd_fade_backlight(100, 0, 1000);  // Fade from 100 to 0 over 1 second
+    // Save trip distance
+    esp_err_t err = ui_save_trip_distance();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save trip distance: %s", esp_err_to_name(err));
     }
+    vTaskDelay(pdMS_TO_TICKS(100));
+    // Shut down by setting GPIO 4 to LOW
+    gpio_set_level(POWER_OFF_GPIO, 0);
 }
 

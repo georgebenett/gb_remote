@@ -324,8 +324,8 @@
             {
               "objID": "0a6c7448-f1de-4b4c-d300-29a8e4e90c15",
               "type": "LVGLImageWidget",
-              "left": 0,
-              "top": 0,
+              "left": -10,
+              "top": -60,
               "width": 240,
               "height": 320,
               "customInputs": [],
@@ -369,7 +369,7 @@
               "setPivot": false,
               "pivotX": 0,
               "pivotY": 0,
-              "zoom": 150,
+              "zoom": 200,
               "angle": 0,
               "innerAlign": "CENTER"
             },
