@@ -27,6 +27,7 @@
 #include "esp_gatt_common_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "target_config.h"
 #include "throttle.h"
 #include "level_assistant.h"
 #include "ui_updater.h"
@@ -753,6 +754,7 @@ static void adc_send_task(void *pvParameters) {
 
             uint32_t adc_value;
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
             // Get combined throttle/brake BLE value (127 = neutral, 0-126 = below neutral, 128-255 = above neutral)
             adc_value = get_throttle_brake_ble_value();
 
@@ -765,6 +767,34 @@ static void adc_send_task(void *pvParameters) {
                 int32_t current_erpm = get_latest_erpm();
                 adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
             }
+#elif defined(CONFIG_TARGET_LITE)
+            // Lite mode: check calibration status and apply throttle inversion
+            // Check if calibration is in progress - send neutral value if so
+            if (adc_is_calibrating()) {
+                adc_value = 127;  // Send neutral value (127) during calibration
+            } else if (!adc_get_calibration_status()) {
+                adc_value = 127;  // Send neutral value (127) if not calibrated
+            } else {
+                adc_value = adc_get_latest_value();
+            }
+
+            // Load current configuration to check throttle inversion and level assistant
+            vesc_config_t config;
+            esp_err_t err = vesc_config_load(&config);
+
+            // Apply level assistant processing if enabled
+            if (err == ESP_OK) {
+                int32_t current_erpm = get_latest_erpm();
+                adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
+
+                // Apply throttle inversion after level assistant processing (lite mode only)
+                if (config.invert_throttle) {
+                    // Apply throttle inversion by inverting the ADC value
+                    // Since ADC is 12-bit (0-4095), we invert by subtracting from max value
+                    adc_value = 4095 - adc_value;
+                }
+            }
+#endif
 
             // Pack the ADC value into 2 bytes (little-endian)
             data_buffer[0] = (uint8_t)(adc_value & 0xFF);         // Low byte

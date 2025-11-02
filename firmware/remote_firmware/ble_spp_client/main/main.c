@@ -18,6 +18,7 @@
 #include "usb_serial_handler.h"
 #include "level_assistant.h"
 #include "version.h"
+#include "target_config.h"
 
 #define TAG "MAIN"
 
@@ -41,13 +42,20 @@ static void telemetry_log_task(void *pvParameters)
         // Read throttle value
         int32_t throttle_value = throttle_read_value();
 
-        // Read brake value
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        // Read brake value (dual_throttle only)
         int32_t brake_value = brake_read_value();
-
         uint32_t ble_value = get_throttle_brake_ble_value();
 
         // Log all values
-        ESP_LOGI(TAG, "Throttle: %ld, Brake: %ld, BLE Value: %ld", throttle_value, brake_value, ble_value);
+        ESP_LOGI(TAG, "Throttle: %ld, Brake: %ld, BLE Value: %lu", throttle_value, brake_value, ble_value);
+#elif defined(CONFIG_TARGET_LITE)
+        // Lite mode: use latest mapped ADC value
+        uint32_t ble_value = adc_get_latest_value();
+
+        // Log values (no brake for lite)
+        ESP_LOGI(TAG, "Throttle: %ld, BLE Value: %lu", throttle_value, ble_value);
+#endif
     }
 }
 

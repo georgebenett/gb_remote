@@ -9,6 +9,7 @@
 #include "nvs.h"
 #include "esp_adc/adc_oneshot.h"
 #include "hw_config.h"
+#include "target_config.h"
 
 #define CALIBRATE_THROTTLE 0
 
@@ -32,23 +33,27 @@
 #define NVS_KEY_BRAKE_MAX "brake_max_val"
 #define NVS_KEY_CALIBRATED "cal_done"
 
-#define ADC_THROTTLE_OFFSET 0
-
 esp_err_t adc_init(void);
 int32_t throttle_read_value(void);
-int32_t brake_read_value(void);
 void adc_start_task(void);
-uint32_t adc_get_latest_value(void);  // Deprecated, use get_throttle_brake_ble_value instead
+uint32_t adc_get_latest_value(void);
 uint8_t map_throttle_value(uint32_t adc_value);
-uint8_t map_brake_value(uint32_t adc_value);
-uint8_t get_throttle_brake_ble_value(void);  // Combined throttle/brake value for BLE (0-255, 127=neutral)
 void throttle_calibrate(void);
 bool throttle_is_calibrated(void);
 void adc_deinit(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
-void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 bool adc_get_calibration_status(void);
 bool adc_is_calibrating(void);
+
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+int32_t brake_read_value(void);
+uint8_t map_brake_value(uint32_t adc_value);
+uint8_t get_throttle_brake_ble_value(void);  // Combined throttle/brake value for BLE (0-255, 127=neutral)
+void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
+#elif defined(CONFIG_TARGET_LITE)
+int32_t adc_read_value(void);  // Alias for throttle_read_value in lite mode
+uint8_t map_adc_value(uint32_t adc_value);  // Single throttle mapping for lite mode
+#endif
 
 // Add these function declarations for battery ADC
 esp_err_t adc_battery_init(void);

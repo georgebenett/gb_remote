@@ -8,8 +8,14 @@
 #include <stdint.h>
 #include "nvs_flash.h"
 #include "nvs.h"
-#include "power.h"
+#include "target_config.h"
 #include "ble_spp_client.h"
+
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+#include "power.h"
+#elif defined(CONFIG_TARGET_LITE)
+#include "power.h"  // lite uses power.h (sleep functionality is in power.c)
+#endif
 
 static const char *TAG = "ADC";
 static adc_oneshot_unit_handle_t adc1_handle;
@@ -22,8 +28,10 @@ static int error_count = 0;
 static const int MAX_ERRORS = 5;
 static uint32_t adc_input_max_value = ADC_INITIAL_MAX_VALUE;
 static uint32_t adc_input_min_value = ADC_INITIAL_MIN_VALUE;
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
 static uint32_t brake_input_max_value = ADC_INITIAL_MAX_VALUE;
 static uint32_t brake_input_min_value = ADC_INITIAL_MIN_VALUE;
+#endif
 static bool calibration_done = false;
 static bool calibration_in_progress = false;
 static esp_err_t load_calibration_from_nvs(void);
@@ -65,12 +73,14 @@ esp_err_t adc_init(void)
         return ret;
     }
 
-    // Configure brake channel
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    // Configure brake channel (dual_throttle only)
     ret = adc_oneshot_config_channel(adc1_handle, BREAK_PIN, &config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Brake ADC channel configuration failed");
         return ret;
     }
+#endif
 
     adc_initialized = true;
     return ESP_OK;
@@ -104,6 +114,7 @@ int32_t throttle_read_value(void)
     return valid_samples > 0 ? (sum / valid_samples) : -1;
 }
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
 int32_t brake_read_value(void)
 {
     if (!adc_initialized || !adc1_handle) {
@@ -131,14 +142,31 @@ int32_t brake_read_value(void)
 
     return valid_samples > 0 ? (sum / valid_samples) : -1;
 }
+#elif defined(CONFIG_TARGET_LITE)
+// Lite target: single throttle, use throttle_read_value as adc_read_value
+int32_t adc_read_value(void)
+{
+    return throttle_read_value();
+}
+#endif
 
 static void adc_task(void *pvParameters) {
     uint32_t last_value = 0;
     const uint32_t CHANGE_THRESHOLD = 2; // Adjust this threshold as needed
 
     while (1) {
-        uint32_t adc_value = throttle_read_value();
-        if (adc_value == -1) {
+    int32_t adc_raw;
+    uint32_t adc_value;
+
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        adc_raw = throttle_read_value();
+        adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
+#elif defined(CONFIG_TARGET_LITE)
+        adc_raw = adc_read_value();
+        adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
+#endif
+
+        if (adc_raw < 0) {
             error_count++;
             if (error_count >= MAX_ERRORS) {
                 ESP_LOGE(TAG, "Too many ADC errors, attempting re-initialization");
@@ -153,13 +181,22 @@ static void adc_task(void *pvParameters) {
         }
         error_count = 0;  // Reset error count on successful read
 
-        // Calculate combined throttle/brake BLE value
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        // Calculate combined throttle/brake BLE value (dual_throttle mode)
         uint8_t mapped_value = get_throttle_brake_ble_value();
+#elif defined(CONFIG_TARGET_LITE)
+        // Single throttle mapping (lite mode)
+        uint8_t mapped_value = map_adc_value(adc_value);
+#endif
         latest_adc_value = mapped_value;
         if(!is_connect){
             // Only monitor value changes and reset timer when BLE is not connected
             if (abs((int32_t)mapped_value - (int32_t)last_value) > CHANGE_THRESHOLD) {
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
                 power_reset_inactivity_timer();
+#elif defined(CONFIG_TARGET_LITE)
+                power_reset_inactivity_timer();  // lite also uses power.h
+#endif
                 last_value = mapped_value;
             }
         }
@@ -255,6 +292,7 @@ static esp_err_t load_calibration_from_nvs(void) {
         return err;
     }
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
     // Read brake calibration values (if available, use defaults otherwise)
     err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MIN, &brake_input_min_value);
     if (err != ESP_OK) {
@@ -265,6 +303,7 @@ static esp_err_t load_calibration_from_nvs(void) {
     if (err != ESP_OK) {
         brake_input_max_value = ADC_INITIAL_MAX_VALUE;
     }
+#endif
 
     nvs_close(nvs_handle);
     calibration_done = true;
@@ -294,6 +333,7 @@ static esp_err_t save_calibration_to_nvs(void) {
         return err;
     }
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
     // Save brake calibration values
     err = nvs_set_u32(nvs_handle, NVS_KEY_BRAKE_MIN, brake_input_min_value);
     if (err != ESP_OK) {
@@ -306,6 +346,7 @@ static esp_err_t save_calibration_to_nvs(void) {
         nvs_close(nvs_handle);
         return err;
     }
+#endif
 
     // Set calibration flag
     err = nvs_set_u8(nvs_handle, NVS_KEY_CALIBRATED, 1);
@@ -322,7 +363,11 @@ static esp_err_t save_calibration_to_nvs(void) {
 
 void throttle_calibrate(void) {
     ESP_LOGI(TAG, "Starting ADC calibration...");
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
     ESP_LOGI(TAG, "Please move throttle and brake through full range during the next 6 seconds");
+#elif defined(CONFIG_TARGET_LITE)
+    ESP_LOGI(TAG, "Please move throttle through full range during the next 6 seconds");
+#endif
 
     // Set calibration in progress flag BEFORE any early returns
     calibration_in_progress = true;
@@ -337,13 +382,16 @@ void throttle_calibrate(void) {
 
     uint32_t throttle_min = UINT32_MAX;
     uint32_t throttle_max = 0;
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
     uint32_t brake_min = UINT32_MAX;
     uint32_t brake_max = 0;
+#endif
     int progress = 0;
     int last_reported_progress = -1;
 
-    // Take multiple samples to find the actual range for both throttle and brake
+    // Take multiple samples to find the actual range
     for (int i = 0; i < ADC_CALIBRATION_SAMPLES; i++) {
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
         int32_t throttle_value = throttle_read_value();
         int32_t brake_value = brake_read_value();
 
@@ -356,6 +404,13 @@ void throttle_calibrate(void) {
             if (brake_value < brake_min) brake_min = brake_value;
             if (brake_value > brake_max) brake_max = brake_value;
         }
+#elif defined(CONFIG_TARGET_LITE)
+        int32_t value = adc_read_value();
+        if (value != -1) {  // Valid reading
+            if (value < throttle_min) throttle_min = value;
+            if (value > throttle_max) throttle_max = value;
+        }
+#endif
 
         // Calculate and report progress every 10%
         progress = (i * 100) / ADC_CALIBRATION_SAMPLES;
@@ -373,7 +428,9 @@ void throttle_calibrate(void) {
     calibration_in_progress = false;
 
     bool throttle_valid = (throttle_min != UINT32_MAX && throttle_max != 0);
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
     bool brake_valid = (brake_min != UINT32_MAX && brake_max != 0);
+#endif
 
     // Calibrate throttle
     if (throttle_valid) {
@@ -398,7 +455,8 @@ void throttle_calibrate(void) {
         ESP_LOGE(TAG, "Throttle calibration failed - invalid readings");
     }
 
-    // Calibrate brake
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    // Calibrate brake (dual_throttle only)
     if (brake_valid) {
         uint32_t brake_range = brake_max - brake_min;
 
@@ -420,6 +478,7 @@ void throttle_calibrate(void) {
     } else {
         ESP_LOGE(TAG, "Brake calibration failed - invalid readings");
     }
+#endif
 
     // Mark calibration as done if at least throttle is valid
     if (throttle_valid) {
@@ -428,9 +487,11 @@ void throttle_calibrate(void) {
         if (throttle_valid) {
             printf("Throttle range: %lu - %lu\n", throttle_min, throttle_max);
         }
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
         if (brake_valid) {
             printf("Brake range: %lu - %lu\n", brake_min, brake_max);
         }
+#endif
     } else {
         calibration_done = false;
         ESP_LOGE(TAG, "ADC calibration failed");
@@ -464,10 +525,12 @@ void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
     if (max_val) *max_val = adc_input_max_value;
 }
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
 void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
     if (min_val) *min_val = brake_input_min_value;
     if (max_val) *max_val = brake_input_max_value;
 }
+#endif
 
 bool adc_get_calibration_status(void) {
     return calibration_done;
@@ -488,18 +551,14 @@ uint8_t map_throttle_value(uint32_t adc_value) {
 
     // Perform the mapping
     uint8_t mapped = (uint8_t)((adc_value - adc_input_min_value) *
-           (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE - ADC_THROTTLE_OFFSET) /
+           (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) /
            (adc_input_max_value - adc_input_min_value) +
            ADC_OUTPUT_MIN_VALUE);
-
-    // Add offset only to non-zero values to maintain 0 at minimum
-    if (mapped > 0) {
-        mapped += ADC_THROTTLE_OFFSET;
-    }
 
     return mapped;
 }
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
 uint8_t map_brake_value(uint32_t adc_value) {
     // Constrain input value to the calibrated range
     if (adc_value < brake_input_min_value) {
@@ -517,7 +576,9 @@ uint8_t map_brake_value(uint32_t adc_value) {
 
     return mapped;
 }
+#endif
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
 uint8_t get_throttle_brake_ble_value(void) {
     // Neutral value when not calibrated
     if (!calibration_done || calibration_in_progress) {
@@ -576,6 +637,28 @@ uint8_t get_throttle_brake_ble_value(void) {
 
     return ble_value;
 }
+#endif
+
+#ifdef CONFIG_TARGET_LITE
+// Lite mode: single throttle mapping function
+uint8_t map_adc_value(uint32_t adc_value) {
+    // Constrain input value to the calibrated range
+    if (adc_value < adc_input_min_value) {
+        adc_value = adc_input_min_value;
+    }
+    if (adc_value > adc_input_max_value) {
+        adc_value = adc_input_max_value;
+    }
+
+    // Perform the mapping
+    uint8_t mapped = (uint8_t)((adc_value - adc_input_min_value) *
+           (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) /
+           (adc_input_max_value - adc_input_min_value) +
+           ADC_OUTPUT_MIN_VALUE);
+
+    return mapped;
+}
+#endif
 
 esp_err_t adc_battery_init(void) {
     if (!adc_initialized || !adc1_handle) {

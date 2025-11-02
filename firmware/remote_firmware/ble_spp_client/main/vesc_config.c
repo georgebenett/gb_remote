@@ -13,7 +13,10 @@ static const vesc_config_t default_config = {
     .wheel_diameter_mm = 115,   // 115mm wheels
     .motor_poles = 14,         // 14 pole motor
     .level_assistant = false,  // Level assistant disabled by default
-    .speed_unit_mph = false    // Speed unit: km/h by default
+    .speed_unit_mph = false,   // Speed unit: km/h by default
+#ifdef CONFIG_TARGET_LITE
+    .invert_throttle = false   // Throttle inversion disabled by default
+#endif
 };
 
 esp_err_t vesc_config_init(void) {
@@ -69,6 +72,18 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
         err = ESP_OK; // Don't fail the entire load for missing speed unit setting
     }
 
+#ifdef CONFIG_TARGET_LITE
+    uint8_t invert_throttle;
+    err = nvs_get_u8(nvs_handle, NVS_KEY_INVERT_THROTTLE, &invert_throttle);
+    if (err == ESP_OK) {
+        config->invert_throttle = (bool)invert_throttle;
+    } else {
+        // Default to false if key doesn't exist (backward compatibility)
+        config->invert_throttle = false;
+        err = ESP_OK; // Don't fail the entire load for missing invert throttle setting
+    }
+#endif
+
 cleanup:
     nvs_close(nvs_handle);
     return err;
@@ -99,6 +114,11 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
 
     err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_UNIT, (uint8_t)config->speed_unit_mph);
     if (err != ESP_OK) goto cleanup;
+
+#ifdef CONFIG_TARGET_LITE
+    err = nvs_set_u8(nvs_handle, NVS_KEY_INVERT_THROTTLE, (uint8_t)config->invert_throttle);
+    if (err != ESP_OK) goto cleanup;
+#endif
 
     err = nvs_commit(nvs_handle);
 
