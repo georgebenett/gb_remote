@@ -153,7 +153,8 @@ static void adc_task(void *pvParameters) {
         }
         error_count = 0;  // Reset error count on successful read
 
-        uint8_t mapped_value = map_throttle_value(adc_value);
+        // Calculate combined throttle/brake BLE value
+        uint8_t mapped_value = get_throttle_brake_ble_value();
         latest_adc_value = mapped_value;
         if(!is_connect){
             // Only monitor value changes and reset timer when BLE is not connected
@@ -515,6 +516,65 @@ uint8_t map_brake_value(uint32_t adc_value) {
            ADC_OUTPUT_MIN_VALUE);
 
     return mapped;
+}
+
+uint8_t get_throttle_brake_ble_value(void) {
+    // Neutral value when not calibrated
+    if (!calibration_done || calibration_in_progress) {
+        return 127;
+    }
+
+    // Read current throttle and brake values
+    int32_t throttle_raw = throttle_read_value();
+    int32_t brake_raw = brake_read_value();
+
+    if (throttle_raw < 0 || brake_raw < 0) {
+        return 127;  // Return neutral on error
+    }
+
+    // Constrain values to calibrated ranges
+    if (throttle_raw < adc_input_min_value) throttle_raw = adc_input_min_value;
+    if (throttle_raw > adc_input_max_value) throttle_raw = adc_input_max_value;
+    if (brake_raw < brake_input_min_value) brake_raw = brake_input_min_value;
+    if (brake_raw > brake_input_max_value) brake_raw = brake_input_max_value;
+
+    uint32_t brake_range = brake_input_max_value - brake_input_min_value;
+    uint32_t throttle_range = adc_input_max_value - adc_input_min_value;
+
+    if (brake_range == 0 || throttle_range == 0) {
+        return 127;  // Avoid division by zero
+    }
+
+    // Calculate brake factor: 0.0 at MIN, 1.0 at MAX
+    float brake_factor = (float)(brake_raw - brake_input_min_value) / (float)brake_range;
+
+    // Brake overrides throttle: when brake is at MIN, BLE = 0
+    // When brake is at MIN (factor=0): brake forces BLE to 0
+    // When brake is at MAX (factor=1): brake allows throttle control
+    if (brake_factor < 0.01f) {
+        // Brake at MIN: brake overrides, BLE = 0
+        return 0;
+    }
+
+    // Brake is at MAX (or close to MAX): throttle controls BLE value
+    // When throttle at MAX: BLE = 127
+    // When throttle at MIN: BLE = 255
+    float throttle_factor = (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
+
+    // Invert throttle mapping: throttle MAX (factor=1.0) = 127, throttle MIN (factor=0.0) = 255
+    uint8_t ble_value = 127 + (uint8_t)((1.0f - throttle_factor) * 128.0f);
+
+    // If brake is not fully at MAX, interpolate between brake override (0-127) and throttle control (127-255)
+    if (brake_factor < 1.0f) {
+        // When brake moves from MIN to MAX, it transitions from override (0) to allowing throttle
+        // Brake at MAX: use throttle value (127-255)
+        // Brake between MIN and MAX: interpolate between 0 and throttle value
+        uint8_t brake_override_value = 0;  // When brake at MIN
+        float interpolated = brake_override_value + (brake_factor * (float)ble_value);
+        ble_value = (uint8_t)interpolated;
+    }
+
+    return ble_value;
 }
 
 esp_err_t adc_battery_init(void) {

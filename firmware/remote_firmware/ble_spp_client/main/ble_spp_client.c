@@ -380,7 +380,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
     case ESP_GATTC_DISCONNECT_EVT:
         ESP_LOGI(GATTC_TAG, "disconnect");
-        
+
         // Reset speed and battery values to 0 when disconnected
         latest_erpm = 0;
         latest_voltage = 0.0f;
@@ -388,23 +388,23 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         latest_current_in = 0.0f;
         latest_temp_mos = 0.0f;
         latest_temp_motor = 0.0f;
-        
+
         // Reset BMS battery values to 0
         bms_total_voltage = 0.0f;
         bms_current = 0.0f;
         bms_remaining_capacity = 0.0f;
         bms_nominal_capacity = 0.0f;
         bms_num_cells = 0;
-        
+
         // Clear cell voltages array
         memset(bms_cell_voltages, 0, sizeof(bms_cell_voltages));
-        
+
         ESP_LOGI(GATTC_TAG, "Speed and battery values reset to 0 due to disconnection");
-        
+
         // Trigger UI updates to show 0 values
         ui_update_speed(0);
         ui_update_skate_battery_percentage(0);
-        
+
         free_gattc_srv_db();
         esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
         break;
@@ -679,23 +679,23 @@ static void spp_uart_init(void)
         ESP_LOGE(GATTC_TAG, "Failed to install UART driver: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     //Set UART parameters
     ret = uart_param_config(UART_NUM_0, &uart_config);
     if (ret != ESP_OK) {
         ESP_LOGE(GATTC_TAG, "Failed to configure UART: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     //Set UART pins
     ret = uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (ret != ESP_OK) {
         ESP_LOGE(GATTC_TAG, "Failed to set UART pins: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     ESP_LOGI(GATTC_TAG, "UART initialized successfully for BLE data transmission");
-    
+
     // Don't create the UART task here - it conflicts with USB Serial JTAG
     // The UART is only used for BLE data transmission, not for user input
     // xTaskCreate(uart_task, "uTask", 2048, (void*)UART_NUM_0, 6, NULL);
@@ -752,20 +752,14 @@ static void adc_send_task(void *pvParameters) {
              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
 
             uint32_t adc_value;
-            
-            // Check if calibration is in progress - send neutral value if so
-            if (adc_is_calibrating()) {
-                adc_value = 127;  // Send neutral value (127) during calibration
-            } else if (!throttle_is_calibrated()) {
-                adc_value = 127;  // Send neutral value (127) if not calibrated
-            } else {
-                adc_value = adc_get_latest_value();
-            }
+
+            // Get combined throttle/brake BLE value (127 = neutral, 0-126 = below neutral, 128-255 = above neutral)
+            adc_value = get_throttle_brake_ble_value();
 
             // Load current configuration to check level assistant
             vesc_config_t config;
             esp_err_t err = vesc_config_load(&config);
-            
+
             // Apply level assistant processing if enabled
             if (err == ESP_OK) {
                 int32_t current_erpm = get_latest_erpm();

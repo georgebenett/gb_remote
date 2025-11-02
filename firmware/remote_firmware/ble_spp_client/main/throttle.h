@@ -38,9 +38,10 @@ esp_err_t adc_init(void);
 int32_t throttle_read_value(void);
 int32_t brake_read_value(void);
 void adc_start_task(void);
-uint32_t adc_get_latest_value(void);
+uint32_t adc_get_latest_value(void);  // Deprecated, use get_throttle_brake_ble_value instead
 uint8_t map_throttle_value(uint32_t adc_value);
 uint8_t map_brake_value(uint32_t adc_value);
+uint8_t get_throttle_brake_ble_value(void);  // Combined throttle/brake value for BLE (0-255, 127=neutral)
 void throttle_calibrate(void);
 bool throttle_is_calibrated(void);
 void adc_deinit(void);
