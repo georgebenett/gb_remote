@@ -6,7 +6,7 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "ui/ui.h"
+#include "ui.h"
 #include "throttle.h"
 #include "ble_spp_client.h"
 #include "vesc_config.h"
@@ -122,8 +122,8 @@ void lcd_init(void) {
     disp_drv.ver_res = LV_VER_RES_MAX;
     disp_drv.physical_hor_res = LV_HOR_RES_MAX;
     disp_drv.physical_ver_res = LV_VER_RES_MAX;
-    disp_drv.offset_x = 34;
-    disp_drv.offset_y = 0;
+    disp_drv.offset_x = LCD_OFFSET_X;
+    disp_drv.offset_y = LCD_OFFSET_Y;
     lv_disp_drv_register(&disp_drv);
 
     // Clear the screen to black at initialization

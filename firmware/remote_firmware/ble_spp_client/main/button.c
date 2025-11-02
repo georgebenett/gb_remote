@@ -5,7 +5,7 @@
 #include "esp_sleep.h"
 #include <string.h>
 #include <stdio.h>
-#include "ui/ui.h"
+#include "ui.h"
 #include "lvgl.h"
 
 #define TAG "BUTTON"

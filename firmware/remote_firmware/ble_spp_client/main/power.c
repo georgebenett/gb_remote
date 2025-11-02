@@ -3,7 +3,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "lcd.h"
-#include "ui/ui.h"
+#include "ui.h"
 #include "lvgl.h"
 #include "ui_updater.h"
 #include "esp_err.h"

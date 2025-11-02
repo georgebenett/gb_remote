@@ -1,0 +1,48 @@
+menu "Hardware Target Configuration"
+
+    choice TARGET_HARDWARE
+        prompt "Select Hardware Target"
+        default TARGET_DUAL_THROTTLE
+        help
+            Select the hardware target for this build.
+            Different targets have different screen sizes and throttle logic.
+
+        config TARGET_DUAL_THROTTLE
+            bool "dual_throttle (172x320 Screen)"
+            help
+                Build for dual_throttle hardware with 172x320 pixel display.
+
+        config TARGET_LITE
+            bool "lite (240x320 Screen)"
+            help
+                Build for lite hardware with 240x320 pixel display.
+    endchoice
+
+    config LCD_HOR_RES
+        int "LCD Horizontal Resolution"
+        default 172 if TARGET_DUAL_THROTTLE
+        default 240 if TARGET_LITE
+        help
+            Horizontal resolution of the LCD display in pixels.
+
+    config LCD_VER_RES
+        int "LCD Vertical Resolution"
+        default 320
+        help
+            Vertical resolution of the LCD display in pixels.
+
+    config LCD_OFFSET_X
+        int "LCD X Offset"
+        default 34 if TARGET_DUAL_THROTTLE
+        default 0 if TARGET_LITE
+        help
+            X offset for LCD display (panel offset).
+
+    config LCD_OFFSET_Y
+        int "LCD Y Offset"
+        default 0
+        help
+            Y offset for LCD display (panel offset).
+
+endmenu
+

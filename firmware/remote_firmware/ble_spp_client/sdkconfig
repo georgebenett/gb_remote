@@ -542,6 +542,17 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Hardware Target Configuration
+#
+CONFIG_TARGET_DUAL_THROTTLE=y
+# CONFIG_TARGET_LITE is not set
+CONFIG_LCD_HOR_RES=172
+CONFIG_LCD_VER_RES=320
+CONFIG_LCD_OFFSET_X=34
+CONFIG_LCD_OFFSET_Y=0
+# end of Hardware Target Configuration
+
+#
 # Compiler options
 #
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y

@@ -6,11 +6,11 @@
 #include "esp_lcd_panel_vendor.h"
 #include "driver/gpio.h"
 #include "hw_config.h"
+#include "target_config.h"
 
-// Display configuration
-
-#define LV_HOR_RES_MAX 172   
-#define LV_VER_RES_MAX 320
+// Display configuration - now from target_config.h
+#define LV_HOR_RES_MAX LCD_HOR_RES_MAX
+#define LV_VER_RES_MAX LCD_VER_RES_MAX
 
 // Function declarations
 void lcd_init(void);

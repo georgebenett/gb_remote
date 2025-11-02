@@ -2,9 +2,9 @@
 #define UI_UPDATER_H
 
 #include <stdint.h>
-#include "ui/ui.h"
+#include "ui.h"
 #include "esp_err.h"
-#include "ui/screens.h"
+#include "screens.h"
 // Function to initialize the UI updater
 void ui_updater_init(void);
 
