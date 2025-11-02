@@ -142,7 +142,7 @@ void app_main(void)
     lcd_fade_backlight(0, 100, 2000);  // Fade from 0 to 100 over 1 second
 
     // Create telemetry logging task
-    xTaskCreate(telemetry_log_task, "telemetry_log", 4096, NULL, 1, NULL);
+    //xTaskCreate(telemetry_log_task, "telemetry_log", 4096, NULL, 1, NULL);
 
     // Main task loop
     while (1) {

@@ -101,44 +101,7 @@ void usb_serial_start_task(void)
     }
 }
 
-#if defined(CONFIG_IDF_TARGET_ESP32C3)
-void usb_serial_init_esp32c3(void)
-{
-    ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-C3");
 
-    /* Disable buffering on stdin */
-    setvbuf(stdin, NULL, _IONBF, 0);
-
-    /* Minicom, screen, idf_monitor send CR when ENTER key is pressed */
-    esp_vfs_dev_usb_serial_jtag_set_rx_line_endings(ESP_LINE_ENDINGS_CR);
-    /* Move the caret to the beginning of the next line on '\n' */
-    esp_vfs_dev_usb_serial_jtag_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
-
-    /* Enable non-blocking mode on stdin and stdout */
-    fcntl(fileno(stdout), F_SETFL, 0);
-    fcntl(fileno(stdin), F_SETFL, 0);
-
-    usb_serial_jtag_driver_config_t usb_serial_jtag_config;
-    usb_serial_jtag_config.rx_buffer_size = USB_CDC_BUFFER_SIZE;
-    usb_serial_jtag_config.tx_buffer_size = USB_CDC_BUFFER_SIZE;
-
-    esp_err_t ret = ESP_OK;
-    /* Install USB-SERIAL-JTAG driver for interrupt-driven reads and writes */
-    ret = usb_serial_jtag_driver_install(&usb_serial_jtag_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to install USB serial driver: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    /* Tell vfs to use usb-serial-jtag driver */
-    esp_vfs_usb_serial_jtag_use_driver();
-
-    // ESP32-C3 specific: Additional delay for USB enumeration
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    ESP_LOGI(TAG, "USB Serial JTAG initialized successfully for ESP32-C3");
-}
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
 void usb_serial_init_esp32s3(void)
 {
     ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-S3");
@@ -172,7 +135,6 @@ void usb_serial_init_esp32s3(void)
 
     ESP_LOGI(TAG, "USB Serial JTAG initialized successfully for ESP32-S3");
 }
-#endif
 
 static void usb_serial_init_uart(void)
 {

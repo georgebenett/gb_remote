@@ -10,7 +10,7 @@
 
 #define TAG "BUTTON"
 #define DEBOUNCE_TIME_MS 20
-#define TASK_STACK_SIZE 2048
+#define TASK_STACK_SIZE 4096
 #define TASK_PRIORITY 3
 #define MAX_CALLBACKS 4
 
