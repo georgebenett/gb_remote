@@ -18,8 +18,6 @@ extern const lv_img_dsc_t img_100_connection;
 // Functions to update specific UI elements
 void ui_update_speed(int32_t value);
 void ui_update_battery_percentage(int percentage);
-void ui_update_battery_voltage_display(float voltage);
-void ui_update_battery_voltage(float voltage);
 void ui_update_motor_current(float current);
 void ui_update_battery_current(float current);
 void ui_update_consumption(float consumption);

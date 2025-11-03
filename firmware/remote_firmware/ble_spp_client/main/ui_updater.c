@@ -128,41 +128,6 @@ void ui_update_battery_percentage(int percentage) {
     give_lvgl_mutex();
 }
 
-void ui_update_battery_voltage_display(float voltage) {
-    // Skip updates if we're entering power off mode
-    if (entering_power_off_mode) return;
-
-    if (objects.controller_battery_text == NULL || objects.controller_battery == NULL) return;
-
-    if (!take_lvgl_mutex()) {
-        ESP_LOGW(TAG, "Failed to take LVGL mutex for battery voltage update");
-        return;
-    }
-
-    // Only update if home screen is active
-    if (get_current_screen() == objects.home_screen) {
-        // Read charging state from GPIO
-        // LOW = charging, HIGH = not charging (inverted logic)
-        int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
-        bool is_charging = (gpio_level == 0);  // Inverted: LOW means charging
-
-        // Always update icon and text together
-        if (is_charging) {
-            // GPIO is LOW - show charging icon
-            lv_img_set_src(objects.controller_battery, &img_battery_charging);
-            lv_label_set_text_fmt(objects.controller_battery_text, "%.1f", voltage);
-            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-        } else {
-            // GPIO is HIGH - show normal icon
-            lv_img_set_src(objects.controller_battery, &img_battery);
-            lv_label_set_text_fmt(objects.controller_battery_text, "%.1f", voltage);
-            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-        }
-    }
-
-    give_lvgl_mutex();
-}
-
 void ui_update_skate_battery_percentage(int percentage) {
     // Skip updates if we're entering power off mode
     if (entering_power_off_mode) return;
@@ -515,42 +480,37 @@ static void trip_distance_update_task(void *pvParameters) {
 }
 
 static void battery_update_task(void *pvParameters) {
-    // Filter state for smoothing controller battery percentage when charging
-    static float filtered_controller_battery = -1.0f;
-    static bool filter_initialized = false;
-
-    // Smoothing factor (0.0-1.0): lower = more smoothing, higher = more responsive
-    // 0.1 means 10% new value, 90% old value - provides strong smoothing
-    const float filter_alpha = 0.1f;
+    static int displayed_percentage = -1;
+    static uint32_t last_change_time = 0;
+    const uint32_t RATE_LIMIT_MS = 5000; // 1% change every 5 seconds
 
     while (1) {
-        // Check if charger is plugged in
-        int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
-        bool is_charging = (gpio_level == 0);  // Inverted: LOW means charging
 
-        // Update controller battery percentage
         int battery_percentage = battery_get_percentage();
         if (battery_percentage >= 0) {
             int display_percentage = battery_percentage;
 
-            if (is_charging) {
-                // Apply filter when charging
-                if (!filter_initialized || filtered_controller_battery < 0) {
-                    // Initialize filter with first valid reading
-                    filtered_controller_battery = (float)battery_percentage;
-                    filter_initialized = true;
+            // Apply rate limiting if we have a previous displayed value
+            if (displayed_percentage >= 0) {
+                uint32_t current_time = esp_timer_get_time() / 1000;
+
+                // Rate limit changes (both charging and not charging)
+                if (current_time - last_change_time >= RATE_LIMIT_MS) {
+                    if (battery_percentage > displayed_percentage) {
+                        display_percentage = displayed_percentage + 1;
+                        last_change_time = current_time;
+                    } else if (battery_percentage < displayed_percentage) {
+                        display_percentage = displayed_percentage - 1;
+                        last_change_time = current_time;
+                    } else {
+                        display_percentage = displayed_percentage; // Keep current if equal
+                    }
                 } else {
-                    // Apply exponential moving average filter
-                    filtered_controller_battery = filter_alpha * (float)battery_percentage +
-                                                   (1.0f - filter_alpha) * filtered_controller_battery;
+                    display_percentage = displayed_percentage; // Keep current
                 }
-                display_percentage = (int)(filtered_controller_battery + 0.5f); // Round to nearest int
-            } else {
-                // Not charging - use direct value, reset filter for next charging cycle
-                filtered_controller_battery = -1.0f;
-                display_percentage = battery_percentage;
             }
 
+            displayed_percentage = display_percentage;
             ui_update_battery_percentage(display_percentage);
         }
 
