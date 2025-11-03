@@ -4,10 +4,10 @@
 // Application version information
 #define APP_VERSION_MAJOR 1
 #define APP_VERSION_MINOR 1
-#define APP_VERSION_PATCH 5
+#define APP_VERSION_PATCH 6
 
 // Version string
-#define APP_VERSION_STRING "1.1.5"
+#define APP_VERSION_STRING "1.1.6"
 
 // Build information
 #define BUILD_DATE __DATE__
