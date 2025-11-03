@@ -36,7 +36,6 @@ static esp_timer_handle_t periodic_timer;
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map);
 static void lv_tick_task(void *arg);
 static void lvgl_handler_task(void *pvParameters);
-void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms);
 
 void lcd_init(void) {
 

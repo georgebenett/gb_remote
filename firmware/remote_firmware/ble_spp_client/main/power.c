@@ -35,12 +35,11 @@ static void set_bar_value(void * obj, int32_t v)
     // If we reach 100%, trigger shutdown immediately
     if (v >= 100) {
         ESP_LOGI(TAG, "Bar filled - Shutting down");
-
+        viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
         // Set the flag to indicate we're entering power off mode
         entering_power_off_mode = true;
-
         // Give UI tasks time to see the flag
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(100));
         power_shutdown();
     }
 }
@@ -151,8 +150,7 @@ void power_check_inactivity(bool is_ble_connected)
 
 void power_shutdown(void) {
     ESP_LOGI(TAG, "Preparing for shutdown");
-    viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
-    lcd_fade_backlight(100, 0, 1000);  // Fade from 100 to 0 over 1 second
+    lcd_fade_backlight(LCD_BACKLIGHT_DEFAULT, LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_FADE_DURATION_MS);
     // Save trip distance
     esp_err_t err = ui_save_trip_distance();
     if (err != ESP_OK) {

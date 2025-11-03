@@ -50,7 +50,6 @@ esp_err_t viber_init(void) {
 
     viber_initialized = true;
     ESP_LOGI(TAG, "Viber initialized on GPIO %d", VIBER_PIN);
-    viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
     return ESP_OK;
 }
 

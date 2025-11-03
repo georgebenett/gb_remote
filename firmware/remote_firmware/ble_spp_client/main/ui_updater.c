@@ -92,7 +92,7 @@ void ui_update_speed(int32_t value) {
 }
 
 void ui_update_battery_percentage(int percentage) {
-    // Skip updates if we're entering sleep mode
+    // Skip updates if we're entering power off mode
     if (entering_power_off_mode) return;
 
     if (objects.controller_battery_text == NULL || objects.controller_battery == NULL) return;
@@ -164,7 +164,7 @@ void ui_update_battery_voltage_display(float voltage) {
 }
 
 void ui_update_skate_battery_percentage(int percentage) {
-    // Skip updates if we're entering sleep mode
+    // Skip updates if we're entering power off mode
     if (entering_power_off_mode) return;
 
     if (objects.skate_battery_text == NULL) return;
@@ -233,7 +233,7 @@ void ui_update_connection_quality(int rssi) {
 }
 
 void ui_update_connection_icon(void) {
-    // Skip updates if we're entering sleep mode
+    // Skip updates if we're entering power off mode
     if (entering_power_off_mode) return;
 
     if (objects.connection_icon == NULL) return;
@@ -267,7 +267,7 @@ void ui_update_connection_icon(void) {
 }
 
 void ui_update_trip_distance(int32_t speed_kmh) {
-    // Skip updates if we're entering sleep mode
+    // Skip updates if we're entering power off mode
     if (entering_power_off_mode) return;
 
     if (objects.odometer == NULL) return;

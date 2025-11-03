@@ -12,6 +12,15 @@
 #define LV_HOR_RES_MAX LCD_HOR_RES_MAX
 #define LV_VER_RES_MAX LCD_VER_RES_MAX
 
+//Display Backlight values
+#define LCD_BACKLIGHT_MIN 0
+#define LCD_BACKLIGHT_DIM 1
+#define LCD_BACKLIGHT_DEFAULT 50
+#define LCD_BACKLIGHT_MAX 100
+#define LCD_BACKLIGHT_FADE_DURATION_MS 1000  // Default fade duration in milliseconds
+
+
+
 // Function declarations
 void lcd_init(void);
 lv_obj_t* lcd_create_label(const char* initial_text);

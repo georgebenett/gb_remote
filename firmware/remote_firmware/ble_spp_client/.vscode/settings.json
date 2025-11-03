@@ -29,7 +29,11 @@
     "stdint.h": "c",
     "queue.h": "c",
     "task.h": "c",
-    "adc_oneshot.h": "c"
+    "adc_oneshot.h": "c",
+    "target_config.h": "c",
+    "gpio.h": "c",
+    "hw_config.h": "c",
+    "esp_lcd_panel_io.h": "c"
   },
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3"
