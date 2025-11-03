@@ -27,6 +27,7 @@ void ui_update_connection_icon(void);
 void ui_update_trip_distance(int32_t speed_kmh);
 void ui_reset_trip_distance(void);
 void ui_update_skate_battery_percentage(int percentage);
+void ui_update_skate_battery_voltage_display(float voltage);
 
 esp_err_t ui_save_trip_distance(void);
 esp_err_t ui_load_trip_distance(void);

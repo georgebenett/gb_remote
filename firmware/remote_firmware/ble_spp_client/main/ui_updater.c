@@ -428,7 +428,7 @@ static void speed_update_task(void *pvParameters) {
 static void trip_distance_update_task(void *pvParameters) {
     vesc_config_t config;
     ESP_ERROR_CHECK(vesc_config_load(&config));
-    
+
     uint32_t config_reload_counter = 0;
     const uint32_t CONFIG_RELOAD_INTERVAL = 10; // Reload config every 10 updates (1 second at 10Hz)
 
@@ -443,24 +443,98 @@ static void trip_distance_update_task(void *pvParameters) {
             config_reload_counter = 0;
             force_config_reload = false; // Reset the flag
         }
-        
+
         int32_t speed = vesc_config_get_speed(&config);
         ui_update_trip_distance(speed);
         vTaskDelay(pdMS_TO_TICKS(TRIP_UPDATE_MS));
     }
 }
 
+void ui_update_skate_battery_voltage_display(float voltage) {
+
+    if (objects.skate_battery_text == NULL) return;
+
+    if (!take_lvgl_mutex()) {
+        ESP_LOGW(TAG, "Failed to take LVGL mutex for skate battery voltage update");
+        return;
+    }
+
+    // Only update if home screen is active
+    if (get_current_screen() == objects.home_screen) {
+        // Format voltage as string manually since LVGL may not support float formatting
+        // Format: "XX.X" (one decimal place)
+        char voltage_str[16];
+        int volts = (int)voltage;
+        int tenths = (int)((voltage - volts) * 10 + 0.5f);  // Round to nearest tenth
+        if (tenths >= 10) {
+            tenths = 0;
+            volts++;
+        }
+        snprintf(voltage_str, sizeof(voltage_str), "%d.%d", volts, tenths);
+        lv_label_set_text(objects.skate_battery_text, voltage_str);
+    }
+
+    give_lvgl_mutex();
+}
+
 static void battery_update_task(void *pvParameters) {
+    static int displayed_percentage = -1;
+    static uint32_t last_change_time = 0;
+    const uint32_t RATE_LIMIT_MS = 5000; // 1% change every 5 seconds
+
     while (1) {
+
         int battery_percentage = battery_get_percentage();
         if (battery_percentage >= 0) {
-            ui_update_battery_percentage(battery_percentage);
+            int display_percentage = battery_percentage;
+
+            // Apply rate limiting if we have a previous displayed value
+            if (displayed_percentage >= 0) {
+                uint32_t current_time = esp_timer_get_time() / 1000;
+
+                // Rate limit changes (both charging and not charging)
+                if (current_time - last_change_time >= RATE_LIMIT_MS) {
+                    if (battery_percentage > displayed_percentage) {
+                        display_percentage = displayed_percentage + 1;
+                        last_change_time = current_time;
+                    } else if (battery_percentage < displayed_percentage) {
+                        display_percentage = displayed_percentage - 1;
+                        last_change_time = current_time;
+                    } else {
+                        display_percentage = displayed_percentage; // Keep current if equal
+                    }
+                } else {
+                    display_percentage = displayed_percentage; // Keep current
+                }
+            }
+
+            displayed_percentage = display_percentage;
+            ui_update_battery_percentage(display_percentage);
         }
 
+        // Update skate battery display (no filtering - direct values only)
         if (is_connect) {
-            int skate_battery_percentage = get_bms_battery_percentage();
-            if (skate_battery_percentage >= 0) {
-                ui_update_skate_battery_percentage(skate_battery_percentage);
+            // Check if BMS is connected (BMS voltage > 0 means BMS is connected)
+            float bms_voltage = get_bms_total_voltage();
+            bool bms_connected = (bms_voltage > 0.1f);  // Threshold to avoid noise
+
+            if (!bms_connected) {
+                // BMS not connected, display VESC voltage in skate_battery_text
+                float vesc_voltage = get_latest_voltage();
+
+                if (vesc_voltage > 0.1f) {
+                    // Display VESC voltage directly in skate_battery_text
+                    ui_update_skate_battery_voltage_display(vesc_voltage);
+                } else {
+                    // VESC voltage not available, clear or show 0
+                    ui_update_skate_battery_percentage(0);
+                }
+            } else {
+                // BMS connected, show BMS battery percentage
+                int skate_battery_percentage = get_bms_battery_percentage();
+                if (skate_battery_percentage >= 0) {
+                    ui_update_skate_battery_percentage(skate_battery_percentage);
+                }
             }
         }
 
