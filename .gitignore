@@ -12,7 +12,7 @@ firmware/.vscode/settings.json
 *.swp
 *.swo
 *.code-workspace
-ble_spp_client.code-workspace
+ble.code-workspace
 
 # Object files and binaries
 *.o
