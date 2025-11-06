@@ -51,7 +51,6 @@ uint8_t map_brake_value(uint32_t adc_value);
 uint8_t get_throttle_brake_ble_value(void);  // Combined throttle/brake value for BLE (0-255, 127=neutral)
 void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 #elif defined(CONFIG_TARGET_LITE)
-int32_t adc_read_value(void);  // Alias for throttle_read_value in lite mode
 uint8_t map_adc_value(uint32_t adc_value);  // Single throttle mapping for lite mode
 #endif
 

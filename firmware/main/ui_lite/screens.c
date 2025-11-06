@@ -175,6 +175,17 @@ void create_screen_home_screen() {
             lv_obj_set_style_align(obj, LV_ALIGN_BOTTOM_MID, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_label_set_text(obj, "0 km");
         }
+        {
+            // display_voltage
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.display_voltage = obj;
+            lv_obj_set_pos(obj, 174, 64);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xff808080), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_font(obj, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "mV");
+        }
     }
     
     tick_screen_home_screen();

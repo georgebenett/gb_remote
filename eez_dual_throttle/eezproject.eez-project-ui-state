@@ -201,45 +201,11 @@
               "children": [
                 {
                   "type": "tab",
-                  "id": "#ba826e2d-3f33-4d78-b309-074cc3acdc4f",
-                  "name": "Settings",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/settings",
-                    "subObjectPath": "[eezproject.eez-project]:/settings",
-                    "permanent": false
-                  },
-                  "icon": "material:settings"
-                },
-                {
-                  "type": "tab",
-                  "id": "#636f985a-3742-4440-aabd-2bcbcb2db786",
-                  "name": "shutdown screen",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/2",
-                    "permanent": true
-                  },
-                  "icon": "svg:page"
-                },
-                {
-                  "type": "tab",
                   "id": "#c881c365-1517-4cf8-ab69-fef4500899d7",
                   "name": "home screen",
                   "component": "editor",
                   "config": {
                     "objectPath": "[eezproject.eez-project]:/userPages/1",
-                    "permanent": true
-                  },
-                  "icon": "svg:page"
-                },
-                {
-                  "type": "tab",
-                  "id": "#f7628938-c0e4-44c0-ac20-5ae7b9b1b467",
-                  "name": "splash screen",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/0",
                     "permanent": true
                   },
                   "icon": "svg:page"
@@ -1549,15 +1515,16 @@
         "0": {
           "1": {
             "0": {}
-          }
+          },
+          "6": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -40,
-          "y": -218
+          "x": -263.52857142857135,
+          "y": -308.4785714285715
         },
-        "scale": 1.5
+        "scale": 3
       },
       "timeline": {
         "isEditorActive": false,
@@ -1926,10 +1893,11 @@
     "BACKGROUND",
     "POSITION AND SIZE",
     "LAYOUT",
-    "PADDING"
+    "PADDING",
+    "TEXT"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,
-  "flowZoom": 1.5,
+  "flowZoom": 3,
   "implementationLanguage": "C"
 }

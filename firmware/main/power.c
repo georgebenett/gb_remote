@@ -15,8 +15,6 @@
 
 static TickType_t last_activity_time;
 static TickType_t last_reset_time = 0;
-#define RESET_DEBOUNCE_TIME_MS 2000
-#define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000)  // 5 minutes
 
 static lv_anim_t arc_anim;
 static bool arc_animation_active = false;

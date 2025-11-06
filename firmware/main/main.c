@@ -103,7 +103,7 @@ void app_main(void)
         ESP_LOGW(TAG, "Failed to load speed unit configuration, using default km/h");
         ui_update_speed_unit(false); // Default to km/h
     }
-    
+
     viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
     lv_disp_load_scr(objects.splash_screen);  // Load splash screen first
     lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);  // Create timer for 3 seconds

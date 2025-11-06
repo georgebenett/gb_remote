@@ -128,6 +128,29 @@ void ui_update_battery_percentage(int percentage) {
     give_lvgl_mutex();
 }
 
+void ui_update_battery_voltage_display(float voltage) {
+    // Skip updates if we're entering power off mode
+    if (entering_power_off_mode) return;
+
+    if (objects.controller_battery_text == NULL) return;
+
+    if (!take_lvgl_mutex()) {
+        ESP_LOGW(TAG, "Failed to take LVGL mutex for battery voltage update");
+        return;
+    }
+
+    // Only update if home screen is active
+    if (get_current_screen() == objects.home_screen) {
+        float battery_voltage = battery_get_voltage();
+        // Format voltage string manually for better LVGL compatibility
+        char voltage_str[16];
+        snprintf(voltage_str, sizeof(voltage_str), "%dmV", (int)(battery_voltage * 1000 + 0.5f)); // Round to nearest millivolt
+        lv_label_set_text(objects.display_voltage, voltage_str);
+    }
+
+    give_lvgl_mutex();
+}
+
 void ui_update_skate_battery_percentage(int percentage) {
     // Skip updates if we're entering power off mode
     if (entering_power_off_mode) return;
@@ -487,6 +510,8 @@ static void battery_update_task(void *pvParameters) {
     while (1) {
 
         int battery_percentage = battery_get_percentage();
+        float battery_voltage = battery_get_voltage();
+
         if (battery_percentage >= 0) {
             int display_percentage = battery_percentage;
 
@@ -512,6 +537,7 @@ static void battery_update_task(void *pvParameters) {
 
             displayed_percentage = display_percentage;
             ui_update_battery_percentage(display_percentage);
+            ui_update_battery_voltage_display(battery_voltage);
         }
 
         // Update skate battery display (no filtering - direct values only)

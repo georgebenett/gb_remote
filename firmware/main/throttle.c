@@ -142,12 +142,6 @@ int32_t brake_read_value(void)
 
     return valid_samples > 0 ? (sum / valid_samples) : -1;
 }
-#elif defined(CONFIG_TARGET_LITE)
-// Lite target: single throttle, use throttle_read_value as adc_read_value
-int32_t adc_read_value(void)
-{
-    return throttle_read_value();
-}
 #endif
 
 static void adc_task(void *pvParameters) {
@@ -156,14 +150,10 @@ static void adc_task(void *pvParameters) {
 
     while (1) {
     int32_t adc_raw;
-    uint32_t adc_value;
+    adc_raw = throttle_read_value();
 
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-        adc_raw = throttle_read_value();
-        adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
-#elif defined(CONFIG_TARGET_LITE)
-        adc_raw = adc_read_value();
-        adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
+#ifdef CONFIG_TARGET_LITE
+    uint32_t adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
 #endif
 
         if (adc_raw < 0) {
@@ -401,7 +391,7 @@ void throttle_calibrate(void) {
             if (brake_value > brake_max) brake_max = brake_value;
         }
 #elif defined(CONFIG_TARGET_LITE)
-        int32_t value = adc_read_value();
+        int32_t value = throttle_read_value();
         if (value != -1) {  // Valid reading
             if (value < throttle_min) throttle_min = value;
             if (value > throttle_max) throttle_max = value;
