@@ -75,7 +75,7 @@ static void button_monitor_task(void* pvParameters) {
     if (button_cfg.active_low) {
         current_reading = !current_reading;
     }
-    
+
     if (current_reading) {
         // Button is pressed at startup - wait for release
         ESP_LOGI(TAG, "Button pressed at startup, waiting for release");
@@ -86,15 +86,10 @@ static void button_monitor_task(void* pvParameters) {
                 current_reading = !current_reading;
             }
         }
-        // Button was released - send RELEASED event so callbacks know button has been released
-        // This allows the power module to set button_released_since_boot = true
         notify_callbacks(BUTTON_EVENT_RELEASED);
-        // Now button is released, initialize last_reading to this state
         last_reading = current_reading;
-        vTaskDelay(pdMS_TO_TICKS(100));  // Small delay after release
+        vTaskDelay(pdMS_TO_TICKS(100));
     } else {
-        // Button is not pressed at startup - mark as released so first press works
-        // Send RELEASED event to indicate button has been released (it was never pressed)
         notify_callbacks(BUTTON_EVENT_RELEASED);
     }
 
@@ -191,15 +186,12 @@ void button_start_monitoring(void) {
 }
 
 static void default_button_handler(button_event_t event, void* user_data) {
-    // Default handler - no action needed, handlers should be registered
-    // via button_register_callback for specific functionality
     (void)event;
     (void)user_data;
 }
 
 void switch_to_screen2_callback(button_event_t event, void* user_data) {
     if (event == BUTTON_EVENT_LONG_PRESS) {
-        // Switch to Screen2
         lv_disp_load_scr(objects.shutdown_screen);
     }
 }

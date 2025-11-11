@@ -8,7 +8,7 @@
 #include "freertos/task.h"
 #include <string.h>
 #include <stdint.h>
-#include "throttle.h" // Include ADC header to access its functions
+#include "throttle.h"
 #include "hw_config.h"
 
 static const char *TAG = "BATTERY";
@@ -19,10 +19,8 @@ static float battery_voltage_samples[BATTERY_VOLTAGE_SAMPLES] = {0};
 static int battery_sample_index = 0;
 static bool battery_samples_filled = false;
 
-// Battery monitoring task
 static void battery_monitoring_task(void *pvParameters);
 
-// Function to read battery voltage using the existing ADC
 float battery_read_voltage(void);
 
 esp_err_t battery_init(void) {
@@ -70,7 +68,6 @@ esp_err_t battery_init(void) {
     }
     ESP_LOGI(TAG, "Battery charging status GPIO %d initialized", BATTERY_IS_CHARGING_GPIO);
 
-    // Reduce GPIO log verbosity to avoid seeing configuration messages
     esp_log_level_set("gpio", ESP_LOG_WARN);
 
     battery_initialized = true;
@@ -100,13 +97,10 @@ float battery_read_voltage(void) {
         return -1.0f;
     }
 
-    // Calculate intermediate values for debugging
     float adc_voltage = ((float)adc_value / ADC_RESOLUTION) * ADC_REFERENCE_VOLTAGE;
 
-    // For a 10K-10K voltage divider, the actual battery voltage is 2x the measured voltage
     float divided_voltage = adc_voltage * VOLTAGE_DIVIDER_RATIO;
 
-    // Apply calibration factor from battery.h
     float calibrated_voltage = divided_voltage * BATTERY_VOLTAGE_SCALE + BATTERY_VOLTAGE_OFFSET;
 
     return calibrated_voltage;

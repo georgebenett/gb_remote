@@ -68,7 +68,6 @@ void usb_serial_init(void)
         return;
     }
 
-    // Add target-specific initialization delay
     vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
 
     usb_serial_init_uart();
@@ -196,7 +195,6 @@ static void usb_serial_task(void *pvParameters)
                     printf("\b \b");
                 }
             } else if (command_buffer_pos < MAX_COMMAND_LENGTH - 1) {
-                // Add character to buffer
                 command_buffer[command_buffer_pos++] = ch;
             }
         }

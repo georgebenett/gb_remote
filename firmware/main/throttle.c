@@ -31,7 +31,6 @@ static bool calibration_done = false;
 static bool calibration_in_progress = false;
 static esp_err_t load_calibration_from_nvs(void);
 
-// Add this function prototype
 void adc_deinit(void);
 
 esp_err_t adc_init(void)
@@ -194,7 +193,6 @@ void adc_start_task(void) {
         return;
     }
 
-    // Add delay after initialization
     vTaskDelay(pdMS_TO_TICKS(100));
 
 #if CALIBRATE_THROTTLE
@@ -218,7 +216,6 @@ void adc_start_task(void) {
 }
 
 
-// Add this function to get the latest ADC value
 uint32_t adc_get_latest_value(void) {
     return latest_adc_value;
 }

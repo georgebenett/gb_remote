@@ -128,25 +128,18 @@ uint32_t level_assistant_process(uint32_t throttle_value, int32_t current_erpm, 
     }
 
     bool throttle_is_neutral = is_throttle_neutral(throttle_value);
-    // Remove unused erpm_is_negative variable
-    // bool erpm_is_negative = current_erpm < -LEVEL_ASSIST_ERPM_THRESHOLD;
 
     uint32_t modified_throttle = throttle_value;
 
-    // Level assist only works in auto mode (no manual input)
     if (!state.is_manual_mode && throttle_is_neutral) {
-        // Always calculate PID output for continuous fast control (no artificial delay)
         state.pid_output = calculate_pid_output(SETPOINT_RPM, (float)current_erpm, current_time);
 
-        // Apply PID output to throttle with smoothing
-        if (fabsf(state.pid_output) > 1.0f) {  // Reduced threshold for faster response
-            // Apply lighter smoothing for faster response
+        if (fabsf(state.pid_output) > 1.0f) {
             static float smoothed_output = 0.0f;
-            smoothed_output = 0.3f * smoothed_output + 0.7f * state.pid_output;  // More responsive
+            smoothed_output = 0.3f * smoothed_output + 0.7f * state.pid_output;
 
             float throttle_correction = smoothed_output;
 
-            // Only apply positive corrections (no reverse throttle for level assist)
             if (throttle_correction > 0.0f) {
                 modified_throttle = LEVEL_ASSIST_NEUTRAL_CENTER + (uint32_t)throttle_correction;
 
@@ -155,7 +148,6 @@ uint32_t level_assistant_process(uint32_t throttle_value, int32_t current_erpm, 
                     modified_throttle = LEVEL_ASSIST_MAX_THROTTLE;
                 }
             }
-            // If correction is negative, stay at neutral (no braking)
         }
     } else {
         // Not in assist mode, gradually reset PID state to prevent windup

@@ -8,7 +8,6 @@
 #define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000)  // 5 minutes
 //#define INACTIVITY_TIMEOUT_MS INT64_MAX
 
-// Add this global flag declaration
 extern volatile bool entering_power_off_mode;
 
 void power_init(void);

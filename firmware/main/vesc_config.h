@@ -35,4 +35,4 @@ esp_err_t vesc_config_load(vesc_config_t *config);
 esp_err_t vesc_config_save(const vesc_config_t *config);
 int32_t vesc_config_get_speed(const vesc_config_t *config);
 
-#endif // VESC_CONFIG_H 
+#endif // VESC_CONFIG_H

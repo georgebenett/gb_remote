@@ -17,7 +17,6 @@
 #define BATTERY_VOLTAGE_SAMPLES 10
 
 
-// Function declarations
 esp_err_t battery_init(void);
 void battery_start_monitoring(void);
 float battery_get_voltage(void);

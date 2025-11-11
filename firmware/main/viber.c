@@ -59,9 +59,9 @@ esp_err_t viber_play_pattern(viber_pattern_t pattern) {
     static const uint32_t pattern_single_long[] = {LONG_DURATION};
     static const uint32_t pattern_double_short[] = {SHORT_DURATION, PAUSE_DURATION, SHORT_DURATION};
     static const uint32_t pattern_success[] = {SHORT_DURATION, PAUSE_DURATION, LONG_DURATION};
-    static const uint32_t pattern_error[] = {SHORT_DURATION, PAUSE_DURATION, SHORT_DURATION, 
+    static const uint32_t pattern_error[] = {SHORT_DURATION, PAUSE_DURATION, SHORT_DURATION,
                                            PAUSE_DURATION, SHORT_DURATION};
-    static const uint32_t pattern_alert[] = {LONG_DURATION, PAUSE_DURATION, SHORT_DURATION, 
+    static const uint32_t pattern_alert[] = {LONG_DURATION, PAUSE_DURATION, SHORT_DURATION,
                                            PAUSE_DURATION, LONG_DURATION};
 
     const uint32_t* durations;
@@ -139,7 +139,7 @@ static void viber_task(void *pvParameters) {
                 if (!task_params.is_running) {
                     break;
                 }
-                
+
                 if (i % 2 == 0) {
                     // Even indices: vibration
                     gpio_set_level(VIBER_PIN, 1);
@@ -154,4 +154,4 @@ static void viber_task(void *pvParameters) {
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-} 
+}

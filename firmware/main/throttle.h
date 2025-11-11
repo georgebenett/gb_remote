@@ -54,7 +54,6 @@ void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 uint8_t map_adc_value(uint32_t adc_value);  // Single throttle mapping for lite mode
 #endif
 
-// Add these function declarations for battery ADC
 esp_err_t adc_battery_init(void);
 int32_t adc_read_battery_voltage(uint8_t channel);
 

@@ -125,19 +125,16 @@ static int32_t latest_erpm = 0;
 static float latest_current_motor = 0.0f;
 static float latest_current_in = 0.0f;
 
-// Add these variables after the existing latest_ variables (around line 119)
 static float bms_total_voltage = 0.0f;
 static float bms_current = 0.0f;
 static float bms_remaining_capacity = 0.0f;
 static float bms_nominal_capacity = 0.0f;
 static uint8_t bms_num_cells = 0;
-static float bms_cell_voltages[16] = {0};  // Array to store individual cell voltages
+static float bms_cell_voltages[16] = {0};
 
-// Add these variables with the other static variables
 static float latest_temp_mos = 0.0f;
 static float latest_temp_motor = 0.0f;
 
-// Add these getter functions
 float get_latest_temp_mos(void)
 {
     return latest_temp_mos;
@@ -197,7 +194,6 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
             int16_t voltage = (p_data->notify.value[12] << 8) | p_data->notify.value[13];
             latest_voltage = voltage / 100.0f;
 
-            // Now process BMS data (next 41 bytes)
             // total_voltage (bytes 14-15)
             int16_t total_voltage = (p_data->notify.value[14] << 8) | p_data->notify.value[15];
             bms_total_voltage = total_voltage / 100.0f;
@@ -697,9 +693,6 @@ static void spp_uart_init(void)
 
     ESP_LOGI(GATTC_TAG, "UART initialized successfully for BLE data transmission");
 
-    // Don't create the UART task here - it conflicts with USB Serial JTAG
-    // The UART is only used for BLE data transmission, not for user input
-    // xTaskCreate(uart_task, "uTask", 2048, (void*)UART_NUM_0, 6, NULL);
 }
 
 void spp_client_demo_init(void)
@@ -755,34 +748,27 @@ static void adc_send_task(void *pvParameters) {
             uint32_t adc_value;
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-            // Get combined throttle/brake BLE value (127 = neutral, 0-126 = below neutral, 128-255 = above neutral)
             adc_value = get_throttle_brake_ble_value();
 
-            // Load current configuration to check level assistant
             vesc_config_t config;
             esp_err_t err = vesc_config_load(&config);
 
-            // Apply level assistant processing if enabled
             if (err == ESP_OK) {
                 int32_t current_erpm = get_latest_erpm();
                 adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
             }
 #elif defined(CONFIG_TARGET_LITE)
-            // Lite mode: check calibration status and apply throttle inversion
-            // Check if calibration is in progress - send neutral value if so
             if (adc_is_calibrating()) {
-                adc_value = 127;  // Send neutral value (127) during calibration
+                adc_value = 127;
             } else if (!adc_get_calibration_status()) {
-                adc_value = 127;  // Send neutral value (127) if not calibrated
+                adc_value = 127;
             } else {
                 adc_value = adc_get_latest_value();
             }
 
-            // Load current configuration to check throttle inversion and level assistant
             vesc_config_t config;
             esp_err_t err = vesc_config_load(&config);
 
-            // Apply level assistant processing if enabled
             if (err == ESP_OK) {
                 int32_t current_erpm = get_latest_erpm();
                 adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
@@ -879,13 +865,11 @@ static void log_rssi_task(void *pvParameters) {
     }
 }
 
-// Add this function after the other getter functions
 int get_bms_battery_percentage(void) {
     if (bms_nominal_capacity <= 0.0f) return -1;
 
     float percentage = (bms_remaining_capacity / bms_nominal_capacity) * 100.0f;
 
-    // Clamp between 0 and 100
     if (percentage > 100.0f) percentage = 100.0f;
     if (percentage < 0.0f) percentage = 0.0f;
 

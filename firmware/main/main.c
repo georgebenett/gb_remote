@@ -76,30 +76,22 @@ void app_main(void)
     // Initialize LCD and LVGL
     lcd_init();
 
-    // Wait for ADC calibration
+        // Wait for ADC calibration
     while (!throttle_is_calibrated()) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    // Initialize USB Serial Handler FIRST (before BLE UART setup)
-    // Note: This is optional - if it fails, the device will still work without USB commands
-    ESP_LOGI(TAG, "Attempting to initialize USB Serial Handler...");
-
-    // Initialize full USB serial handler
     usb_serial_init();
     usb_serial_start_task();
 
-    // Initialize BLE
     spp_client_demo_init();
     ESP_LOGI(TAG, "BLE Initialization complete");
 
     ESP_ERROR_CHECK(battery_init());
     battery_start_monitoring();
 
-    // Start power monitoring
     power_start_monitoring();
 
-    // Initialize SquareLine Studio UI
     ui_init();
 
     // Set initial speed unit from saved configuration

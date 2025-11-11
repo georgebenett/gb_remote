@@ -19,11 +19,8 @@ static TickType_t last_reset_time = 0;
 static lv_anim_t arc_anim;
 static bool arc_animation_active = false;
 
-// Add a global flag to indicate when we're entering power off mode
 volatile bool entering_power_off_mode = false;
 
-// Flag to track if button has been released since boot
-// This prevents shutdown from triggering if button is held during boot
 static bool button_released_since_boot = false;
 
 static void set_bar_value(void * obj, int32_t v)

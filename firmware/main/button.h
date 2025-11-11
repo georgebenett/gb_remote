@@ -33,25 +33,18 @@ typedef enum {
     BUTTON_EVENT_DOUBLE_PRESS
 } button_event_t;
 
-// Callback function type
 typedef void (*button_callback_t)(button_event_t event, void* user_data);
 
-// Initialize button with configuration
 esp_err_t button_init(const button_config_t* config);
 
-// Register callback for button events
 void button_register_callback(button_callback_t callback, void* user_data);
 
-// Get current button state
 button_state_t button_get_state(void);
 
-// Get current press duration in milliseconds
 uint32_t button_get_press_duration_ms(void);
 
-// Start button monitoring task
 void button_start_monitoring(void);
 
-// Add after other function declarations
 void switch_to_screen2_callback(button_event_t event, void* user_data);
 
 #endif // BUTTON_H
