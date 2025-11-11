@@ -135,11 +135,6 @@ int32_t vesc_config_get_speed(const vesc_config_t *config) {
 
     int32_t erpm = get_latest_erpm();
 
-    if (erpm > 100000 || erpm < -100000) {
-        ESP_LOGW(TAG, "Invalid ERPM for speed calculation: %ld", erpm);
-        return 0;
-    }
-
     float rpm = (float)erpm / (float)config->motor_poles;  // Convert to float early
     float gear_ratio = (float)config->wheel_pulley / (float)config->motor_pulley;
 

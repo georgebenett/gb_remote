@@ -32,9 +32,9 @@ static uint32_t last_update_time = 0;
 extern volatile bool entering_power_off_mode;
 
 // Add these at the top with other defines
-#define SPEED_UPDATE_MS       20    // 50Hz instead of 100Hz for better stability
-#define TRIP_UPDATE_MS       100    // 10Hz for distance
-#define BATTERY_UPDATE_MS    500    // 2Hz for battery
+#define SPEED_UPDATE_MS       20    // 50Hz for speed updates
+#define TRIP_UPDATE_MS       1000    // 1Hz for distance
+#define BATTERY_UPDATE_MS    1000    // 1Hz for battery
 #define CONNECTION_UPDATE_MS 5000    // 0.2Hz for connection
 
 static lv_obj_t* get_current_screen(void) {
@@ -578,13 +578,14 @@ static void connection_update_task(void *pvParameters) {
 }
 
 void ui_start_update_tasks(void) {
-    // Speed updates - High priority (4) - Increased stack size to 4096
-    xTaskCreate(speed_update_task, "speed_update",
-                4096, NULL, 4, NULL);
-
-    // Other tasks with lower priorities - Also increased stack sizes
+    // Start all UI update tasks
+    vTaskDelay(pdMS_TO_TICKS(100));
+    xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4, NULL);
+    vTaskDelay(pdMS_TO_TICKS(100));
     xTaskCreate(trip_distance_update_task, "trip_update", 4096, NULL, 3, NULL);
+    vTaskDelay(pdMS_TO_TICKS(100));
     xTaskCreate(battery_update_task, "battery_update", 4096, NULL, 2, NULL);
+    vTaskDelay(pdMS_TO_TICKS(100));
     xTaskCreate(connection_update_task, "conn_update", 4096, NULL, 2, NULL);
 }
 

@@ -173,7 +173,6 @@ void lcd_start_tasks(void) {
     // LVGL handler - Highest priority (5)
     xTaskCreate(lvgl_handler_task, "lvgl_handler",
                 4096, NULL, 5, NULL);
-
     // Start all UI update tasks
     ui_start_update_tasks();
 }

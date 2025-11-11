@@ -20,11 +20,3 @@
 #define TARGET_NAME "unknown"
 #endif
 
-// Throttle logic configuration can be added here if needed
-// For example:
-// #ifdef CONFIG_TARGET_DUAL_THROTTLE
-//   // dual_throttle throttle settings
-// #elif defined(CONFIG_TARGET_LITE)
-//   // lite throttle settings
-// #endif
-

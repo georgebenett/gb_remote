@@ -10,12 +10,7 @@
 #include "nvs.h"
 #include "target_config.h"
 #include "ble.h"
-
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
 #include "power.h"
-#elif defined(CONFIG_TARGET_LITE)
-#include "power.h"  // lite uses power.h (sleep functionality is in power.c)
-#endif
 
 static const char *TAG = "ADC";
 static adc_oneshot_unit_handle_t adc1_handle;

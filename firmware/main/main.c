@@ -30,6 +30,15 @@ static void splash_timer_cb(lv_timer_t * timer)
     lv_disp_load_scr(objects.home_screen);  // Switch to home screen after timeout
 }
 
+static void adc_log_task(void *pvParameters)
+{
+    while (1) {
+        uint32_t adc_value = adc_get_latest_value();
+        ESP_LOGI(TAG, "ADC value: %lu", adc_value);
+        vTaskDelay(pdMS_TO_TICKS(500)); // Log every 1 second
+    }
+}
+
 void app_main(void)
 {
 
@@ -111,6 +120,9 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(1000));
     // Fade up the backlight smoothly
     lcd_fade_backlight(LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_DEFAULT, LCD_BACKLIGHT_FADE_DURATION_MS);
+
+    // Start ADC logging task
+    //xTaskCreate(adc_log_task, "adc_log_task", 4096, NULL, 5, NULL);
 
     // Main task loop
     while (1) {
