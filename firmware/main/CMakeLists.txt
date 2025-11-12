@@ -36,7 +36,6 @@ idf_component_register(
         "ui_updater.c"
         "battery.c"
         "usb_serial_handler.c"
-        "level_assistant.c"
         "viber.c"
         ${UI_SOURCES}
     INCLUDE_DIRS

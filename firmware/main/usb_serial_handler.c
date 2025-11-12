@@ -11,7 +11,6 @@
 #include "vesc_config.h"
 #include "ui_updater.h"
 #include "throttle.h"
-#include "level_assistant.h"
 #include "version.h"
 
 #define TAG "USB_SERIAL"
@@ -23,7 +22,6 @@ static int command_buffer_pos = 0;
 
 // Command strings
 static const char* CMD_STRINGS[] = {
-    "level_assistant",
     "reset_odometer",
     "set_motor_pulley",
     "set_wheel_pulley",
@@ -44,7 +42,6 @@ static vesc_config_t hand_controller_config;
 static void usb_serial_init_uart(void);
 static void usb_serial_task(void *pvParameters);
 static usb_command_t parse_command(const char* input);
-static void handle_level_assistant(const char* command);
 static void handle_reset_odometer(const char* command);
 static void handle_set_motor_pulley(const char* command);
 static void handle_set_wheel_pulley(const char* command);
@@ -81,7 +78,6 @@ void usb_serial_init(void)
         hand_controller_config.wheel_pulley = 33;
         hand_controller_config.wheel_diameter_mm = 115;
         hand_controller_config.motor_poles = 14;
-        hand_controller_config.level_assistant = false;
         hand_controller_config.speed_unit_mph = false; // Default to km/h
     }
 
@@ -210,9 +206,6 @@ void usb_serial_process_command(const char* command)
     ESP_LOGI(TAG, "Parsed command type: %d", cmd);
 
     switch (cmd) {
-        case CMD_LEVEL_ASSISTANT:
-            handle_level_assistant(command);
-            break;
         case CMD_RESET_ODOMETER:
             handle_reset_odometer(command);
             break;
@@ -283,24 +276,6 @@ static usb_command_t parse_command(const char* input)
     }
 
     return CMD_UNKNOWN;
-}
-
-static void handle_level_assistant(const char* command)
-{
-    hand_controller_config.level_assistant = !hand_controller_config.level_assistant;
-    printf("Level assistant: %s\n",
-           hand_controller_config.level_assistant ? "ENABLED" : "DISABLED");
-
-    // Save configuration to NVS
-    esp_err_t err = vesc_config_save(&hand_controller_config);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save level assistant setting: %s", esp_err_to_name(err));
-        printf("Warning: Failed to save setting to memory\n");
-    } else {
-        ESP_LOGI(TAG, "Level assistant saved to NVS: %s",
-                 hand_controller_config.level_assistant ? "ENABLED" : "DISABLED");
-    }
-    ui_force_config_reload(); // Force UI to reload config
 }
 
 static void handle_reset_odometer(const char* command)
@@ -438,8 +413,6 @@ static void handle_get_config(const char* command)
 
     printf("\n=== Current Configuration ===\n");
     printf("Firmware Version: %s\n", APP_VERSION_STRING);
-    printf("Level Assistant: %s\n",
-           hand_controller_config.level_assistant ? "Yes" : "No");
     printf("Speed Unit: %s\n",
            hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     printf("Motor Pulley Teeth: %d\n", hand_controller_config.motor_pulley);

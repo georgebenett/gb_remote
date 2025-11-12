@@ -71,7 +71,6 @@ static void button_monitor_task(void* pvParameters) {
     bool long_press_sent = false;
 
     // On startup, if button is already pressed, wait for it to be released first
-    // This prevents triggering events for buttons held during boot
     bool current_reading = gpio_get_level(button_cfg.gpio_num);
     if (button_cfg.active_low) {
         current_reading = !current_reading;
@@ -166,9 +165,6 @@ esp_err_t button_init(const button_config_t* config) {
         ESP_LOGE(TAG, "Failed to configure button GPIO %d: %s", config->gpio_num, esp_err_to_name(ret));
         return ret;
     }
-
-    // Verify configuration by reading initial state
-    int initial_level = gpio_get_level(config->gpio_num);
 
     button_register_callback(default_button_handler, NULL);
 

@@ -143,11 +143,12 @@ static void adc_task(void *pvParameters) {
     const uint32_t CHANGE_THRESHOLD = 2; // Adjust this threshold as needed
 
     while (1) {
-    int32_t adc_raw;
-    adc_raw = throttle_read_value();
+
+        int32_t adc_raw;
+        adc_raw = throttle_read_value();
 
 #ifdef CONFIG_TARGET_LITE
-    uint32_t adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
+        uint32_t adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
 #endif
 
         if (adc_raw < 0) {
@@ -172,7 +173,7 @@ static void adc_task(void *pvParameters) {
         // Single throttle mapping (lite mode)
         uint8_t mapped_value = map_adc_value(adc_value);
 #endif
-        latest_adc_value = mapped_value;
+        
         if(!is_connect){
             // Only monitor value changes and reset timer when BLE is not connected
             if (abs((int32_t)mapped_value - (int32_t)last_value) > CHANGE_THRESHOLD) {

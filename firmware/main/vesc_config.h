@@ -12,7 +12,6 @@
 #define NVS_KEY_WHEEL_PULLEY "wheel_pulley"
 #define NVS_KEY_WHEEL_DIAM "wheel_diam"
 #define NVS_KEY_MOTOR_POLES "motor_poles"
-#define NVS_KEY_LEVEL_ASSIST "level_assist"
 #define NVS_KEY_SPEED_UNIT "speed_unit"
 #ifdef CONFIG_TARGET_LITE
 #define NVS_KEY_INVERT_THROTTLE "inv_throttle"
@@ -23,7 +22,6 @@ typedef struct {
     uint8_t wheel_pulley;      // Number of teeth on wheel pulley
     uint8_t wheel_diameter_mm; // Wheel diameter in millimeters
     uint8_t motor_poles;      // Number of motor poles
-    bool level_assistant;     // Whether to enable level assistant for inclines
     bool speed_unit_mph;      // Speed unit: false = km/h, true = mi/h
 #ifdef CONFIG_TARGET_LITE
     bool invert_throttle;     // Whether to invert throttle direction (lite mode only)

@@ -29,7 +29,6 @@
 #include "freertos/FreeRTOS.h"
 #include "target_config.h"
 #include "throttle.h"
-#include "level_assistant.h"
 #include "ui_updater.h"
 #include "vesc_config.h"
 #include "ble.h"
@@ -749,14 +748,6 @@ static void adc_send_task(void *pvParameters) {
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
             adc_value = get_throttle_brake_ble_value();
-
-            vesc_config_t config;
-            esp_err_t err = vesc_config_load(&config);
-
-            if (err == ESP_OK) {
-                int32_t current_erpm = get_latest_erpm();
-                adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
-            }
 #elif defined(CONFIG_TARGET_LITE)
             if (throttle_should_use_neutral()) {
                 adc_value = 127;
@@ -768,14 +759,10 @@ static void adc_send_task(void *pvParameters) {
             esp_err_t err = vesc_config_load(&config);
 
             if (err == ESP_OK) {
-                int32_t current_erpm = get_latest_erpm();
-                adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
-
-                // Apply throttle inversion after level assistant processing (lite mode only)
+                // Apply throttle inversion (lite mode only)
                 if (config.invert_throttle) {
                     // Apply throttle inversion by inverting the ADC value
-                    // Since ADC is 12-bit (0-4095), we invert by subtracting from max value
-                    adc_value = 4095 - adc_value;
+                    adc_value = 255 - adc_value;
                 }
             }
 #endif

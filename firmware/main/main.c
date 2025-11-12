@@ -16,7 +16,6 @@
 #include "ui_updater.h"
 #include "esp_timer.h"
 #include "usb_serial_handler.h"
-#include "level_assistant.h"
 #include "version.h"
 #include "target_config.h"
 #include "viber.h"
@@ -33,9 +32,23 @@ static void splash_timer_cb(lv_timer_t * timer)
 static void adc_log_task(void *pvParameters)
 {
     while (1) {
-        uint32_t adc_value = adc_get_latest_value();
-        ESP_LOGI(TAG, "ADC value: %lu", adc_value);
-        vTaskDelay(pdMS_TO_TICKS(500)); // Log every 1 second
+        int32_t throttle_raw = throttle_read_value();
+
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        int32_t brake_raw = brake_read_value();
+        if (throttle_raw >= 0 && brake_raw >= 0) {
+            ESP_LOGI(TAG, "Throttle raw: %ld, Brake raw: %ld", throttle_raw, brake_raw);
+        } else {
+            ESP_LOGW(TAG, "ADC read error - Throttle: %ld, Brake: %ld", throttle_raw, brake_raw);
+        }
+#elif defined(CONFIG_TARGET_LITE)
+        if (throttle_raw >= 0) {
+            ESP_LOGI(TAG, "ADC raw value: %ld", throttle_raw);
+        } else {
+            ESP_LOGW(TAG, "ADC read error: %ld", throttle_raw);
+        }
+#endif
+        vTaskDelay(pdMS_TO_TICKS(200)); // Log every 200ms
     }
 }
 
@@ -65,9 +78,6 @@ void app_main(void)
 
     // Initialize VESC configuration
     ESP_ERROR_CHECK(vesc_config_init());
-
-    // Initialize level assistant
-    ESP_ERROR_CHECK(level_assistant_init());
 
     // Initialize viber
     ESP_ERROR_CHECK(viber_init());
@@ -117,7 +127,7 @@ void app_main(void)
     lcd_fade_backlight(LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_DEFAULT, LCD_BACKLIGHT_FADE_DURATION_MS);
 
     // Start ADC logging task
-    //xTaskCreate(adc_log_task, "adc_log_task", 4096, NULL, 5, NULL);
+    xTaskCreate(adc_log_task, "adc_log_task", 4096, NULL, 5, NULL);
 
     // Main task loop
     while (1) {
