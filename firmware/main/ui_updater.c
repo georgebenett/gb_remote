@@ -132,11 +132,12 @@ void ui_update_battery_voltage_display(float voltage) {
     char voltage_str[16];
     snprintf(voltage_str, sizeof(voltage_str), "%dmV", (int)(battery_voltage * 1000 + 0.5f)); // Round to nearest millivolt
 
-    if (get_current_screen() == objects.home_screen) {
-        lv_label_set_text(objects.display_voltage, voltage_str);
+    if (take_lvgl_mutex()) {
+        if (get_current_screen() == objects.home_screen) {
+            lv_label_set_text(objects.display_voltage, voltage_str);
+        }
+        give_lvgl_mutex();
     }
-
-    give_lvgl_mutex();
 }
 
 void ui_update_skate_battery_percentage(int percentage) {
@@ -144,11 +145,12 @@ void ui_update_skate_battery_percentage(int percentage) {
 
     if (objects.skate_battery_text == NULL) return;
 
-    if (get_current_screen() == objects.home_screen) {
-        lv_label_set_text_fmt(objects.skate_battery_text, "%d", percentage);
+    if (take_lvgl_mutex()) {
+        if (get_current_screen() == objects.home_screen) {
+            lv_label_set_text_fmt(objects.skate_battery_text, "%d", percentage);
+        }
+        give_lvgl_mutex();
     }
-
-    give_lvgl_mutex();
 }
 
 void ui_update_skate_battery_voltage_display(float voltage) {
@@ -164,11 +166,12 @@ void ui_update_skate_battery_voltage_display(float voltage) {
     }
     snprintf(voltage_str, sizeof(voltage_str), "%d.%d", volts, tenths);
 
-    if (get_current_screen() == objects.home_screen) {
-        lv_label_set_text(objects.skate_battery_text, voltage_str);
+    if (take_lvgl_mutex()) {
+        if (get_current_screen() == objects.home_screen) {
+            lv_label_set_text(objects.skate_battery_text, voltage_str);
+        }
+        give_lvgl_mutex();
     }
-
-    give_lvgl_mutex();
 }
 
 int get_connection_quality(void) {
@@ -192,24 +195,25 @@ void ui_update_connection_icon(void) {
 
     if (objects.connection_icon == NULL) return;
 
-    if (get_current_screen() == objects.home_screen) {
-        const void* icon_src = NULL;
-        if (!is_connect) {
-            icon_src = &img_connection_0;
-        } else if (connection_quality >= 30) {
-            icon_src = &img_100_connection;
-        } else if (connection_quality >= 15) {
-            icon_src = &img_66_connection;
-        } else if (connection_quality >= 5) {
-            icon_src = &img_33_connection;
-        } else {
-            icon_src = &img_connection_0;
+    if (take_lvgl_mutex()) {
+        if (get_current_screen() == objects.home_screen) {
+            const void* icon_src = NULL;
+            if (!is_connect) {
+                icon_src = &img_connection_0;
+            } else if (connection_quality >= 30) {
+                icon_src = &img_100_connection;
+            } else if (connection_quality >= 15) {
+                icon_src = &img_66_connection;
+            } else if (connection_quality >= 5) {
+                icon_src = &img_33_connection;
+            } else {
+                icon_src = &img_connection_0;
+            }
+
+            lv_img_set_src(objects.connection_icon, icon_src);
         }
-
-        lv_img_set_src(objects.connection_icon, icon_src);
+        give_lvgl_mutex();
     }
-
-    give_lvgl_mutex();
 }
 
 void ui_update_trip_distance(int32_t speed_kmh) {
@@ -235,12 +239,13 @@ void ui_update_trip_distance(int32_t speed_kmh) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.1f", total_trip_km);
 
-    if (get_current_screen() == objects.home_screen) {
-        lv_label_set_text(objects.odometer, buf);
-        lv_obj_invalidate(objects.odometer);
+    if (take_lvgl_mutex()) {
+        if (get_current_screen() == objects.home_screen) {
+            lv_label_set_text(objects.odometer, buf);
+            lv_obj_invalidate(objects.odometer);
+        }
+        give_lvgl_mutex();
     }
-
-    give_lvgl_mutex();
 }
 
 void ui_reset_trip_distance(void) {
