@@ -37,6 +37,8 @@ typedef void (*button_callback_t)(button_event_t event, void* user_data);
 
 esp_err_t button_init(const button_config_t* config);
 
+esp_err_t button_init_main(void);
+
 void button_register_callback(button_callback_t callback, void* user_data);
 
 button_state_t button_get_state(void);

@@ -49,6 +49,9 @@ void app_main(void)
     ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
     ESP_LOGI(TAG, "IDF version: %s", esp_get_idf_version());
 
+    // Initialize main button
+    ESP_ERROR_CHECK(button_init_main());
+
     // Initialize power module
     power_init();
 
@@ -90,7 +93,7 @@ void app_main(void)
     ESP_ERROR_CHECK(battery_init());
     battery_start_monitoring();
 
-    power_start_monitoring();
+    button_start_monitoring();
 
     ui_init();
 

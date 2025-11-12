@@ -14,7 +14,7 @@
 #define MAIN_BUTTON_GPIO GPIO_NUM_10
 
 // Power off GPIO definition
-#define POWER_OFF_GPIO GPIO_NUM_4
+#define POWER_HOLD_GPIO GPIO_NUM_4
 
 // Battery status GPIO
 #define BATTERY_IS_CHARGING_GPIO GPIO_NUM_2

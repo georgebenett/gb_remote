@@ -510,12 +510,8 @@ void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
 }
 #endif
 
-bool adc_get_calibration_status(void) {
-    return calibration_done;
-}
-
-bool adc_is_calibrating(void) {
-    return calibration_in_progress;
+bool throttle_should_use_neutral(void) {
+    return calibration_in_progress || !calibration_done;
 }
 
 uint8_t map_throttle_value(uint32_t adc_value) {
@@ -620,21 +616,7 @@ uint8_t get_throttle_brake_ble_value(void) {
 #ifdef CONFIG_TARGET_LITE
 // Lite mode: single throttle mapping function
 uint8_t map_adc_value(uint32_t adc_value) {
-    // Constrain input value to the calibrated range
-    if (adc_value < adc_input_min_value) {
-        adc_value = adc_input_min_value;
-    }
-    if (adc_value > adc_input_max_value) {
-        adc_value = adc_input_max_value;
-    }
-
-    // Perform the mapping
-    uint8_t mapped = (uint8_t)((adc_value - adc_input_min_value) *
-           (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) /
-           (adc_input_max_value - adc_input_min_value) +
-           ADC_OUTPUT_MIN_VALUE);
-
-    return mapped;
+    return map_throttle_value(adc_value);
 }
 #endif
 

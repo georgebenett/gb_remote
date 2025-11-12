@@ -758,9 +758,7 @@ static void adc_send_task(void *pvParameters) {
                 adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
             }
 #elif defined(CONFIG_TARGET_LITE)
-            if (adc_is_calibrating()) {
-                adc_value = 127;
-            } else if (!adc_get_calibration_status()) {
+            if (throttle_should_use_neutral()) {
                 adc_value = 127;
             } else {
                 adc_value = adc_get_latest_value();

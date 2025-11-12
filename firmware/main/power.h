@@ -11,7 +11,6 @@
 extern volatile bool entering_power_off_mode;
 
 void power_init(void);
-void power_start_monitoring(void);
 void power_reset_inactivity_timer(void);
 void power_check_inactivity(bool is_ble_connected);
 void power_shutdown(void);

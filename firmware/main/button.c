@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "ui.h"
 #include "lvgl.h"
+#include "hw_config.h"
 
 #define TAG "BUTTON"
 #define DEBOUNCE_TIME_MS 20
@@ -78,7 +79,6 @@ static void button_monitor_task(void* pvParameters) {
 
     if (current_reading) {
         // Button is pressed at startup - wait for release
-        ESP_LOGI(TAG, "Button pressed at startup, waiting for release");
         while (current_reading) {
             vTaskDelay(pdMS_TO_TICKS(50));
             current_reading = gpio_get_level(button_cfg.gpio_num);
@@ -94,14 +94,16 @@ static void button_monitor_task(void* pvParameters) {
     }
 
     while (1) {
-        current_reading = gpio_get_level(button_cfg.gpio_num);
+        int gpio_level = gpio_get_level(button_cfg.gpio_num);
+        current_reading = gpio_level;
         if (button_cfg.active_low) {
             current_reading = !current_reading;
         }
 
         if (current_reading != last_reading) {
             vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
-            current_reading = gpio_get_level(button_cfg.gpio_num);
+            gpio_level = gpio_get_level(button_cfg.gpio_num);
+            current_reading = gpio_level;
             if (button_cfg.active_low) {
                 current_reading = !current_reading;
             }
@@ -154,19 +156,34 @@ esp_err_t button_init(const button_config_t* config) {
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << config->gpio_num),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE,  // Pull-down for active-high button
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE
     };
 
     esp_err_t ret = gpio_config(&io_conf);
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure button GPIO %d: %s", config->gpio_num, esp_err_to_name(ret));
         return ret;
     }
+
+    // Verify configuration by reading initial state
+    int initial_level = gpio_get_level(config->gpio_num);
 
     button_register_callback(default_button_handler, NULL);
 
     return ESP_OK;
+}
+
+esp_err_t button_init_main(void) {
+    button_config_t config = {
+        .gpio_num = MAIN_BUTTON_GPIO,
+        .long_press_time_ms = BUTTON_LONG_PRESS_TIME_MS,
+        .double_press_time_ms = BUTTON_DOUBLE_PRESS_TIME_MS,
+        .active_low = true
+    };
+
+    return button_init(&config);
 }
 
 button_state_t button_get_state(void) {

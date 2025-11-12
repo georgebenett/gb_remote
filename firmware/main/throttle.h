@@ -42,8 +42,7 @@ void throttle_calibrate(void);
 bool throttle_is_calibrated(void);
 void adc_deinit(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
-bool adc_get_calibration_status(void);
-bool adc_is_calibrating(void);
+bool throttle_should_use_neutral(void);
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 int32_t brake_read_value(void);
