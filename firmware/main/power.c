@@ -95,19 +95,19 @@ void power_init(void) {
         .gpio_num = MAIN_BUTTON_GPIO,
         .long_press_time_ms = BUTTON_LONG_PRESS_TIME_MS,
         .double_press_time_ms = BUTTON_DOUBLE_PRESS_TIME_MS,
-        .active_low = false
+        .active_low = true
     };
 
     // Set POWER_OFF_GPIO to HIGH as first action
-    gpio_config_t gpio4_conf = {
-        .pin_bit_mask = (1ULL << GPIO_NUM_4),
+    gpio_config_t power_off_gpio_conf = {
+        .pin_bit_mask = (1ULL << POWER_OFF_GPIO),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE
     };
-    ESP_ERROR_CHECK(gpio_config(&gpio4_conf));
-    ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_4, 1));
+    ESP_ERROR_CHECK(gpio_config(&power_off_gpio_conf));
+    ESP_ERROR_CHECK(gpio_set_level(POWER_OFF_GPIO, 1));
 
     ESP_ERROR_CHECK(button_init(&config));
     button_register_callback(power_button_callback, NULL);
