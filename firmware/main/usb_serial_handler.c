@@ -39,9 +39,9 @@ static const char* CMD_STRINGS[] = {
 // Configuration storage using vesc_config_t structure
 static vesc_config_t hand_controller_config;
 
-static void usb_serial_init_uart(void);
 static void usb_serial_task(void *pvParameters);
 static usb_command_t parse_command(const char* input);
+static void print_help(void);
 static void handle_reset_odometer(const char* command);
 static void handle_set_motor_pulley(const char* command);
 static void handle_set_wheel_pulley(const char* command);
@@ -65,9 +65,11 @@ void usb_serial_init(void)
         return;
     }
 
+    // Add target-specific initialization delay
     vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
 
-    usb_serial_init_uart();
+
+    usb_serial_init_esp32s3();
 
     // Load configuration from NVS
     esp_err_t err = vesc_config_load(&hand_controller_config);
@@ -95,7 +97,6 @@ void usb_serial_start_task(void)
         xTaskCreate(usb_serial_task, "usb_serial_task", 4096, NULL, 5, &usb_task_handle);
     }
 }
-
 
 void usb_serial_init_esp32s3(void)
 {
@@ -131,40 +132,6 @@ void usb_serial_init_esp32s3(void)
     ESP_LOGI(TAG, "USB Serial JTAG initialized successfully for ESP32-S3");
 }
 
-static void usb_serial_init_uart(void)
-{
-    ESP_LOGI(TAG, "Setting up USB Serial JTAG interface (generic)");
-
-    /* Disable buffering on stdin */
-    setvbuf(stdin, NULL, _IONBF, 0);
-
-    /* Minicom, screen, idf_monitor send CR when ENTER key is pressed */
-    esp_vfs_dev_usb_serial_jtag_set_rx_line_endings(ESP_LINE_ENDINGS_CR);
-    /* Move the caret to the beginning of the next line on '\n' */
-    esp_vfs_dev_usb_serial_jtag_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
-
-    /* Enable non-blocking mode on stdin and stdout */
-    fcntl(fileno(stdout), F_SETFL, 0);
-    fcntl(fileno(stdin), F_SETFL, 0);
-
-    usb_serial_jtag_driver_config_t usb_serial_jtag_config;
-    usb_serial_jtag_config.rx_buffer_size = USB_CDC_BUFFER_SIZE;
-    usb_serial_jtag_config.tx_buffer_size = USB_CDC_BUFFER_SIZE;
-
-    esp_err_t ret = ESP_OK;
-    /* Install USB-SERIAL-JTAG driver for interrupt-driven reads and writes */
-    ret = usb_serial_jtag_driver_install(&usb_serial_jtag_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to install USB serial driver: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    /* Tell vfs to use usb-serial-jtag driver */
-    esp_vfs_usb_serial_jtag_use_driver();
-
-    ESP_LOGI(TAG, "USB Serial JTAG initialized successfully");
-}
-
 static void usb_serial_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "USB Serial task started");
@@ -191,6 +158,7 @@ static void usb_serial_task(void *pvParameters)
                     printf("\b \b");
                 }
             } else if (command_buffer_pos < MAX_COMMAND_LENGTH - 1) {
+                // Add character to buffer
                 command_buffer[command_buffer_pos++] = ch;
             }
         }
@@ -437,7 +405,7 @@ static void handle_calibrate_throttle(const char* command)
     printf("Please move the throttle through its full range during the next 6 seconds.\n");
     printf("Progress: ");
 
-    // Trigger the Throttle calibration
+    // Trigger the throttle calibration
     throttle_calibrate();
 
     // Check if calibration was successful
@@ -468,11 +436,11 @@ static void handle_get_calibration(const char* command)
         printf("Calibrated Max Value: %lu\n", max_val);
         printf("Calibrated Range: %lu\n", max_val - min_val);
 
-        // Show current ADC reading for reference
+        // Show current throttle reading for reference
         int32_t current_throttle = throttle_read_value();
         if (current_throttle != -1) {
             uint8_t mapped_value = map_throttle_value(current_throttle);
-            printf("Current ADC Reading: %ld\n", current_throttle);
+            printf("Current Throttle Reading: %ld\n", current_throttle);
             printf("Current Mapped Value: %d\n", mapped_value);
         }
     } else {

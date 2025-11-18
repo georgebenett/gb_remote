@@ -1,27 +1,17 @@
-#ifndef USB_SERIAL_HANDLER_H
-#define USB_SERIAL_HANDLER_H
+#pragma once
 
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// Target-specific USB CDC configurations
-    // ESP32-S3 specific USB CDC settings
-    #define USB_CDC_ENABLED 1
-    #define USB_CDC_USE_PRIMARY_CONSOLE 1
-    #define USB_CDC_USE_SECONDARY_CONSOLE 0
-    #define USB_CDC_INIT_DELAY_MS 100
-    #define USB_CDC_TASK_DELAY_MS 50
-    #define USB_CDC_BUFFER_SIZE 1024
-#else
-    // Default settings for other targets
-    #define USB_CDC_ENABLED 0
-    #define USB_CDC_USE_PRIMARY_CONSOLE 0
-    #define USB_CDC_USE_SECONDARY_CONSOLE 0
-    #define USB_CDC_INIT_DELAY_MS 100
-    #define USB_CDC_TASK_DELAY_MS 50
-    #define USB_CDC_BUFFER_SIZE 1024
-#endif
+
+// ESP32-S3 specific USB CDC settings
+#define USB_CDC_ENABLED 1
+#define USB_CDC_USE_PRIMARY_CONSOLE 1
+#define USB_CDC_USE_SECONDARY_CONSOLE 0
+#define USB_CDC_INIT_DELAY_MS 100
+#define USB_CDC_TASK_DELAY_MS 50
+#define USB_CDC_BUFFER_SIZE 1024
 
 // Command types that can be received via USB
 typedef enum {
@@ -45,5 +35,10 @@ void usb_serial_init(void);
 void usb_serial_start_task(void);
 void usb_serial_process_command(const char* command);
 
+void usb_serial_init_esp32s3(void);
+
+
 // External variables and functions that will be called from USB handler
 extern bool is_connect;
+
+// USB_SERIAL_HANDLER_H
