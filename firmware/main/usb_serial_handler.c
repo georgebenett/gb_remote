@@ -41,7 +41,6 @@ static vesc_config_t hand_controller_config;
 
 static void usb_serial_task(void *pvParameters);
 static usb_command_t parse_command(const char* input);
-static void print_help(void);
 static void handle_reset_odometer(const char* command);
 static void handle_set_motor_pulley(const char* command);
 static void handle_set_wheel_pulley(const char* command);
