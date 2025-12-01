@@ -251,6 +251,12 @@ void ui_update_trip_distance(int32_t speed_kmh) {
 void ui_reset_trip_distance(void) {
     total_trip_km = 0.0f;
 
+    // Save reset value to NVS
+    esp_err_t err = ui_save_trip_distance();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to save trip distance reset to NVS: %s", esp_err_to_name(err));
+    }
+
     if (!take_lvgl_mutex()) {
         ESP_LOGW(TAG, "Failed to take LVGL mutex for trip reset");
         return;
