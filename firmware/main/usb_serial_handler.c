@@ -73,7 +73,6 @@ void usb_serial_init(void)
     // Load configuration from NVS
     esp_err_t err = vesc_config_load(&hand_controller_config);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to load configuration, using defaults");
         // Initialize with default values if loading fails
         hand_controller_config.motor_pulley = 15;
         hand_controller_config.wheel_pulley = 33;
@@ -145,7 +144,6 @@ static void usb_serial_task(void *pvParameters)
                 // End of command, process it
                 if (command_buffer_pos > 0) {
                     command_buffer[command_buffer_pos] = '\0';
-                    ESP_LOGI(TAG, "Processing command: %s", command_buffer);
                     usb_serial_process_command(command_buffer);
                     command_buffer_pos = 0;
                 }
@@ -168,9 +166,7 @@ static void usb_serial_task(void *pvParameters)
 
 void usb_serial_process_command(const char* command)
 {
-    ESP_LOGI(TAG, "Processing command: '%s' (length: %d)", command, strlen(command));
     usb_command_t cmd = parse_command(command);
-    ESP_LOGI(TAG, "Parsed command type: %d", cmd);
 
     switch (cmd) {
         case CMD_RESET_ODOMETER:
@@ -247,13 +243,8 @@ static usb_command_t parse_command(const char* input)
 
 static void handle_reset_odometer(const char* command)
 {
-    printf("Odometer reset command received\n");
-
     // Reset the local trip distance display
     ui_reset_trip_distance();
-    ESP_LOGI(TAG, "Local trip distance reset");
-
-
     printf("Odometer reset successfully\n");
 }
 
@@ -266,12 +257,9 @@ static void handle_set_motor_pulley(const char* command)
         if (teeth > 0 && teeth <= 255) {
             hand_controller_config.motor_pulley = (uint8_t)teeth;
             printf("Motor pulley teeth set to: %d\n", teeth);
-            ESP_LOGI(TAG, "Motor pulley teeth set to: %d", teeth);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to save motor pulley setting: %s", esp_err_to_name(err));
                 printf("Warning: Failed to save setting to memory\n");
             }
         } else {
@@ -294,12 +282,9 @@ static void handle_set_wheel_pulley(const char* command)
         if (teeth > 0 && teeth <= 255) {
             hand_controller_config.wheel_pulley = (uint8_t)teeth;
             printf("Wheel pulley teeth set to: %d\n", teeth);
-            ESP_LOGI(TAG, "Wheel pulley teeth set to: %d", teeth);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to save wheel pulley setting: %s", esp_err_to_name(err));
                 printf("Warning: Failed to save setting to memory\n");
             }
         } else {
@@ -322,12 +307,9 @@ static void handle_set_wheel_size(const char* command)
         if (size_mm > 0 && size_mm <= 255) {
             hand_controller_config.wheel_diameter_mm = (uint8_t)size_mm;
             printf("Wheel diameter set to: %d mm\n", size_mm);
-            ESP_LOGI(TAG, "Wheel diameter set to: %d mm", size_mm);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to save wheel size setting: %s", esp_err_to_name(err));
                 printf("Warning: Failed to save setting to memory\n");
             }
         } else {
@@ -350,12 +332,9 @@ static void handle_set_motor_poles(const char* command)
         if (poles > 0 && poles <= 255) {
             hand_controller_config.motor_poles = (uint8_t)poles;
             printf("Motor poles set to: %d\n", poles);
-            ESP_LOGI(TAG, "Motor poles set to: %d", poles);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to save motor poles setting: %s", esp_err_to_name(err));
                 printf("Warning: Failed to save setting to memory\n");
             }
         } else {
@@ -374,7 +353,6 @@ static void handle_get_config(const char* command)
     // Reload configuration to ensure we have the latest settings
     esp_err_t err = vesc_config_load(&hand_controller_config);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to reload configuration: %s", esp_err_to_name(err));
         printf("Warning: Failed to reload configuration\n");
     }
 
@@ -465,10 +443,7 @@ static void handle_set_speed_unit_kmh(const char* command)
     // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
-    } else {
-        ESP_LOGI(TAG, "Speed unit saved to NVS: km/h");
     }
 
     // Immediately update the speed unit label in the UI
@@ -485,10 +460,7 @@ static void handle_set_speed_unit_mph(const char* command)
     // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
-    } else {
-        ESP_LOGI(TAG, "Speed unit saved to NVS: mi/h");
     }
 
     // Immediately update the speed unit label in the UI
