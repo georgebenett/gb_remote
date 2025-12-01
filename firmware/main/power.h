@@ -5,8 +5,8 @@
 #include "driver/gpio.h"
 
 #define RESET_DEBOUNCE_TIME_MS 2000
-#define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000)  // 5 minutes
-//#define INACTIVITY_TIMEOUT_MS INT64_MAX
+//#define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000)  // 5 minutes
+#define INACTIVITY_TIMEOUT_MS INT32_MAX
 
 extern volatile bool entering_power_off_mode;
 

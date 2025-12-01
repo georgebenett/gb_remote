@@ -15,6 +15,48 @@ static const char *TAG = "BATTERY";
 static bool battery_initialized = false;
 static float latest_battery_voltage = 0.0f;
 
+// Battery state of charge lookup table
+typedef struct {
+    float voltage;
+    float soc;   // state of charge in %
+} soc_point_t;
+
+static const soc_point_t soc_table[] = {
+    {4.15, 100},
+    {4.10,  90},
+    {3.98,  80},
+    {3.85,  70},
+    {3.80,  60},
+    {3.75,  50},
+    {3.70,  40},
+    {3.65,  30},
+    {3.55,  20},
+    {3.45,  10},
+    {3.30,   5},
+    {2.75,   0}
+};
+
+#define SOC_TABLE_SIZE (sizeof(soc_table)/sizeof(soc_table[0]))
+
+// Convert voltage to state of charge using lookup table with interpolation
+static float voltage_to_soc(float v) {
+    if (v >= soc_table[0].voltage) return 100.0f;
+    if (v <= soc_table[SOC_TABLE_SIZE-1].voltage) return 0.0f;
+
+    for (int i = 0; i < SOC_TABLE_SIZE - 1; i++) {
+        if (v <= soc_table[i].voltage && v >= soc_table[i+1].voltage) {
+
+            float dv = soc_table[i].voltage - soc_table[i+1].voltage;
+            float dsoc = soc_table[i].soc - soc_table[i+1].soc;
+
+            float ratio = (v - soc_table[i+1].voltage) / dv;
+
+            return soc_table[i+1].soc + ratio * dsoc;
+        }
+    }
+    return 0.0f; // fallback
+}
+
 static float battery_voltage_samples[BATTERY_VOLTAGE_SAMPLES] = {0};
 static int battery_sample_index = 0;
 static bool battery_samples_filled = false;
@@ -155,14 +197,7 @@ int battery_get_percentage(void) {
         return -1; // Invalid reading
     }
 
-    // Calculate percentage based on voltage range
-    if (voltage >= BATTERY_MAX_VOLTAGE) {
-        return 100;
-    } else if (voltage <= BATTERY_MIN_VOLTAGE) {
-        return 0;
-    } else {
-        // Linear mapping from voltage to percentage
-        return (int)((voltage - BATTERY_MIN_VOLTAGE) /
-                     (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE) * 100.0f);
-    }
+    // Calculate percentage using lookup table interpolation
+    float soc = voltage_to_soc(voltage);
+    return (int)(soc + 0.5f); // Round to nearest integer
 }
