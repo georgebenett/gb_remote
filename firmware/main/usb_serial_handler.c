@@ -34,6 +34,7 @@ static const char* CMD_STRINGS[] = {
     "get_firmware_version",
     "set_speed_unit_kmh",
     "set_speed_unit_mph",
+    "invert_throttle",
     "help"
 };
 
@@ -53,6 +54,7 @@ static void handle_get_calibration(const char* command);
 static void handle_get_firmware_version(const char* command);
 static void handle_set_speed_unit_kmh(const char* command);
 static void handle_set_speed_unit_mph(const char* command);
+static void handle_invert_throttle(const char* command);
 
 void usb_serial_init(void)
 {
@@ -202,6 +204,9 @@ void usb_serial_process_command(const char* command)
             break;
         case CMD_SET_SPEED_UNIT_MPH:
             handle_set_speed_unit_mph(command);
+            break;
+        case CMD_INVERT_THROTTLE:
+            handle_invert_throttle(command);
             break;
         case CMD_UNKNOWN:
         default:
@@ -360,12 +365,16 @@ static void handle_get_config(const char* command)
     printf("\n=== Current Configuration ===\n");
     printf("GB Remote Model: %s\n", TARGET_NAME);
     printf("Firmware Version: %s\n", APP_VERSION_STRING);
+    printf("Build Date: %s %s\n", BUILD_DATE, BUILD_TIME);
     printf("Speed Unit: %s\n",
            hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     printf("Motor Pulley Teeth: %d\n", hand_controller_config.motor_pulley);
     printf("Wheel Pulley Teeth: %d\n", hand_controller_config.wheel_pulley);
     printf("Wheel Diameter: %d mm\n", hand_controller_config.wheel_diameter_mm);
     printf("Motor Poles: %d\n", hand_controller_config.motor_poles);
+#ifdef CONFIG_TARGET_LITE
+    printf("Throttle Inversion: %s\n", hand_controller_config.invert_throttle ? "Enabled" : "Disabled");
+#endif
     printf("BLE Connected: %s\n", is_connect ? "Yes" : "No");
 
     // Calculate and display current speed if connected
@@ -408,7 +417,7 @@ static void handle_calibrate_throttle(const char* command)
 #else
         // Display current BLE value being sent (lite mode)
         uint32_t current_ble_value = adc_get_latest_value();
-        printf("Current BLE value being sent: %lu (0-255)\n", current_ble_value);
+        printf("Current BLE value being sent: %lu\n", current_ble_value);
 #endif
     } else {
         printf("\n✗ Throttle calibration failed!\n");
@@ -464,7 +473,7 @@ static void handle_get_calibration(const char* command)
 #else
         // Display current BLE value being sent (lite mode)
         uint32_t current_ble_value = adc_get_latest_value();
-        printf("Current BLE value being sent: %lu (0-255)\n", current_ble_value);
+        printf("Current BLE value being sent: %lu\n", current_ble_value);
 #endif
     } else {
         printf("No calibration data available.\n");
@@ -477,7 +486,7 @@ static void handle_get_firmware_version(const char* command)
 {
     printf("Firmware version: %s\n", APP_VERSION_STRING);
     printf("Build date: %s %s\n", BUILD_DATE, BUILD_TIME);
-    printf("Target: %s\n", CONFIG_IDF_TARGET);
+    printf("Product Model: %s\n", TARGET_NAME);
     printf("IDF version: %s\n", esp_get_idf_version());
 }
 
@@ -513,4 +522,26 @@ static void handle_set_speed_unit_mph(const char* command)
     ui_update_speed_unit(hand_controller_config.speed_unit_mph);
 
     ui_force_config_reload(); // Force UI to reload config
+}
+
+static void handle_invert_throttle(const char* command)
+{
+#ifdef CONFIG_TARGET_LITE
+    // Toggle the invert_throttle setting
+    hand_controller_config.invert_throttle = !hand_controller_config.invert_throttle;
+    printf("Throttle inversion %s\n", hand_controller_config.invert_throttle ? "enabled" : "disabled");
+
+    // Save configuration to NVS
+    esp_err_t err = vesc_config_save(&hand_controller_config);
+    if (err != ESP_OK) {
+        printf("Warning: Failed to save setting to memory\n");
+    } else {
+        printf("Setting saved successfully\n");
+    }
+
+    ui_force_config_reload(); // Force UI to reload config
+#else
+    printf("Error: invert_throttle command is only available for lite target\n");
+    printf("Current target: %s\n", TARGET_NAME);
+#endif
 }

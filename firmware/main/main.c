@@ -127,7 +127,7 @@ void app_main(void)
     lcd_fade_backlight(LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_DEFAULT, LCD_BACKLIGHT_FADE_DURATION_MS);
 
     // Start ADC logging task
-    xTaskCreate(adc_log_task, "adc_log_task", 4096, NULL, 5, NULL);
+    //xTaskCreate(adc_log_task, "adc_log_task", 4096, NULL, 5, NULL);
 
     // Main task loop
     while (1) {

@@ -33,7 +33,7 @@ static const soc_point_t soc_table[] = {
     {3.55,  20},
     {3.45,  10},
     {3.30,   5},
-    {2.75,   0}
+    {2.80,   0}
 };
 
 #define SOC_TABLE_SIZE (sizeof(soc_table)/sizeof(soc_table[0]))

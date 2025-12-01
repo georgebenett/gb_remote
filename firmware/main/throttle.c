@@ -172,6 +172,8 @@ static void adc_task(void *pvParameters) {
 #elif defined(CONFIG_TARGET_LITE)
         // Single throttle mapping (lite mode)
         uint8_t mapped_value = map_adc_value(adc_value);
+        // Update latest_adc_value for BLE transmission
+        latest_adc_value = mapped_value;
 #endif
         
         if(!is_connect){
