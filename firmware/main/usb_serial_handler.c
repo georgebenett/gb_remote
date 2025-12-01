@@ -12,6 +12,7 @@
 #include "ui_updater.h"
 #include "throttle.h"
 #include "version.h"
+#include "target_config.h"
 
 #define TAG "USB_SERIAL"
 #define MAX_COMMAND_LENGTH 256
@@ -357,6 +358,7 @@ static void handle_get_config(const char* command)
     }
 
     printf("\n=== Current Configuration ===\n");
+    printf("GB Remote Model: %s\n", TARGET_NAME);
     printf("Firmware Version: %s\n", APP_VERSION_STRING);
     printf("Speed Unit: %s\n",
            hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
@@ -379,7 +381,11 @@ static void handle_calibrate_throttle(const char* command)
 {
     printf("\n=== Throttle Calibration ===\n");
     printf("Starting manual throttle calibration...\n");
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    printf("Please move the throttle AND brake through their full range during the next 6 seconds.\n");
+#else
     printf("Please move the throttle through its full range during the next 6 seconds.\n");
+#endif
     printf("Progress: ");
 
     // Trigger the throttle calibration
@@ -387,13 +393,32 @@ static void handle_calibrate_throttle(const char* command)
 
     // Check if calibration was successful
     if (throttle_is_calibrated()) {
-        printf("\n✓ Throttle calibration completed successfully!\n");
+        printf("Throttle calibration completed successfully!\n");
         printf("Calibration values have been saved to memory.\n");
         printf("Throttle signals were set to neutral during calibration.\n");
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        // Display brake calibration values for dual throttle
+        uint32_t brake_min, brake_max;
+        brake_get_calibration_values(&brake_min, &brake_max);
+        printf("Brake calibration values: Min=%lu, Max=%lu, Range=%lu\n",
+               brake_min, brake_max, brake_max - brake_min);
+        // Display current BLE value being sent
+        uint8_t ble_value = get_throttle_brake_ble_value();
+        printf("Current BLE value being sent: %d\n", ble_value);
+#else
+        // Display current BLE value being sent (lite mode)
+        uint32_t current_ble_value = adc_get_latest_value();
+        printf("Current BLE value being sent: %lu (0-255)\n", current_ble_value);
+#endif
     } else {
         printf("\n✗ Throttle calibration failed!\n");
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        printf("This usually means the throttle or brake wasn't moved through its full range.\n");
+        printf("Please ensure you move both the throttle and brake from minimum to maximum position\n");
+#else
         printf("This usually means the throttle wasn't moved through its full range.\n");
         printf("Please ensure you move the throttle from minimum to maximum position\n");
+#endif
         printf("and try the calibration again.\n");
     }
     printf("\n");
@@ -409,17 +434,38 @@ static void handle_get_calibration(const char* command)
     if (is_calibrated) {
         uint32_t min_val, max_val;
         throttle_get_calibration_values(&min_val, &max_val);
-        printf("Calibrated Min Value: %lu\n", min_val);
-        printf("Calibrated Max Value: %lu\n", max_val);
-        printf("Calibrated Range: %lu\n", max_val - min_val);
+        printf("Throttle - Calibrated Min Value: %lu\n", min_val);
+        printf("Throttle - Calibrated Max Value: %lu\n", max_val);
+
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        // Display brake calibration values for dual throttle
+        uint32_t brake_min, brake_max;
+        brake_get_calibration_values(&brake_min, &brake_max);
+        printf("Brake - Calibrated Min Value: %lu\n", brake_min);
+        printf("Brake - Calibrated Max Value: %lu\n", brake_max);
+#endif
 
         // Show current throttle reading for reference
         int32_t current_throttle = throttle_read_value();
         if (current_throttle != -1) {
             uint8_t mapped_value = map_throttle_value(current_throttle);
             printf("Current Throttle Reading: %ld\n", current_throttle);
-            printf("Current Mapped Value: %d\n", mapped_value);
         }
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        // Show current brake reading for reference
+        int32_t current_brake = brake_read_value();
+        if (current_brake != -1) {
+            uint8_t mapped_brake = map_brake_value(current_brake);
+            printf("Current Brake Reading: %ld\n", current_brake);
+        }
+        // Display current BLE value being sent
+        uint8_t ble_value = get_throttle_brake_ble_value();
+        printf("Current BLE value being sent: %d\n", ble_value);
+#else
+        // Display current BLE value being sent (lite mode)
+        uint32_t current_ble_value = adc_get_latest_value();
+        printf("Current BLE value being sent: %lu (0-255)\n", current_ble_value);
+#endif
     } else {
         printf("No calibration data available.\n");
         printf("Use 'calibrate_throttle' to perform calibration.\n");
