@@ -1,21 +1,22 @@
-# GB Remote Lite
+# GB Remote
 
 <div align="center">
-  <img src="https://github.com/georgebenett/gb_remote/blob/main/mechanics/gb_controller_lite.png" width="50%" alt="GB Controller Lite">
+  <img src="https://github.com/georgebenett/gb_remote/blob/main/gb_remotes.jpg" width="50%" alt="GB Controller">
 </div>
 
-A sophisticated, open-source hand controller for electric skateboards built on the ESP32 platform. This project provides a complete wireless control solution with real-time telemetry monitoring, featuring a custom BLE SPP client that communicates with VESC motor controllers and BMS systems.
+A sophisticated, open-source hand controller for electric skateboards built with the ESP32S3. This project provides a complete wireless control solution with real-time telemetry monitoring, featuring a custom BLE SPP client that communicates with VESC motor controllers and BMS systems.
 
 ## Key Features
 
 ### Intuitive Control Interface
 - **Analog Throttle Control**: High-precision ADC-based throttle input with automatic calibration
 - **Smart Button Interface**: Multi-function button with long-press and double-press detection
-- **Sleep Management**: Automatic power management with inactivity detection and deep sleep modes
+- **Sleep Management**: Automatic power management with inactivity detection and power modes
+- **Power Management**: Soft latching hardware where power consumption while "sleeping is 1uA"
 
-### Modern Touchscreen UI
+### Modern UI
 - **LVGL Graphics Library**: Beautiful, responsive user interface built with SquareLine Studio
-- **Real-time Speed Display**: Large, easy-to-read speedometer with km/h display
+- **Real-time Speed Display**: Large, easy-to-read speedometer with km/h and mi/h display
 - **Dual Battery Monitoring**: Separate battery indicators for controller and skateboard
 - **Connection Status**: Visual feedback for BLE connection quality
 - **Trip Distance Tracking**: Built-in odometer with persistent storage
@@ -38,18 +39,18 @@ A sophisticated, open-source hand controller for electric skateboards built on t
 ## Technical Specifications
 
 ### Hardware Platform
-- **MCU**: ESP32 (supports ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2, ESP32-S3)
-- **Display**: TFT LCD with LVGL graphics library
+- **MCU**: ESP32 S3
+- **Display**: TFT LCD ST7789
 - **Input**: Analog throttle with ADC calibration
 - **Connectivity**: Bluetooth Low Energy (BLE) SPP client
-- **Power**: Built-in battery monitoring and sleep management
+- **Power**: Built-in battery monitoring and power management
 
 ### Software Architecture
 - **RTOS**: FreeRTOS for real-time task management
-- **Graphics**: LVGL 8.3.6 with SquareLine Studio UI
+- **Graphics**: LVGL 8.3.6 with EEZ Studio UI
 - **Communication**: Custom BLE SPP protocol for VESC/BMS data
 - **Storage**: NVS flash for configuration and trip data
-- **Power Management**: Advanced sleep modes with GPIO wake-up
+- **Power Management**: Advanced power modes and soft latching circuit
 
 ## Communication Protocol
 
@@ -66,15 +67,10 @@ A sophisticated, open-source hand controller for electric skateboards built on t
 
 ### Prerequisites
 - ESP-IDF development environment
-- Compatible ESP32 development board
-- TFT LCD display
-- Analog throttle potentiometer
+
 
 ### Build & Flash
-```bash
-idf.py set-target <chip_name>
-idf.py -p PORT flash monitor
-```
+- use the build scripts to build for different targets
 
 ## 🔧 Configuration Tool
 
@@ -82,19 +78,18 @@ idf.py -p PORT flash monitor
 
 Configure your GB Remote Lite controller easily using our online configuration tool:
 
-**[🚀 GB Remote Lite Config Tool](https://georgebenett.github.io/gb_remote_tool/)**
+**[🚀 GB Remote Lite Config Tool](https://georgebenett.github.io/gb_config_tool/)**
 
 ### Features:
 - **USB Serial Connection**: Connect directly via USB cable
 - **Real-time Configuration**: Adjust settings without recompiling firmware
-- **PID Tuning**: Fine-tune motor control parameters
 - **Firmware Updates**: Easy firmware flashing and updates
-- **Throttle Calibration**: Automatic ADC calibration
+- **Throttle Calibration**: can calibrate throttle and brake
 - **Parameter Management**: Configure motor poles, pulley ratios, wheel diameter
 - **Status Monitoring**: Real-time device status and logs
 
 ### Quick Setup:
-1. Flash the firmware to your ESP32
+1. Flash the firmware to your Remote
 2. Connect your controller via USB cable
 3. Open the [Config Tool](https://georgebenett.github.io/gb_remote_tool/)
 4. Click "Connect to Remote" to establish connection
@@ -102,15 +97,11 @@ Configure your GB Remote Lite controller easily using our online configuration t
 6. Pair with your electric skateboard's BLE server
 
 ### Configuration
-1. Flash the firmware to your ESP32
-2. Use the [online config tool](https://georgebenett.github.io/gb_remote_tool/) for easy setup
+1. Flash the firmware to your remote
+2. Use the [Flashing Tool](https://georgebenett.github.io/gb_flashing_tool/) for easy flashing
 3. Calibrate the throttle input on first use
 4. Configure VESC parameters in the settings
 5. Pair with your electric skateboard's BLE server
-
-### Current Limitations
-- **UI Development**: The user interface is developed using SquareLine Studio and requires the SquareLine Studio project files for modifications
-- **Advanced Customization**: For advanced modifications beyond the config tool, source code changes may be required
 
 ## Use Cases
 
@@ -127,13 +118,6 @@ This controller is specifically designed to work with popular electric skateboar
 - **Kaly BMS**: Complete compatibility with all monitoring features
 - **Custom BMS**: Extensible protocol for other BMS systems
 
-## Useful Links
-
-**🔧 Configuration Tool**: https://georgebenett.github.io/gb_remote_tool/
-
-**Thingiverse**: https://www.thingiverse.com/thing:7104863
-
-**List of Parts**: https://docs.google.com/spreadsheets/d/1dWc7UambJGHDQS4_GHVHaPw1IeZnQwx2AfN2q0adDvU/edit?usp=sharing
 
 ## Contributing
 
