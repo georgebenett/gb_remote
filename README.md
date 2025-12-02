@@ -20,6 +20,7 @@ A sophisticated, open-source hand controller for electric skateboards built with
 - **Dual Battery Monitoring**: Separate battery indicators for controller and skateboard
 - **Connection Status**: Visual feedback for BLE connection quality
 - **Trip Distance Tracking**: Built-in odometer with persistent storage
+- **Adjustable Backlight**: Configurable display brightness (1-100%) with fade effects
 
 ### Comprehensive Telemetry
 - **VESC Integration**: Real-time motor data including RPM, current, temperature, and voltage
@@ -68,23 +69,43 @@ A sophisticated, open-source hand controller for electric skateboards built with
 ### Prerequisites
 - ESP-IDF development environment
 
-
 ### Build & Flash
-- use the build scripts to build for different targets
+- Use the build scripts to build for different targets
 
-## 🔧 Configuration Tool
+## Serial Commands
 
-**🌟 Easy Configuration via Web Interface**
+The controller can be configured via USB serial connection. Available commands:
+
+| Command | Description |
+|---------|-------------|
+| `get_config` | Display current configuration and settings |
+| `get_firmware_version` | Show firmware version and build info |
+| `get_calibration` | Display throttle calibration status and values |
+| `calibrate_throttle` | Start throttle calibration procedure |
+| `set_motor_pulley <teeth>` | Set motor pulley teeth count (1-255) |
+| `set_wheel_pulley <teeth>` | Set wheel pulley teeth count (1-255) |
+| `set_wheel_size <mm>` | Set wheel diameter in millimeters (1-255) |
+| `set_motor_poles <poles>` | Set motor pole count (1-255) |
+| `set_speed_unit_kmh` | Set speed display to km/h |
+| `set_speed_unit_mph` | Set speed display to mi/h |
+| `set_backlight <brightness>` | Set display backlight brightness (1-100) |
+| `invert_throttle` | Toggle throttle direction inversion (Lite only) |
+| `reset_odometer` | Reset trip distance counter |
+| `help` | Show available commands |
+
+## Configuration Tool
+
+**Easy Configuration via Web Interface**
 
 Configure your GB Remote Lite controller easily using our online configuration tool:
 
-**[🚀 GB Remote Lite Config Tool](https://georgebenett.github.io/gb_config_tool/)**
+**[GB Remote Lite Config Tool](https://georgebenett.github.io/gb_config_tool/)**
 
 ### Features:
 - **USB Serial Connection**: Connect directly via USB cable
 - **Real-time Configuration**: Adjust settings without recompiling firmware
 - **Firmware Updates**: Easy firmware flashing and updates
-- **Throttle Calibration**: can calibrate throttle and brake
+- **Throttle Calibration**: Can calibrate throttle and brake
 - **Parameter Management**: Configure motor poles, pulley ratios, wheel diameter
 - **Status Monitoring**: Real-time device status and logs
 
@@ -131,12 +152,12 @@ This work is licensed under the Creative Commons Attribution-NonCommercial 4.0 I
 
 ### What this means:
 
-✅ **You are free to:**
-- Share — copy and redistribute the material in any medium or format
-- Adapt — remix, transform, and build upon the material
+**You are free to:**
+- Share - copy and redistribute the material in any medium or format
+- Adapt - remix, transform, and build upon the material
 - Use for personal, educational, and research purposes
 
-❌ **You may NOT:**
+**You may NOT:**
 - Use for commercial purposes (selling, commercial distribution, etc.)
 - Create derivative works (modify and redistribute)
 - Use without proper attribution to the original author
