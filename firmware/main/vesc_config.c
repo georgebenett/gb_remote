@@ -13,7 +13,6 @@ static const vesc_config_t default_config = {
     .wheel_diameter_mm = 115,   // 115mm wheels
     .motor_poles = 14,         // 14 pole motor
     .invert_throttle = false,  // Normal throttle direction
-    .level_assistant = false,  // Level assistant disabled by default
     .speed_unit_mph = false    // Speed unit: km/h by default
 };
 
@@ -55,16 +54,6 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
     if (err != ESP_OK) goto cleanup;
     config->invert_throttle = (bool)inv_throttle;
 
-    uint8_t level_assist;
-    err = nvs_get_u8(nvs_handle, NVS_KEY_LEVEL_ASSIST, &level_assist);
-    if (err == ESP_OK) {
-        config->level_assistant = (bool)level_assist;
-    } else {
-        // Default to false if key doesn't exist (backward compatibility)
-        config->level_assistant = false;
-        err = ESP_OK; // Don't fail the entire load for missing level assistant setting
-    }
-
     uint8_t speed_unit;
     err = nvs_get_u8(nvs_handle, NVS_KEY_SPEED_UNIT, &speed_unit);
     if (err == ESP_OK) {
@@ -101,9 +90,6 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
     if (err != ESP_OK) goto cleanup;
 
     err = nvs_set_u8(nvs_handle, NVS_KEY_INV_THROT, (uint8_t)config->invert_throttle);
-    if (err != ESP_OK) goto cleanup;
-
-    err = nvs_set_u8(nvs_handle, NVS_KEY_LEVEL_ASSIST, (uint8_t)config->level_assistant);
     if (err != ESP_OK) goto cleanup;
 
     err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_UNIT, (uint8_t)config->speed_unit_mph);

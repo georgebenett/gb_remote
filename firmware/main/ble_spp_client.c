@@ -27,8 +27,7 @@
 #include "esp_gatt_common_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "adc.h"
-#include "level_assistant.h"
+#include "throttle.h"
 #include "ui_updater.h"
 #include "vesc_config.h"
 #include "ble_spp_client.h"
@@ -762,22 +761,15 @@ static void adc_send_task(void *pvParameters) {
                 adc_value = adc_get_latest_value();
             }
 
-            // Load current configuration to check throttle inversion and level assistant
+            // Load current configuration to check throttle inversion
             vesc_config_t config;
             esp_err_t err = vesc_config_load(&config);
             
-            // Apply level assistant processing if enabled
-            if (err == ESP_OK) {
-                int32_t current_erpm = get_latest_erpm();
-                adc_value = level_assistant_process(adc_value, current_erpm, config.level_assistant);
-
-                
-                // Apply throttle inversion after level assistant processing
-                if (config.invert_throttle) {
-                    // Apply throttle inversion by inverting the ADC value
-                    // Since ADC is 12-bit (0-4095), we invert by subtracting from max value
-                    adc_value = 4095 - adc_value;
-                }
+            // Apply throttle inversion if enabled
+            if (err == ESP_OK && config.invert_throttle) {
+                // Apply throttle inversion by inverting the ADC value
+                // Since ADC is 12-bit (0-4095), we invert by subtracting from max value
+                adc_value = 4095 - adc_value;
             }
 
             // Pack the ADC value into 2 bytes (little-endian)

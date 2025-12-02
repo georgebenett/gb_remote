@@ -12,7 +12,6 @@
 #define NVS_KEY_WHEEL_DIAM "wheel_diam"
 #define NVS_KEY_MOTOR_POLES "motor_poles"
 #define NVS_KEY_INV_THROT "inv_throttle"
-#define NVS_KEY_LEVEL_ASSIST "level_assist"
 #define NVS_KEY_SPEED_UNIT "speed_unit"
 
 typedef struct {
@@ -21,7 +20,6 @@ typedef struct {
     uint8_t wheel_diameter_mm; // Wheel diameter in millimeters
     uint8_t motor_poles;      // Number of motor poles
     bool invert_throttle;     // Whether to invert the throttle direction
-    bool level_assistant;     // Whether to enable level assistant for inclines
     bool speed_unit_mph;      // Speed unit: false = km/h, true = mi/h
 } vesc_config_t;
 

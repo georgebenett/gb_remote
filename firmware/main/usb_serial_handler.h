@@ -35,7 +35,6 @@
 // Command types that can be received via USB
 typedef enum {
     CMD_INVERT_THROTTLE = 0,
-    CMD_LEVEL_ASSISTANT,
     CMD_RESET_ODOMETER,
     CMD_SET_MOTOR_PULLEY,
     CMD_SET_WHEEL_PULLEY,

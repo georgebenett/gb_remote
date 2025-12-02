@@ -4,7 +4,7 @@
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "ble_spp_client.h"
-#include "adc.h"
+#include "throttle.h"
 #include "lcd.h"
 #include "driver/gpio.h"
 #include "esp_sleep.h"
@@ -17,7 +17,6 @@
 #include "ui_updater.h"
 #include "esp_timer.h"
 #include "usb_serial_handler.h"
-#include "level_assistant.h"
 #include "version.h"
 
 #define TAG "MAIN"
@@ -98,9 +97,6 @@ void app_main(void)
 
     // Initialize VESC configuration
     ESP_ERROR_CHECK(vesc_config_init());
-
-    // Initialize level assistant
-    ESP_ERROR_CHECK(level_assistant_init());
 
     // Initialize ADC and start tasks
     ESP_ERROR_CHECK(adc_init());

@@ -10,8 +10,7 @@
 #include "ble_spp_client.h"
 #include "vesc_config.h"
 #include "ui_updater.h"
-#include "adc.h"
-#include "level_assistant.h"
+#include "throttle.h"
 #include "version.h"
 
 #define TAG "USB_SERIAL"
@@ -24,7 +23,6 @@ static int command_buffer_pos = 0;
 // Command strings
 static const char* CMD_STRINGS[] = {
     "invert_throttle",
-    "level_assistant",
     "reset_odometer",
     "set_motor_pulley",
     "set_wheel_pulley",
@@ -47,7 +45,6 @@ static void usb_serial_task(void *pvParameters);
 static usb_command_t parse_command(const char* input);
 static void print_help(void);
 static void handle_invert_throttle(const char* command);
-static void handle_level_assistant(const char* command);
 static void handle_reset_odometer(const char* command);
 static void handle_set_motor_pulley(const char* command);
 static void handle_set_wheel_pulley(const char* command);
@@ -93,7 +90,6 @@ void usb_serial_init(void)
         hand_controller_config.wheel_diameter_mm = 115;
         hand_controller_config.motor_poles = 14;
         hand_controller_config.invert_throttle = false;
-        hand_controller_config.level_assistant = false;
         hand_controller_config.speed_unit_mph = false; // Default to km/h
     }
 
@@ -233,7 +229,6 @@ static void usb_serial_task(void *pvParameters)
                 // End of command, process it
                 if (command_buffer_pos > 0) {
                     command_buffer[command_buffer_pos] = '\0';
-                    ESP_LOGI(TAG, "Processing command: %s", command_buffer);
                     usb_serial_process_command(command_buffer);
                     command_buffer_pos = 0;
                 }
@@ -256,16 +251,11 @@ static void usb_serial_task(void *pvParameters)
 
 void usb_serial_process_command(const char* command)
 {
-    ESP_LOGI(TAG, "Processing command: '%s' (length: %d)", command, strlen(command));
     usb_command_t cmd = parse_command(command);
-    ESP_LOGI(TAG, "Parsed command type: %d", cmd);
 
     switch (cmd) {
         case CMD_INVERT_THROTTLE:
             handle_invert_throttle(command);
-            break;
-        case CMD_LEVEL_ASSISTANT:
-            handle_level_assistant(command);
             break;
         case CMD_RESET_ODOMETER:
             handle_reset_odometer(command);
@@ -344,7 +334,6 @@ static void print_help(void)
     printf("\n=== Hand Controller Configuration Interface ===\n");
     printf("Available commands:\n");
     printf("  invert_throttle          - Toggle throttle inversion\n");
-    printf("  level_assistant          - Toggle level assistant\n");
     printf("  set_speed_unit_kmh       - Set speed unit to km/h\n");
     printf("  set_speed_unit_mph       - Set speed unit to mi/h\n");
     printf("  reset_odometer           - Reset trip odometer\n");
@@ -371,30 +360,11 @@ static void handle_invert_throttle(const char* command)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save throttle inversion setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
-    } else {
-        ESP_LOGI(TAG, "Throttle inversion saved to NVS: %s",
-                 hand_controller_config.invert_throttle ? "ENABLED" : "DISABLED");
     }
+
     ui_force_config_reload(); // Force UI to reload config
 }
 
-static void handle_level_assistant(const char* command)
-{
-    hand_controller_config.level_assistant = !hand_controller_config.level_assistant;
-    printf("Level assistant: %s\n",
-           hand_controller_config.level_assistant ? "ENABLED" : "DISABLED");
-
-    // Save configuration to NVS
-    esp_err_t err = vesc_config_save(&hand_controller_config);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save level assistant setting: %s", esp_err_to_name(err));
-        printf("Warning: Failed to save setting to memory\n");
-    } else {
-        ESP_LOGI(TAG, "Level assistant saved to NVS: %s",
-                 hand_controller_config.level_assistant ? "ENABLED" : "DISABLED");
-    }
-    ui_force_config_reload(); // Force UI to reload config
-}
 
 static void handle_reset_odometer(const char* command)
 {
@@ -402,9 +372,11 @@ static void handle_reset_odometer(const char* command)
 
     // Reset the local trip distance display
     ui_reset_trip_distance();
-    ESP_LOGI(TAG, "Local trip distance reset");
-
-
+    esp_err_t err = ui_save_trip_distance();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save trip distance: %s", esp_err_to_name(err));
+        printf("Warning: Failed to save trip distance to memory\n");
+    }
     printf("Odometer reset successfully\n");
 }
 
@@ -417,8 +389,6 @@ static void handle_set_motor_pulley(const char* command)
         if (teeth > 0 && teeth <= 255) {
             hand_controller_config.motor_pulley = (uint8_t)teeth;
             printf("Motor pulley teeth set to: %d\n", teeth);
-            ESP_LOGI(TAG, "Motor pulley teeth set to: %d", teeth);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -445,8 +415,6 @@ static void handle_set_wheel_pulley(const char* command)
         if (teeth > 0 && teeth <= 255) {
             hand_controller_config.wheel_pulley = (uint8_t)teeth;
             printf("Wheel pulley teeth set to: %d\n", teeth);
-            ESP_LOGI(TAG, "Wheel pulley teeth set to: %d", teeth);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -473,8 +441,6 @@ static void handle_set_wheel_size(const char* command)
         if (size_mm > 0 && size_mm <= 255) {
             hand_controller_config.wheel_diameter_mm = (uint8_t)size_mm;
             printf("Wheel diameter set to: %d mm\n", size_mm);
-            ESP_LOGI(TAG, "Wheel diameter set to: %d mm", size_mm);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -501,8 +467,6 @@ static void handle_set_motor_poles(const char* command)
         if (poles > 0 && poles <= 255) {
             hand_controller_config.motor_poles = (uint8_t)poles;
             printf("Motor poles set to: %d\n", poles);
-            ESP_LOGI(TAG, "Motor poles set to: %d", poles);
-
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
@@ -530,11 +494,10 @@ static void handle_get_config(const char* command)
     }
 
     printf("\n=== Current Configuration ===\n");
+    printf("GB Remote model: %s\n", TARGET_NAME);
     printf("Firmware Version: %s\n", APP_VERSION_STRING);
     printf("Throttle Inverted: %s\n",
            hand_controller_config.invert_throttle ? "Yes" : "No");
-    printf("Level Assistant: %s\n",
-           hand_controller_config.level_assistant ? "Yes" : "No");
     printf("Speed Unit: %s\n",
            hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
     printf("Motor Pulley Teeth: %d\n", hand_controller_config.motor_pulley);
@@ -592,10 +555,12 @@ static void handle_get_calibration(const char* command)
 
         // Show current ADC reading for reference
         int32_t current_adc = adc_read_value();
+        int32_t latest_adc = adc_get_latest_value();
         if (current_adc != -1) {
             uint8_t mapped_value = map_adc_value(current_adc);
             printf("Current ADC Reading: %ld\n", current_adc);
             printf("Current Mapped Value: %d\n", mapped_value);
+            printf("Throttle being sent: %ld\n", latest_adc);
         }
     } else {
         printf("No calibration data available.\n");
@@ -622,8 +587,6 @@ static void handle_set_speed_unit_kmh(const char* command)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
-    } else {
-        ESP_LOGI(TAG, "Speed unit saved to NVS: km/h");
     }
 
     // Immediately update the speed unit label in the UI
@@ -642,8 +605,6 @@ static void handle_set_speed_unit_mph(const char* command)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save speed unit setting: %s", esp_err_to_name(err));
         printf("Warning: Failed to save setting to memory\n");
-    } else {
-        ESP_LOGI(TAG, "Speed unit saved to NVS: mi/h");
     }
 
     // Immediately update the speed unit label in the UI

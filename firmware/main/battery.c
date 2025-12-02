@@ -8,7 +8,7 @@
 #include "freertos/task.h"
 #include <string.h>
 #include <stdint.h>
-#include "adc.h" // Include ADC header to access its functions
+#include "throttle.h" // Include ADC header to access its functions
 
 static const char *TAG = "BATTERY";
 static bool battery_initialized = false;
