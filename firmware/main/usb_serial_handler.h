@@ -27,6 +27,7 @@ typedef enum {
     CMD_SET_SPEED_UNIT_KMH,
     CMD_SET_SPEED_UNIT_MPH,
     CMD_INVERT_THROTTLE,
+    CMD_SET_BACKLIGHT,
     CMD_HELP,
     CMD_UNKNOWN
 } usb_command_t;

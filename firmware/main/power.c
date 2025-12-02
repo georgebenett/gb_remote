@@ -10,6 +10,7 @@
 #include "driver/gpio.h"
 #include "button.h"
 #include "viber.h"
+#include "nvs.h"
 
 #define TAG "POWER"
 
@@ -134,7 +135,24 @@ void power_check_inactivity(bool is_ble_connected)
 
 void power_shutdown(void) {
     ESP_LOGI(TAG, "Preparing for shutdown");
-    lcd_fade_backlight(LCD_BACKLIGHT_DEFAULT, LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_FADE_DURATION_MS);
+
+    // Load saved backlight brightness or use default
+    uint8_t current_brightness = LCD_BACKLIGHT_DEFAULT;
+    nvs_handle_t nvs_handle;
+    if (nvs_open("lcd_cfg", NVS_READONLY, &nvs_handle) == ESP_OK) {
+        uint8_t saved_brightness;
+        if (nvs_get_u8(nvs_handle, "backlight", &saved_brightness) == ESP_OK) {
+            current_brightness = saved_brightness;
+        }
+        nvs_close(nvs_handle);
+    }
+
+    // Fade out from current brightness to minimum
+    // Map percentage (1-100) to PWM duty (0-255)
+    uint8_t current_pwm = (current_brightness * 255) / 100;
+    uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
+    lcd_fade_backlight(current_pwm, min_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
+
     // Save trip distance
     esp_err_t err = ui_save_trip_distance();
     if (err != ESP_OK) {

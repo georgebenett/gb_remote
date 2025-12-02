@@ -13,9 +13,16 @@
 #include "throttle.h"
 #include "version.h"
 #include "target_config.h"
+#include "lcd.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 
 #define TAG "USB_SERIAL"
 #define MAX_COMMAND_LENGTH 256
+
+// NVS key for backlight brightness
+#define NVS_NAMESPACE_LCD "lcd_cfg"
+#define NVS_KEY_BACKLIGHT "backlight"
 
 static TaskHandle_t usb_task_handle = NULL;
 static char command_buffer[MAX_COMMAND_LENGTH];
@@ -35,6 +42,7 @@ static const char* CMD_STRINGS[] = {
     "set_speed_unit_kmh",
     "set_speed_unit_mph",
     "invert_throttle",
+    "set_backlight",
     "help"
 };
 
@@ -55,6 +63,7 @@ static void handle_get_firmware_version(const char* command);
 static void handle_set_speed_unit_kmh(const char* command);
 static void handle_set_speed_unit_mph(const char* command);
 static void handle_invert_throttle(const char* command);
+static void handle_set_backlight(const char* command);
 
 void usb_serial_init(void)
 {
@@ -207,6 +216,9 @@ void usb_serial_process_command(const char* command)
             break;
         case CMD_INVERT_THROTTLE:
             handle_invert_throttle(command);
+            break;
+        case CMD_SET_BACKLIGHT:
+            handle_set_backlight(command);
             break;
         case CMD_UNKNOWN:
         default:
@@ -375,6 +387,23 @@ static void handle_get_config(const char* command)
 #ifdef CONFIG_TARGET_LITE
     printf("Throttle Inversion: %s\n", hand_controller_config.invert_throttle ? "Enabled" : "Disabled");
 #endif
+
+    // Display backlight brightness
+    nvs_handle_t nvs_handle;
+    err = nvs_open(NVS_NAMESPACE_LCD, NVS_READONLY, &nvs_handle);
+    if (err == ESP_OK) {
+        uint8_t brightness;
+        err = nvs_get_u8(nvs_handle, NVS_KEY_BACKLIGHT, &brightness);
+        if (err == ESP_OK) {
+            printf("Backlight Brightness: %d%%\n", brightness);
+        } else {
+            printf("Backlight Brightness: %d%% (default)\n", LCD_BACKLIGHT_DEFAULT);
+        }
+        nvs_close(nvs_handle);
+    } else {
+        printf("Backlight Brightness: %d%% (default)\n", LCD_BACKLIGHT_DEFAULT);
+    }
+
     printf("BLE Connected: %s\n", is_connect ? "Yes" : "No");
 
     // Calculate and display current speed if connected
@@ -452,22 +481,7 @@ static void handle_get_calibration(const char* command)
         brake_get_calibration_values(&brake_min, &brake_max);
         printf("Brake - Calibrated Min Value: %lu\n", brake_min);
         printf("Brake - Calibrated Max Value: %lu\n", brake_max);
-#endif
 
-        // Show current throttle reading for reference
-        int32_t current_throttle = throttle_read_value();
-        if (current_throttle != -1) {
-            uint8_t mapped_value = map_throttle_value(current_throttle);
-            printf("Current Throttle Reading: %ld\n", current_throttle);
-        }
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-        // Show current brake reading for reference
-        int32_t current_brake = brake_read_value();
-        if (current_brake != -1) {
-            uint8_t mapped_brake = map_brake_value(current_brake);
-            printf("Current Brake Reading: %ld\n", current_brake);
-        }
-        // Display current BLE value being sent
         uint8_t ble_value = get_throttle_brake_ble_value();
         printf("Current BLE value being sent: %d\n", ble_value);
 #else
@@ -544,4 +558,45 @@ static void handle_invert_throttle(const char* command)
     printf("Error: invert_throttle command is only available for lite target\n");
     printf("Current target: %s\n", TARGET_NAME);
 #endif
+}
+
+static void handle_set_backlight(const char* command)
+{
+    const char* value_str = strchr(command, ' ');
+    if (value_str) {
+        value_str++; // Skip the space
+        int brightness = atoi(value_str);
+        if (brightness >= LCD_BACKLIGHT_MIN && brightness <= LCD_BACKLIGHT_MAX) {
+            // Map percentage (0-100) to PWM duty (0-255)
+            uint8_t pwm_value = (brightness * 255) / 100;
+            lcd_set_backlight(pwm_value);
+            printf("Backlight brightness set to: %d%%\n", brightness);
+
+            // Save to NVS
+            nvs_handle_t nvs_handle;
+            esp_err_t err = nvs_open(NVS_NAMESPACE_LCD, NVS_READWRITE, &nvs_handle);
+            if (err == ESP_OK) {
+                err = nvs_set_u8(nvs_handle, NVS_KEY_BACKLIGHT, (uint8_t)brightness);
+                if (err == ESP_OK) {
+                    err = nvs_commit(nvs_handle);
+                }
+                nvs_close(nvs_handle);
+
+                if (err != ESP_OK) {
+                    printf("Warning: Failed to save setting to memory\n");
+                }
+            } else {
+                printf("Warning: Failed to save setting to memory\n");
+            }
+        } else {
+            printf("Error: Invalid brightness value. Must be between %d and %d\n",
+                   LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_MAX);
+        }
+    } else {
+        printf("Error: No value provided\n");
+        printf("Usage: set_backlight <brightness>\n");
+        printf("Example: set_backlight 50\n");
+        printf("Valid range: %d-%d (default: %d)\n",
+               LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_MAX, LCD_BACKLIGHT_DEFAULT);
+    }
 }

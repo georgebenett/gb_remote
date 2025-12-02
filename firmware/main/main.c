@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "esp_log.h"
 #include "ble.h"
 #include "throttle.h"
@@ -123,8 +124,24 @@ void app_main(void)
     lv_timer_t * splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);  // Create timer for 3 seconds
     lv_timer_set_repeat_count(splash_timer, 1);  // Run only once
     vTaskDelay(pdMS_TO_TICKS(1000));
-    // Fade up the backlight smoothly
-    lcd_fade_backlight(LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_DEFAULT, LCD_BACKLIGHT_FADE_DURATION_MS);
+
+    // Load saved backlight brightness or use default
+    uint8_t target_brightness = LCD_BACKLIGHT_DEFAULT;
+    nvs_handle_t nvs_handle;
+    if (nvs_open("lcd_cfg", NVS_READONLY, &nvs_handle) == ESP_OK) {
+        uint8_t saved_brightness;
+        if (nvs_get_u8(nvs_handle, "backlight", &saved_brightness) == ESP_OK) {
+            target_brightness = saved_brightness;
+            ESP_LOGI(TAG, "Loaded saved backlight brightness: %d%%", saved_brightness);
+        }
+        nvs_close(nvs_handle);
+    }
+
+    // Fade up the backlight smoothly to saved/default brightness
+    // Map percentage (1-100) to PWM duty (0-255)
+    uint8_t target_pwm = (target_brightness * 255) / 100;
+    uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
+    lcd_fade_backlight(min_pwm, target_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
 
     // Start ADC logging task
     //xTaskCreate(adc_log_task, "adc_log_task", 4096, NULL, 5, NULL);
