@@ -70,28 +70,7 @@ A sophisticated, open-source hand controller for electric skateboards built with
 - ESP-IDF development environment
 
 ### Build & Flash
-- Use the build scripts to build for different targets
-
-## Serial Commands
-
-The controller can be configured via USB serial connection. Available commands:
-
-| Command | Description |
-|---------|-------------|
-| `get_config` | Display current configuration and settings |
-| `get_firmware_version` | Show firmware version and build info |
-| `get_calibration` | Display throttle calibration status and values |
-| `calibrate_throttle` | Start throttle calibration procedure |
-| `set_motor_pulley <teeth>` | Set motor pulley teeth count (1-255) |
-| `set_wheel_pulley <teeth>` | Set wheel pulley teeth count (1-255) |
-| `set_wheel_size <mm>` | Set wheel diameter in millimeters (1-255) |
-| `set_motor_poles <poles>` | Set motor pole count (1-255) |
-| `set_speed_unit_kmh` | Set speed display to km/h |
-| `set_speed_unit_mph` | Set speed display to mi/h |
-| `set_backlight <brightness>` | Set display backlight brightness (1-100) |
-| `invert_throttle` | Toggle throttle direction inversion (Lite only) |
-| `reset_odometer` | Reset trip distance counter |
-| `help` | Show available commands |
+- Use the build scripts to build for different target (lite or dual trigger)
 
 ## Configuration Tool
 
