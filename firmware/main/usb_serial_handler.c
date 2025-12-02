@@ -494,7 +494,7 @@ static void handle_get_config(const char* command)
     }
 
     printf("\n=== Current Configuration ===\n");
-    printf("GB Remote model: %s\n", TARGET_NAME);
+    printf("GB Remote Model: %s\n", TARGET_NAME);
     printf("Firmware Version: %s\n", APP_VERSION_STRING);
     printf("Throttle Inverted: %s\n",
            hand_controller_config.invert_throttle ? "Yes" : "No");
