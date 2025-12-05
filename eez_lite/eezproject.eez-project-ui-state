@@ -5,7 +5,7 @@
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
     "selectedFontObject": "[eezproject.eez-project]:/fonts/4",
-    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/21",
+    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/7",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
     }
@@ -221,8 +221,7 @@
                   },
                   "icon": "svg:page"
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
@@ -242,7 +241,8 @@
                       "enableClose": false,
                       "icon": "svg:properties"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -1527,15 +1527,18 @@
           "1": {
             "0": {}
           },
-          "2": {}
+          "2": {},
+          "7": {
+            "$selected": true
+          }
         }
       },
       "transform": {
         "translate": {
-          "x": -40,
-          "y": -218
+          "x": -109.19047619047609,
+          "y": -279.7309523809525
         },
-        "scale": 1.5
+        "scale": 2
       },
       "timeline": {
         "isEditorActive": false,
@@ -1555,7 +1558,7 @@
           "x": -21,
           "y": -228
         },
-        "scale": 1.5
+        "scale": 2
       },
       "timeline": {
         "isEditorActive": false,
@@ -1573,7 +1576,7 @@
           "x": -276,
           "y": -336
         },
-        "scale": 1.5
+        "scale": 2
       },
       "timeline": {
         "isEditorActive": false,
@@ -1908,6 +1911,6 @@
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,
-  "flowZoom": 1.5,
+  "flowZoom": 2,
   "implementationLanguage": "C"
 }
