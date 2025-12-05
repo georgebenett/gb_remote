@@ -22,6 +22,7 @@ typedef struct _objects_t {
     lv_obj_t *speedlabel;
     lv_obj_t *odometer;
     lv_obj_t *display_voltage;
+    lv_obj_t *aux_output;
     lv_obj_t *obj0;
     lv_obj_t *shutting_down_bar;
 } objects_t;

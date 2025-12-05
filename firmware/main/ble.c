@@ -18,6 +18,7 @@
 
 #include "esp_bt.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "esp_bt_device.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
@@ -34,6 +35,9 @@
 #include "ble.h"
 #define DEVICE_NAME                 "GS-THUMB"
 #define GATTC_TAG                   "GATTC_SPP_DEMO"
+
+#define AUX_NVS_NAMESPACE           "aux_cfg"
+#define AUX_NVS_KEY_STATE           "aux_state"
 
 #define PROFILE_NUM                 1
 #define PROFILE_APP_ID              0
@@ -134,6 +138,8 @@ static float bms_cell_voltages[16] = {0};
 static float latest_temp_mos = 0.0f;
 static float latest_temp_motor = 0.0f;
 
+static bool aux_output_state = false;
+
 float get_latest_temp_mos(void)
 {
     return latest_temp_mos;
@@ -142,6 +148,43 @@ float get_latest_temp_mos(void)
 float get_latest_temp_motor(void)
 {
     return latest_temp_motor;
+}
+
+static void aux_output_save_state(void)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(AUX_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err == ESP_OK) {
+        nvs_set_u8(nvs_handle, AUX_NVS_KEY_STATE, aux_output_state ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+}
+
+static void aux_output_load_state(void)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(AUX_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err == ESP_OK) {
+        uint8_t state = 0;
+        if (nvs_get_u8(nvs_handle, AUX_NVS_KEY_STATE, &state) == ESP_OK) {
+            aux_output_state = (state != 0);
+            ESP_LOGI(GATTC_TAG, "Aux output state loaded from NVS: %s", aux_output_state ? "ON" : "OFF");
+        }
+        nvs_close(nvs_handle);
+    }
+}
+
+void ble_toggle_aux_output(void)
+{
+    aux_output_state = !aux_output_state;
+    aux_output_save_state();
+    ESP_LOGI(GATTC_TAG, "Aux output toggled: %s", aux_output_state ? "ON" : "OFF");
+}
+
+bool ble_get_aux_output_state(void)
+{
+    return aux_output_state;
 }
 
 static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
@@ -705,6 +748,10 @@ void spp_client_demo_init(void)
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 
     nvs_flash_init();
+
+    // Load aux output state from NVS
+    aux_output_load_state();
+
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret) {
         ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
@@ -737,7 +784,7 @@ void spp_client_demo_init(void)
 }
 
 static void adc_send_task(void *pvParameters) {
-    uint8_t data_buffer[2];  // Just 2 bytes for a 12-bit ADC value
+    uint8_t data_buffer[3];  // 2 bytes for ADC value + 1 byte for aux output
 
     while (1) {
         if (is_connect && db != NULL &&
@@ -770,12 +817,14 @@ static void adc_send_task(void *pvParameters) {
             // Pack the ADC value into 2 bytes (little-endian)
             data_buffer[0] = (uint8_t)(adc_value & 0xFF);         // Low byte
             data_buffer[1] = (uint8_t)((adc_value >> 8) & 0xFF);  // High byte
+            // Byte 2: Auxiliary output state
+            data_buffer[2] = aux_output_state ? 1 : 0;
 
             esp_ble_gattc_write_char(
                 spp_gattc_if,
                 spp_conn_id,
                 (db+SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle,
-                sizeof(data_buffer),  // 2 bytes
+                sizeof(data_buffer),  // 3 bytes
                 data_buffer,
                 ESP_GATT_WRITE_TYPE_NO_RSP,
                 ESP_GATT_AUTH_REQ_NONE

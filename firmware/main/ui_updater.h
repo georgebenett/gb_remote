@@ -41,4 +41,8 @@ void ui_start_update_tasks(void);
 void ui_force_config_reload(void);
 void ui_update_speed_unit(bool is_mph);
 
+// Aux output indicator
+void ui_create_aux_output_indicator(void);
+void ui_update_aux_output_indicator(void);
+
 #endif // UI_UPDATER_H

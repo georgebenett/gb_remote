@@ -12,6 +12,7 @@
 #include "viber.h"
 #include "nvs.h"
 #include "vesc_config.h"
+#include "ble.h"
 
 #define TAG "POWER"
 
@@ -103,6 +104,13 @@ static void power_button_callback(button_event_t event, void* user_data) {
             break;
 
         case BUTTON_EVENT_DOUBLE_PRESS:
+            // Toggle auxiliary output on double press (only if BLE connected)
+            if (is_connect) {
+                ble_toggle_aux_output();
+                ui_update_aux_output_indicator();
+                ESP_LOGI(TAG, "Aux output toggled: %s", ble_get_aux_output_state() ? "ON" : "OFF");
+                viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
+            }
             break;
     }
 }

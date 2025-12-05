@@ -186,6 +186,16 @@ void create_screen_home_screen() {
             lv_obj_set_style_text_font(obj, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_label_set_text(obj, "mV");
         }
+        {
+            // aux_output
+            lv_obj_t *obj = lv_img_create(parent_obj);
+            objects.aux_output = obj;
+            lv_obj_set_pos(obj, -28, -115);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_img_set_src(obj, &img_aux_output);
+            lv_img_set_zoom(obj, 200);
+            lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        }
     }
     
     tick_screen_home_screen();

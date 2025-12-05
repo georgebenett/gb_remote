@@ -108,6 +108,10 @@ void app_main(void)
 
     ui_init();
 
+    // Create aux output indicator and set initial visibility
+    ui_create_aux_output_indicator();
+    ui_update_aux_output_indicator();
+
     // Set initial speed unit from saved configuration
     vesc_config_t config;
     esp_err_t err = vesc_config_load(&config);

@@ -1,6 +1,9 @@
 #ifndef SPP_CLIENT_DEMO_H
 #define SPP_CLIENT_DEMO_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 extern bool is_connect;
 
 void spp_client_demo_init(void);
@@ -17,5 +20,9 @@ float get_bms_cell_voltage(uint8_t cell_index);
 float get_latest_temp_mos(void);
 float get_latest_temp_motor(void);
 int get_bms_battery_percentage(void);
+
+// Auxiliary output control
+void ble_toggle_aux_output(void);
+bool ble_get_aux_output_state(void);
 
 #endif // SPP_CLIENT_DEMO_H

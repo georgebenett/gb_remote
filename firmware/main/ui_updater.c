@@ -503,6 +503,7 @@ static void connection_update_task(void *pvParameters) {
 
 void ui_start_update_tasks(void) {
     vTaskDelay(pdMS_TO_TICKS(100));
+    
     xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4, NULL);
     vTaskDelay(pdMS_TO_TICKS(100));
     xTaskCreate(trip_distance_update_task, "trip_update", 4096, NULL, 3, NULL);
@@ -516,4 +517,36 @@ void ui_force_config_reload(void) {
     force_config_reload = true;
 }
 
+void ui_create_aux_output_indicator(void) {
+    if (objects.aux_output == NULL) {
+        ESP_LOGW(TAG, "objects.aux_output is NULL");
+        return;
+    }
+    
+    if (take_lvgl_mutex()) {
+        // Start hidden (opacity 0) - visibility will be updated by ui_update_aux_output_indicator
+        lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
+        give_lvgl_mutex();
+    }
+}
 
+void ui_update_aux_output_indicator(void) {
+    if (objects.aux_output == NULL) {
+        ESP_LOGW(TAG, "objects.aux_output is NULL");
+        return;
+    }
+    
+    bool aux_state = ble_get_aux_output_state();
+    ESP_LOGI(TAG, "Updating aux indicator visibility: %s", aux_state ? "SHOW" : "HIDE");
+    
+    if (take_lvgl_mutex()) {
+        if (aux_state) {
+            lv_obj_set_style_opa(objects.aux_output, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
+        }
+        give_lvgl_mutex();
+    } else {
+        ESP_LOGW(TAG, "Failed to acquire LVGL mutex for aux indicator update");
+    }
+}
