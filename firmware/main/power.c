@@ -11,6 +11,7 @@
 #include "button.h"
 #include "viber.h"
 #include "nvs.h"
+#include "vesc_config.h"
 
 #define TAG "POWER"
 
@@ -58,6 +59,8 @@ static void power_button_callback(button_event_t event, void* user_data) {
                 lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
                 arc_animation_active = false;
                 lv_disp_load_scr(objects.home_screen);
+                // Force full screen redraw to ensure no artifacts from previous screen
+                lv_obj_invalidate(objects.home_screen);
             }
             long_press_triggered = false;
             break;
@@ -70,11 +73,24 @@ static void power_button_callback(button_event_t event, void* user_data) {
                 break;
             }
 
+            // Prevent shutdown if vehicle is moving
+            {
+                vesc_config_t config;
+                if (vesc_config_load(&config) == ESP_OK) {
+                    int32_t speed = vesc_config_get_speed(&config);
+                    if (speed > 0) {
+                        //ESP_LOGW(TAG, "Long press ignored - vehicle is moving (speed: %ld)", (long)speed);
+                        break;
+                    }
+                }
+            }
+
             if (!long_press_triggered) {
                 long_press_triggered = true;
                 // Switch to shutdown screen
                 lv_disp_load_scr(objects.shutdown_screen);
-
+                // Force full screen redraw to ensure no artifacts from previous screen
+                lv_obj_invalidate(objects.shutdown_screen);
                 // Start bar animation
                 lv_anim_init(&arc_anim);
                 lv_anim_set_var(&arc_anim, objects.shutting_down_bar);
