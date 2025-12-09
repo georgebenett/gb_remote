@@ -11,7 +11,6 @@
 #include "button.h"
 #include "viber.h"
 #include "nvs.h"
-#include "vesc_config.h"
 #include "ble.h"
 
 #define TAG "POWER"
@@ -72,18 +71,6 @@ static void power_button_callback(button_event_t event, void* user_data) {
             if (!button_released_since_boot) {
                 ESP_LOGI(TAG, "Long press ignored - button must be released first after boot");
                 break;
-            }
-
-            // Prevent shutdown if vehicle is moving
-            {
-                vesc_config_t config;
-                if (vesc_config_load(&config) == ESP_OK) {
-                    int32_t speed = vesc_config_get_speed(&config);
-                    if (speed > 0) {
-                        //ESP_LOGW(TAG, "Long press ignored - vehicle is moving (speed: %ld)", (long)speed);
-                        break;
-                    }
-                }
             }
 
             if (!long_press_triggered) {
