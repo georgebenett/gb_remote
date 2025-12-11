@@ -16,6 +16,8 @@
 #define NVS_KEY_INVERT_THROTTLE "inv_throttle"
 #endif
 
+#define VESC_NEUTRAL_VALUE 128
+
 typedef struct {
     uint8_t motor_poles;       // Number of motor poles (from BLE)
     uint16_t gear_ratio_x1000; // Gear ratio * 1000 (from BLE, divide by 1000 for actual ratio)

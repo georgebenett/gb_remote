@@ -38,7 +38,7 @@ int32_t throttle_read_value(void);
 void adc_start_task(void);
 uint32_t adc_get_latest_value(void);
 uint8_t map_throttle_value(uint32_t adc_value);
-void throttle_calibrate(void);
+bool throttle_calibrate(void);  // Returns true if calibration succeeded, false if failed
 bool throttle_is_calibrated(void);
 void adc_deinit(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
@@ -47,7 +47,7 @@ bool throttle_should_use_neutral(void);
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 int32_t brake_read_value(void);
 uint8_t map_brake_value(uint32_t adc_value);
-uint8_t get_throttle_brake_ble_value(void);  // Combined throttle/brake value for BLE (0-255, 127=neutral)
+uint8_t get_throttle_brake_ble_value(void);  // Combined throttle/brake value for BLE (0-255, 128=neutral)
 void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 #elif defined(CONFIG_TARGET_LITE)
 uint8_t map_adc_value(uint32_t adc_value);  // Single throttle mapping for lite mode

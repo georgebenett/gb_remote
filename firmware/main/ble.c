@@ -33,6 +33,7 @@
 #include "ui_updater.h"
 #include "vesc_config.h"
 #include "ble.h"
+
 #define DEVICE_NAME                 "GS-THUMB"
 #define GATTC_TAG                   "GATTC_SPP_DEMO"
 
@@ -828,7 +829,7 @@ static void adc_send_task(void *pvParameters) {
             adc_value = get_throttle_brake_ble_value();
 #elif defined(CONFIG_TARGET_LITE)
             if (throttle_should_use_neutral()) {
-                adc_value = 127;
+                adc_value = VESC_NEUTRAL_VALUE;
             } else {
                 adc_value = adc_get_latest_value();
             }
