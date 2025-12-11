@@ -8,13 +8,12 @@ static const char *TAG = "VESC_CONFIG";
 
 // Default configuration values
 static const vesc_config_t default_config = {
-    .motor_pulley = 15,        // 15T motor pulley
-    .wheel_pulley = 33,        // 33T wheel pulley
+    .motor_poles = 14,          // 14 pole motor
+    .gear_ratio_x1000 = 2200,   // 2.2 gear ratio (33T/15T) * 1000
     .wheel_diameter_mm = 115,   // 115mm wheels
-    .motor_poles = 14,         // 14 pole motor
-    .speed_unit_mph = false,   // Speed unit: km/h by default
+    .speed_unit_mph = false,    // Speed unit: km/h by default
 #ifdef CONFIG_TARGET_LITE
-    .invert_throttle = false   // Throttle inversion disabled by default
+    .invert_throttle = false    // Throttle inversion disabled by default
 #endif
 };
 
@@ -39,16 +38,13 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
     if (err != ESP_OK) return err;
 
     // Load each value, with error checking
-    err = nvs_get_u8(nvs_handle, NVS_KEY_MOTOR_PULLEY, &config->motor_pulley);
-    if (err != ESP_OK) goto cleanup;
-
-    err = nvs_get_u8(nvs_handle, NVS_KEY_WHEEL_PULLEY, &config->wheel_pulley);
-    if (err != ESP_OK) goto cleanup;
-
-    err = nvs_get_u8(nvs_handle, NVS_KEY_WHEEL_DIAM, &config->wheel_diameter_mm);
-    if (err != ESP_OK) goto cleanup;
-
     err = nvs_get_u8(nvs_handle, NVS_KEY_MOTOR_POLES, &config->motor_poles);
+    if (err != ESP_OK) goto cleanup;
+
+    err = nvs_get_u16(nvs_handle, NVS_KEY_GEAR_RATIO, &config->gear_ratio_x1000);
+    if (err != ESP_OK) goto cleanup;
+
+    err = nvs_get_u16(nvs_handle, NVS_KEY_WHEEL_DIAM, &config->wheel_diameter_mm);
     if (err != ESP_OK) goto cleanup;
 
     uint8_t speed_unit;
@@ -86,16 +82,13 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
     if (err != ESP_OK) return err;
 
     // Save each value
-    err = nvs_set_u8(nvs_handle, NVS_KEY_MOTOR_PULLEY, config->motor_pulley);
-    if (err != ESP_OK) goto cleanup;
-
-    err = nvs_set_u8(nvs_handle, NVS_KEY_WHEEL_PULLEY, config->wheel_pulley);
-    if (err != ESP_OK) goto cleanup;
-
-    err = nvs_set_u8(nvs_handle, NVS_KEY_WHEEL_DIAM, config->wheel_diameter_mm);
-    if (err != ESP_OK) goto cleanup;
-
     err = nvs_set_u8(nvs_handle, NVS_KEY_MOTOR_POLES, config->motor_poles);
+    if (err != ESP_OK) goto cleanup;
+
+    err = nvs_set_u16(nvs_handle, NVS_KEY_GEAR_RATIO, config->gear_ratio_x1000);
+    if (err != ESP_OK) goto cleanup;
+
+    err = nvs_set_u16(nvs_handle, NVS_KEY_WHEEL_DIAM, config->wheel_diameter_mm);
     if (err != ESP_OK) goto cleanup;
 
     err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_UNIT, (uint8_t)config->speed_unit_mph);
@@ -115,25 +108,20 @@ cleanup:
 
 int32_t vesc_config_get_speed(const vesc_config_t *config) {
     // Validate config and motor poles
-    if (config == NULL || config->motor_poles == 0 || config->motor_pulley == 0) {
+    if (config == NULL || config->motor_poles == 0 || config->gear_ratio_x1000 == 0) {
         return 0;
     }
 
     int32_t erpm = get_latest_erpm();
 
-    float rpm = (float)erpm / (float)config->motor_poles;  // Convert to float early
-    float gear_ratio = (float)config->wheel_pulley / (float)config->motor_pulley;
-
-    // Check for division by zero in gear ratio
-    if (gear_ratio == 0.0f) {
-        return 0;
-    }
+    float rpm = (float)erpm / (float)config->motor_poles;  // Convert ERPM to mechanical RPM
+    float gear_ratio = (float)config->gear_ratio_x1000 / 1000.0f;  // gear_ratio from BLE (already scaled)
 
     float wheel_circumference_m = (float)config->wheel_diameter_mm / 1000.0f * M_PI;
-    float wheel_RPM = rpm / gear_ratio;  // Changed multiplication to division for gear reduction
+    float wheel_RPM = rpm / gear_ratio;  // Wheel RPM after gear reduction
     float speed_kmh = wheel_RPM * wheel_circumference_m * 60.0f / 1000.0f;
 
-    if (speed_kmh < 0){
+    if (speed_kmh < 0) {
         speed_kmh *= -1;
     }
 

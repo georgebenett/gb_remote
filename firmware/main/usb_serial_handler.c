@@ -31,8 +31,7 @@ static int command_buffer_pos = 0;
 // Command strings
 static const char* CMD_STRINGS[] = {
     "reset_odometer",
-    "set_motor_pulley",
-    "set_wheel_pulley",
+    "set_gear_ratio",
     "set_wheel_size",
     "set_motor_poles",
     "get_config",
@@ -52,8 +51,7 @@ static vesc_config_t hand_controller_config;
 static void usb_serial_task(void *pvParameters);
 static usb_command_t parse_command(const char* input);
 static void handle_reset_odometer(const char* command);
-static void handle_set_motor_pulley(const char* command);
-static void handle_set_wheel_pulley(const char* command);
+static void handle_set_gear_ratio(const char* command);
 static void handle_set_wheel_size(const char* command);
 static void handle_set_motor_poles(const char* command);
 static void handle_get_config(const char* command);
@@ -86,10 +84,9 @@ void usb_serial_init(void)
     esp_err_t err = vesc_config_load(&hand_controller_config);
     if (err != ESP_OK) {
         // Initialize with default values if loading fails
-        hand_controller_config.motor_pulley = 15;
-        hand_controller_config.wheel_pulley = 33;
-        hand_controller_config.wheel_diameter_mm = 115;
         hand_controller_config.motor_poles = 14;
+        hand_controller_config.gear_ratio_x1000 = 2200;  // 2.2 gear ratio
+        hand_controller_config.wheel_diameter_mm = 115;
         hand_controller_config.speed_unit_mph = false; // Default to km/h
     }
 
@@ -184,11 +181,8 @@ void usb_serial_process_command(const char* command)
         case CMD_RESET_ODOMETER:
             handle_reset_odometer(command);
             break;
-        case CMD_SET_MOTOR_PULLEY:
-            handle_set_motor_pulley(command);
-            break;
-        case CMD_SET_WHEEL_PULLEY:
-            handle_set_wheel_pulley(command);
+        case CMD_SET_GEAR_RATIO:
+            handle_set_gear_ratio(command);
             break;
         case CMD_SET_WHEEL_SIZE:
             handle_set_wheel_size(command);
@@ -266,52 +260,27 @@ static void handle_reset_odometer(const char* command)
     printf("Odometer reset successfully\n");
 }
 
-static void handle_set_motor_pulley(const char* command)
+static void handle_set_gear_ratio(const char* command)
 {
     const char* value_str = strchr(command, ' ');
     if (value_str) {
         value_str++; // Skip the space
-        int teeth = atoi(value_str);
-        if (teeth > 0 && teeth <= 255) {
-            hand_controller_config.motor_pulley = (uint8_t)teeth;
-            printf("Motor pulley teeth set to: %d\n", teeth);
+        float ratio = atof(value_str);
+        if (ratio > 0.0f && ratio <= 65.535f) {
+            hand_controller_config.gear_ratio_x1000 = (uint16_t)(ratio * 1000.0f);
+            printf("Gear ratio set to: %.3f\n", ratio);
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
             if (err != ESP_OK) {
                 printf("Warning: Failed to save setting to memory\n");
             }
         } else {
-            printf("Error: Invalid pulley teeth value. Must be between 1 and 255\n");
+            printf("Error: Invalid gear ratio value. Must be between 0.001 and 65.535\n");
         }
     } else {
         printf("Error: No value provided\n");
-        printf("Usage: set_motor_pulley <teeth>\n");
-        printf("Example: set_motor_pulley 15\n");
-    }
-    ui_force_config_reload(); // Force UI to reload config
-}
-
-static void handle_set_wheel_pulley(const char* command)
-{
-    const char* value_str = strchr(command, ' ');
-    if (value_str) {
-        value_str++; // Skip the space
-        int teeth = atoi(value_str);
-        if (teeth > 0 && teeth <= 255) {
-            hand_controller_config.wheel_pulley = (uint8_t)teeth;
-            printf("Wheel pulley teeth set to: %d\n", teeth);
-            // Save configuration to NVS
-            esp_err_t err = vesc_config_save(&hand_controller_config);
-            if (err != ESP_OK) {
-                printf("Warning: Failed to save setting to memory\n");
-            }
-        } else {
-            printf("Error: Invalid pulley teeth value. Must be between 1 and 255\n");
-        }
-    } else {
-        printf("Error: No value provided\n");
-        printf("Usage: set_wheel_pulley <teeth>\n");
-        printf("Example: set_wheel_pulley 33\n");
+        printf("Usage: set_gear_ratio <ratio>\n");
+        printf("Example: set_gear_ratio 2.2\n");
     }
     ui_force_config_reload(); // Force UI to reload config
 }
@@ -322,8 +291,8 @@ static void handle_set_wheel_size(const char* command)
     if (value_str) {
         value_str++; // Skip the space
         int size_mm = atoi(value_str);
-        if (size_mm > 0 && size_mm <= 255) {
-            hand_controller_config.wheel_diameter_mm = (uint8_t)size_mm;
+        if (size_mm > 0 && size_mm <= 65535) {
+            hand_controller_config.wheel_diameter_mm = (uint16_t)size_mm;
             printf("Wheel diameter set to: %d mm\n", size_mm);
             // Save configuration to NVS
             esp_err_t err = vesc_config_save(&hand_controller_config);
@@ -331,7 +300,7 @@ static void handle_set_wheel_size(const char* command)
                 printf("Warning: Failed to save setting to memory\n");
             }
         } else {
-            printf("Error: Invalid wheel size value. Must be between 1 and 255 mm\n");
+            printf("Error: Invalid wheel size value. Must be between 1 and 65535 mm\n");
         }
     } else {
         printf("Error: No value provided\n");
@@ -380,10 +349,9 @@ static void handle_get_config(const char* command)
     printf("Build Date: %s %s\n", BUILD_DATE, BUILD_TIME);
     printf("Speed Unit: %s\n",
            hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
-    printf("Motor Pulley Teeth: %d\n", hand_controller_config.motor_pulley);
-    printf("Wheel Pulley Teeth: %d\n", hand_controller_config.wheel_pulley);
-    printf("Wheel Diameter: %d mm\n", hand_controller_config.wheel_diameter_mm);
     printf("Motor Poles: %d\n", hand_controller_config.motor_poles);
+    printf("Gear Ratio: %.3f\n", hand_controller_config.gear_ratio_x1000 / 1000.0f);
+    printf("Wheel Diameter: %d mm\n", hand_controller_config.wheel_diameter_mm);
 #ifdef CONFIG_TARGET_LITE
     printf("Throttle Inversion: %s\n", hand_controller_config.invert_throttle ? "Enabled" : "Disabled");
 #endif

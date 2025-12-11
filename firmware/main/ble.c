@@ -204,7 +204,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
     }
 
     if(handle == db[SPP_IDX_SPP_DATA_NTY_VAL].attribute_handle){
-        if(p_data->notify.value_len == 55) {  // Combined VESC (14) + BMS (41) data
+        if(p_data->notify.value_len == 60) {  // Combined VESC + BMS + motor config data
             // First process VESC data (first 14 bytes)
             // temp_mos (bytes 0-1)
             int16_t temp_mos = (p_data->notify.value[0] << 8) | p_data->notify.value[1];
@@ -228,9 +228,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
                              ((int32_t)p_data->notify.value[10] << 8) |
                              (int32_t)p_data->notify.value[11];
 
-
             latest_erpm = rpm_raw;
-
 
             // voltage (bytes 12-13)
             int16_t voltage = (p_data->notify.value[12] << 8) | p_data->notify.value[13];
@@ -261,6 +259,39 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
                 bms_cell_voltages[i] = cell_voltage / 1000.0f;  // Convert to volts
             }
 
+            // motor_poles (byte 55)
+            uint8_t motor_poles = p_data->notify.value[55];
+
+            // gear_ratio (bytes 56-57, uint16_t, scale ÷1000)
+            uint16_t gear_ratio_x1000 = (p_data->notify.value[56] << 8) | p_data->notify.value[57];
+
+            // wheel_diameter (bytes 58-59, uint16_t in mm, scale ÷1000 = meters)
+            uint16_t wheel_diameter_mm = (p_data->notify.value[58] << 8) | p_data->notify.value[59];
+
+            // Update and save motor config to NVS if values have changed
+            static uint8_t last_motor_poles = 0;
+            static uint16_t last_gear_ratio = 0;
+            static uint16_t last_wheel_diameter = 0;
+
+            if (motor_poles != last_motor_poles ||
+                gear_ratio_x1000 != last_gear_ratio ||
+                wheel_diameter_mm != last_wheel_diameter) {
+
+                vesc_config_t config;
+                vesc_config_load(&config);
+                config.motor_poles = motor_poles;
+                config.gear_ratio_x1000 = gear_ratio_x1000;
+                config.wheel_diameter_mm = wheel_diameter_mm;
+                vesc_config_save(&config);
+
+                last_motor_poles = motor_poles;
+                last_gear_ratio = gear_ratio_x1000;
+                last_wheel_diameter = wheel_diameter_mm;
+
+                ESP_LOGI(GATTC_TAG, "Motor config updated: poles=%d, gear_ratio=%.3f, wheel_diam=%dmm",
+                        motor_poles, gear_ratio_x1000 / 1000.0f, wheel_diameter_mm);
+            }
+
             ESP_LOGI(GATTC_TAG, "Combined Data Received:");
             ESP_LOGI(GATTC_TAG, "VESC: V=%.2fV, RPM=%ld, Motor=%.2fA, In=%.2fA, TempMos=%.2f°C, TempMotor=%.2f°C",
                     latest_voltage, latest_erpm, latest_current_motor, latest_current_in,
@@ -268,7 +299,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
             ESP_LOGI(GATTC_TAG, "BMS: Total V=%.2fV, Current=%.2fA, Remaining=%.2fAh, Cells=%d",
                     bms_total_voltage, bms_current, bms_remaining_capacity, bms_num_cells);
         } else {
-            ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 55)", p_data->notify.value_len);
+            ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 60)", p_data->notify.value_len);
         }
     }
 }
