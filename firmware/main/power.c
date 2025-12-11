@@ -95,7 +95,6 @@ static void power_button_callback(button_event_t event, void* user_data) {
             if (is_connect) {
                 ble_toggle_aux_output();
                 ui_update_aux_output_indicator();
-                ESP_LOGI(TAG, "Aux output toggled: %s", ble_get_aux_output_state() ? "ON" : "OFF");
                 viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
             }
             break;

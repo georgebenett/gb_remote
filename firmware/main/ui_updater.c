@@ -8,6 +8,7 @@
 #include "nvs.h"
 #include "esp_err.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "vesc_config.h"
 #include "hw_config.h"
 #include "driver/gpio.h"
@@ -18,6 +19,41 @@
 #define TRIP_NVS_NAMESPACE "trip_data"
 #define NVS_KEY_TRIP_KM "trip_km"
 
+// UI Command Queue for thread-safe UI updates
+#define UI_CMD_QUEUE_SIZE 32
+
+typedef enum {
+    UI_CMD_UPDATE_SPEED,
+    UI_CMD_UPDATE_SPEED_UNIT,
+    UI_CMD_UPDATE_BATTERY_PERCENTAGE,
+    UI_CMD_UPDATE_BATTERY_VOLTAGE,
+    UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE,
+    UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE,
+    UI_CMD_UPDATE_CONNECTION_ICON,
+    UI_CMD_UPDATE_TRIP_DISTANCE,
+    UI_CMD_RESET_TRIP_DISTANCE,
+    UI_CMD_UPDATE_AUX_INDICATOR,
+} ui_cmd_type_t;
+
+typedef struct {
+    ui_cmd_type_t type;
+    union {
+        int32_t speed;
+        bool speed_unit_mph;
+        struct {
+            int percentage;
+            bool is_charging;
+        } battery;
+        float voltage;
+        int skate_percentage;
+        float skate_voltage;
+        uint8_t connection_quality;
+        float trip_km;
+        bool aux_state;
+    } data;
+} ui_cmd_t;
+
+static QueueHandle_t ui_cmd_queue = NULL;
 static SemaphoreHandle_t lvgl_mutex = NULL;
 static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(10);
 
@@ -44,6 +80,14 @@ void ui_updater_init(void) {
         ESP_LOGE(TAG, "Failed to create LVGL mutex");
     } else {
         ESP_LOGI(TAG, "LVGL mutex created with priority inheritance");
+    }
+
+    // Create UI command queue
+    ui_cmd_queue = xQueueCreate(UI_CMD_QUEUE_SIZE, sizeof(ui_cmd_t));
+    if (ui_cmd_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create UI command queue");
+    } else {
+        ESP_LOGI(TAG, "UI command queue created (size: %d)", UI_CMD_QUEUE_SIZE);
     }
 
     // Initialize NVS for trip data
@@ -79,6 +123,21 @@ void give_lvgl_mutex(void) {
     }
 }
 
+// Helper to send UI command to queue
+static bool ui_queue_send(ui_cmd_t *cmd) {
+    if (ui_cmd_queue == NULL) {
+        return false;
+    }
+
+    if (xQueueSend(ui_cmd_queue, cmd, 0) != pdTRUE) {
+        // Queue full - remove oldest and try again
+        ui_cmd_t dummy;
+        xQueueReceive(ui_cmd_queue, &dummy, 0);
+        return xQueueSend(ui_cmd_queue, cmd, 0) == pdTRUE;
+    }
+    return true;
+}
+
 void ui_update_speed(int32_t value) {
     if (entering_power_off_mode || !objects.speedlabel) return;
 
@@ -86,11 +145,11 @@ void ui_update_speed(int32_t value) {
 
     // Only update if value has changed
     if (value != last_value) {
-        if (take_lvgl_mutex()) {
-            if (get_current_screen() == objects.home_screen) {
-                lv_label_set_text_fmt(objects.speedlabel, "%ld", value);
-            }
-            give_lvgl_mutex();
+        ui_cmd_t cmd = {
+            .type = UI_CMD_UPDATE_SPEED,
+            .data.speed = value
+        };
+        if (ui_queue_send(&cmd)) {
             last_value = value;
         }
     }
@@ -98,80 +157,54 @@ void ui_update_speed(int32_t value) {
 
 void ui_update_battery_percentage(int percentage) {
     if (entering_power_off_mode) return;
-
     if (objects.controller_battery_text == NULL || objects.controller_battery == NULL) return;
 
     int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
     bool is_charging = (gpio_level == 0);  // Inverted: LOW means charging
 
-    if (!take_lvgl_mutex()) {
-        return;
-    }
-
-    if (get_current_screen() == objects.home_screen) {
-        if (is_charging) {
-            lv_img_set_src(objects.controller_battery, &img_battery_charging);
-            lv_label_set_text_fmt(objects.controller_battery_text, "%d", percentage);
-            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-        } else {
-            lv_img_set_src(objects.controller_battery, &img_battery);
-            lv_label_set_text_fmt(objects.controller_battery_text, "%d", percentage);
-            lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_BATTERY_PERCENTAGE,
+        .data.battery = {
+            .percentage = percentage,
+            .is_charging = is_charging
         }
-    }
-
-    give_lvgl_mutex();
+    };
+    ui_queue_send(&cmd);
 }
 
 void ui_update_battery_voltage_display(float voltage) {
     if (entering_power_off_mode) return;
-
-    if (objects.controller_battery_text == NULL) return;
+    if (objects.display_voltage == NULL) return;
 
     float battery_voltage = battery_get_voltage();
-    char voltage_str[16];
-    snprintf(voltage_str, sizeof(voltage_str), "%dmV", (int)(battery_voltage * 1000 + 0.5f)); // Round to nearest millivolt
 
-    if (take_lvgl_mutex()) {
-        if (get_current_screen() == objects.home_screen) {
-            lv_label_set_text(objects.display_voltage, voltage_str);
-        }
-        give_lvgl_mutex();
-    }
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_BATTERY_VOLTAGE,
+        .data.voltage = battery_voltage
+    };
+    ui_queue_send(&cmd);
 }
 
 void ui_update_skate_battery_percentage(int percentage) {
     if (entering_power_off_mode) return;
-
     if (objects.skate_battery_text == NULL) return;
 
-    if (take_lvgl_mutex()) {
-        if (get_current_screen() == objects.home_screen) {
-            lv_label_set_text_fmt(objects.skate_battery_text, "%d", percentage);
-        }
-        give_lvgl_mutex();
-    }
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE,
+        .data.skate_percentage = percentage
+    };
+    ui_queue_send(&cmd);
 }
 
 void ui_update_skate_battery_voltage_display(float voltage) {
     if (entering_power_off_mode) return;
-
     if (objects.skate_battery_text == NULL) return;
-    char voltage_str[16];
-    int volts = (int)voltage;
-    int tenths = (int)((voltage - volts) * 10 + 0.5f);
-    if (tenths >= 10) {
-        tenths = 0;
-        volts++;
-    }
-    snprintf(voltage_str, sizeof(voltage_str), "%d.%d", volts, tenths);
 
-    if (take_lvgl_mutex()) {
-        if (get_current_screen() == objects.home_screen) {
-            lv_label_set_text(objects.skate_battery_text, voltage_str);
-        }
-        give_lvgl_mutex();
-    }
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE,
+        .data.skate_voltage = voltage
+    };
+    ui_queue_send(&cmd);
 }
 
 int get_connection_quality(void) {
@@ -192,33 +225,17 @@ void ui_update_connection_quality(int rssi) {
 
 void ui_update_connection_icon(void) {
     if (entering_power_off_mode) return;
-
     if (objects.connection_icon == NULL) return;
 
-    if (take_lvgl_mutex()) {
-        if (get_current_screen() == objects.home_screen) {
-            const void* icon_src = NULL;
-            if (!is_connect) {
-                icon_src = &img_connection_0;
-            } else if (connection_quality >= 30) {
-                icon_src = &img_100_connection;
-            } else if (connection_quality >= 15) {
-                icon_src = &img_66_connection;
-            } else if (connection_quality >= 5) {
-                icon_src = &img_33_connection;
-            } else {
-                icon_src = &img_connection_0;
-            }
-
-            lv_img_set_src(objects.connection_icon, icon_src);
-        }
-        give_lvgl_mutex();
-    }
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_CONNECTION_ICON,
+        .data.connection_quality = connection_quality
+    };
+    ui_queue_send(&cmd);
 }
 
 void ui_update_trip_distance(int32_t speed_kmh) {
     if (entering_power_off_mode) return;
-
     if (objects.odometer == NULL) return;
 
     uint32_t current_time = esp_timer_get_time() / 1000;
@@ -236,16 +253,11 @@ void ui_update_trip_distance(int32_t speed_kmh) {
 
     last_update_time = current_time;
 
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.1f", total_trip_km);
-
-    if (take_lvgl_mutex()) {
-        if (get_current_screen() == objects.home_screen) {
-            lv_label_set_text(objects.odometer, buf);
-            lv_obj_invalidate(objects.odometer);
-        }
-        give_lvgl_mutex();
-    }
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_TRIP_DISTANCE,
+        .data.trip_km = total_trip_km
+    };
+    ui_queue_send(&cmd);
 }
 
 void ui_reset_trip_distance(void) {
@@ -257,17 +269,10 @@ void ui_reset_trip_distance(void) {
         ESP_LOGW(TAG, "Failed to save trip distance reset to NVS: %s", esp_err_to_name(err));
     }
 
-    if (!take_lvgl_mutex()) {
-        ESP_LOGW(TAG, "Failed to take LVGL mutex for trip reset");
-        return;
-    }
-
-    if (objects.odometer != NULL && get_current_screen() == objects.home_screen) {
-        lv_label_set_text(objects.odometer, "0.0");
-        lv_obj_invalidate(objects.odometer); // Force redraw
-    }
-
-    give_lvgl_mutex();
+    ui_cmd_t cmd = {
+        .type = UI_CMD_RESET_TRIP_DISTANCE
+    };
+    ui_queue_send(&cmd);
 }
 
 esp_err_t ui_save_trip_distance(void) {
@@ -370,12 +375,11 @@ void ui_check_mutex_health(void) {
 void ui_update_speed_unit(bool is_mph) {
     if (entering_power_off_mode || !objects.static_speed) return;
 
-    if (take_lvgl_mutex()) {
-        if (get_current_screen() == objects.home_screen) {
-            lv_label_set_text(objects.static_speed, is_mph ? "mi/h" : "km/h");
-        }
-        give_lvgl_mutex();
-    }
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_SPEED_UNIT,
+        .data.speed_unit_mph = is_mph
+    };
+    ui_queue_send(&cmd);
 }
 
 static void speed_update_task(void *pvParameters) {
@@ -402,7 +406,7 @@ static void speed_update_task(void *pvParameters) {
 
         if (is_connect) {
             int32_t speed = vesc_config_get_speed(&config);
-            if (speed >= 0 && speed <= 100) {
+            if (speed >= 0) {
                 ui_update_speed(speed);
                 ui_update_speed_unit(config.speed_unit_mph);
             }
@@ -501,9 +505,135 @@ static void connection_update_task(void *pvParameters) {
     }
 }
 
+// UI Command Processor Task - handles queued UI updates
+static void ui_cmd_processor_task(void *pvParameters) {
+    ui_cmd_t cmd;
+    char str_buf[16];
+
+    while (1) {
+        // Block waiting for commands
+        if (xQueueReceive(ui_cmd_queue, &cmd, portMAX_DELAY) == pdTRUE) {
+            // Wait for mutex with longer timeout since we're processing from queue
+            if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                // Only update if on home screen (for most commands)
+                bool on_home = (get_current_screen() == objects.home_screen);
+
+                switch (cmd.type) {
+                    case UI_CMD_UPDATE_SPEED:
+                        if (on_home && objects.speedlabel != NULL) {
+                            lv_label_set_text_fmt(objects.speedlabel, "%ld", cmd.data.speed);
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_SPEED_UNIT:
+                        if (on_home && objects.static_speed != NULL) {
+                            lv_label_set_text(objects.static_speed, cmd.data.speed_unit_mph ? "mi/h" : "km/h");
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_BATTERY_PERCENTAGE:
+                        if (on_home && objects.controller_battery != NULL && objects.controller_battery_text != NULL) {
+                            if (cmd.data.battery.is_charging) {
+                                lv_img_set_src(objects.controller_battery, &img_battery_charging);
+                                lv_label_set_text_fmt(objects.controller_battery_text, "%d", cmd.data.battery.percentage);
+                                lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+                            } else {
+                                lv_img_set_src(objects.controller_battery, &img_battery);
+                                lv_label_set_text_fmt(objects.controller_battery_text, "%d", cmd.data.battery.percentage);
+                                lv_obj_set_style_text_color(objects.controller_battery_text, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+                            }
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_BATTERY_VOLTAGE:
+                        if (on_home && objects.display_voltage != NULL) {
+                            snprintf(str_buf, sizeof(str_buf), "%dmV", (int)(cmd.data.voltage * 1000 + 0.5f));
+                            lv_label_set_text(objects.display_voltage, str_buf);
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE:
+                        if (on_home && objects.skate_battery_text != NULL) {
+                            lv_label_set_text_fmt(objects.skate_battery_text, "%d", cmd.data.skate_percentage);
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE:
+                        if (on_home && objects.skate_battery_text != NULL) {
+                            int volts = (int)cmd.data.skate_voltage;
+                            int tenths = (int)((cmd.data.skate_voltage - volts) * 10 + 0.5f);
+                            if (tenths >= 10) {
+                                tenths = 0;
+                                volts++;
+                            }
+                            snprintf(str_buf, sizeof(str_buf), "%d.%d", volts, tenths);
+                            lv_label_set_text(objects.skate_battery_text, str_buf);
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_CONNECTION_ICON:
+                        if (on_home && objects.connection_icon != NULL) {
+                            const void* icon_src = NULL;
+                            if (!is_connect) {
+                                icon_src = &img_connection_0;
+                            } else if (cmd.data.connection_quality >= 30) {
+                                icon_src = &img_100_connection;
+                            } else if (cmd.data.connection_quality >= 15) {
+                                icon_src = &img_66_connection;
+                            } else if (cmd.data.connection_quality >= 5) {
+                                icon_src = &img_33_connection;
+                            } else {
+                                icon_src = &img_connection_0;
+                            }
+                            lv_img_set_src(objects.connection_icon, icon_src);
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_TRIP_DISTANCE:
+                        if (on_home && objects.odometer != NULL) {
+                            snprintf(str_buf, sizeof(str_buf), "%.1f", cmd.data.trip_km);
+                            lv_label_set_text(objects.odometer, str_buf);
+                            lv_obj_invalidate(objects.odometer);
+                        }
+                        break;
+
+                    case UI_CMD_RESET_TRIP_DISTANCE:
+                        if (on_home && objects.odometer != NULL) {
+                            lv_label_set_text(objects.odometer, "0.0");
+                            lv_obj_invalidate(objects.odometer);
+                        }
+                        break;
+
+                    case UI_CMD_UPDATE_AUX_INDICATOR:
+                        if (objects.aux_output != NULL) {
+                            if (cmd.data.aux_state) {
+                                lv_obj_set_style_opa(objects.aux_output, LV_OPA_COVER, 0);
+                            } else {
+                                lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
+                            }
+                        }
+                        break;
+                }
+                xSemaphoreGive(lvgl_mutex);
+            } else {
+                // Re-queue the command if we couldn't get mutex (rare case)
+                if (xQueueSendToFront(ui_cmd_queue, &cmd, 0) != pdTRUE) {
+                    ESP_LOGW(TAG, "Failed to re-queue UI command, update dropped");
+                }
+                // Small delay before retry to avoid busy loop
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+        }
+    }
+}
+
 void ui_start_update_tasks(void) {
     vTaskDelay(pdMS_TO_TICKS(100));
-    
+
+    // Start the UI command processor task first (highest priority for UI responsiveness)
+    xTaskCreate(ui_cmd_processor_task, "ui_cmd_proc", 3072, NULL, 5, NULL);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4, NULL);
     vTaskDelay(pdMS_TO_TICKS(100));
     xTaskCreate(trip_distance_update_task, "trip_update", 4096, NULL, 3, NULL);
@@ -522,7 +652,7 @@ void ui_create_aux_output_indicator(void) {
         ESP_LOGW(TAG, "objects.aux_output is NULL");
         return;
     }
-    
+
     if (take_lvgl_mutex()) {
         // Start hidden (opacity 0) - visibility will be updated by ui_update_aux_output_indicator
         lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
@@ -531,22 +661,13 @@ void ui_create_aux_output_indicator(void) {
 }
 
 void ui_update_aux_output_indicator(void) {
-    if (objects.aux_output == NULL) {
-        ESP_LOGW(TAG, "objects.aux_output is NULL");
-        return;
-    }
-    
+    if (objects.aux_output == NULL) return;
+
     bool aux_state = ble_get_aux_output_state();
-    ESP_LOGI(TAG, "Updating aux indicator visibility: %s", aux_state ? "SHOW" : "HIDE");
-    
-    if (take_lvgl_mutex()) {
-        if (aux_state) {
-            lv_obj_set_style_opa(objects.aux_output, LV_OPA_COVER, 0);
-        } else {
-            lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
-        }
-        give_lvgl_mutex();
-    } else {
-        ESP_LOGW(TAG, "Failed to acquire LVGL mutex for aux indicator update");
-    }
+
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_AUX_INDICATOR,
+        .data.aux_state = aux_state
+    };
+    ui_queue_send(&cmd);
 }
