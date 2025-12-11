@@ -16,9 +16,6 @@
 // Command types that can be received via USB
 typedef enum {
     CMD_RESET_ODOMETER = 0,
-    CMD_SET_GEAR_RATIO,
-    CMD_SET_WHEEL_SIZE,
-    CMD_SET_MOTOR_POLES,
     CMD_GET_CONFIG,
     CMD_CALIBRATE_THROTTLE,
     CMD_GET_CALIBRATION,

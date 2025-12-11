@@ -24,6 +24,20 @@
 #define NVS_NAMESPACE_LCD "lcd_cfg"
 #define NVS_KEY_BACKLIGHT "backlight"
 
+// Response prefixes for config tool parsing
+// All command responses use these prefixes so tools can filter out ESP-IDF log messages
+#define RSP_PREFIX    "#> "      // Normal response line
+#define RSP_OK        "#>OK "    // Success response
+#define RSP_ERR       "#>ERR "   // Error response
+#define RSP_DATA      "#>DATA "  // Data/value response (for parsing)
+#define RSP_PROGRESS  "#>PROG "  // Progress indicator
+
+// Helper macros for formatted output
+#define rsp_print(fmt, ...)      printf(RSP_PREFIX fmt "\n", ##__VA_ARGS__)
+#define rsp_ok(fmt, ...)         printf(RSP_OK fmt "\n", ##__VA_ARGS__)
+#define rsp_err(fmt, ...)        printf(RSP_ERR fmt "\n", ##__VA_ARGS__)
+#define rsp_data(key, fmt, ...)  printf(RSP_DATA "%s=" fmt "\n", key, ##__VA_ARGS__)
+
 static TaskHandle_t usb_task_handle = NULL;
 static char command_buffer[MAX_COMMAND_LENGTH];
 static int command_buffer_pos = 0;
@@ -31,9 +45,6 @@ static int command_buffer_pos = 0;
 // Command strings
 static const char* CMD_STRINGS[] = {
     "reset_odometer",
-    "set_gear_ratio",
-    "set_wheel_size",
-    "set_motor_poles",
     "get_config",
     "calibrate_throttle",
     "get_calibration",
@@ -51,9 +62,6 @@ static vesc_config_t hand_controller_config;
 static void usb_serial_task(void *pvParameters);
 static usb_command_t parse_command(const char* input);
 static void handle_reset_odometer(const char* command);
-static void handle_set_gear_ratio(const char* command);
-static void handle_set_wheel_size(const char* command);
-static void handle_set_motor_poles(const char* command);
 static void handle_get_config(const char* command);
 static void handle_calibrate_throttle(const char* command);
 static void handle_get_calibration(const char* command);
@@ -62,6 +70,7 @@ static void handle_set_speed_unit_kmh(const char* command);
 static void handle_set_speed_unit_mph(const char* command);
 static void handle_invert_throttle(const char* command);
 static void handle_set_backlight(const char* command);
+static void handle_help(const char* command);
 
 void usb_serial_init(void)
 {
@@ -181,15 +190,6 @@ void usb_serial_process_command(const char* command)
         case CMD_RESET_ODOMETER:
             handle_reset_odometer(command);
             break;
-        case CMD_SET_GEAR_RATIO:
-            handle_set_gear_ratio(command);
-            break;
-        case CMD_SET_WHEEL_SIZE:
-            handle_set_wheel_size(command);
-            break;
-        case CMD_SET_MOTOR_POLES:
-            handle_set_motor_poles(command);
-            break;
         case CMD_GET_CONFIG:
             handle_get_config(command);
             break;
@@ -214,10 +214,12 @@ void usb_serial_process_command(const char* command)
         case CMD_SET_BACKLIGHT:
             handle_set_backlight(command);
             break;
+        case CMD_HELP:
+            handle_help(command);
+            break;
         case CMD_UNKNOWN:
         default:
-            printf("Unknown command: %s\n", command);
-            printf("Type 'help' for available commands\n");
+            rsp_err("Unknown command: %s", command);
             break;
     }
 }
@@ -257,82 +259,7 @@ static void handle_reset_odometer(const char* command)
 {
     // Reset the local trip distance display
     ui_reset_trip_distance();
-    printf("Odometer reset successfully\n");
-}
-
-static void handle_set_gear_ratio(const char* command)
-{
-    const char* value_str = strchr(command, ' ');
-    if (value_str) {
-        value_str++; // Skip the space
-        float ratio = atof(value_str);
-        if (ratio > 0.0f && ratio <= 65.535f) {
-            hand_controller_config.gear_ratio_x1000 = (uint16_t)(ratio * 1000.0f);
-            printf("Gear ratio set to: %.3f\n", ratio);
-            // Save configuration to NVS
-            esp_err_t err = vesc_config_save(&hand_controller_config);
-            if (err != ESP_OK) {
-                printf("Warning: Failed to save setting to memory\n");
-            }
-        } else {
-            printf("Error: Invalid gear ratio value. Must be between 0.001 and 65.535\n");
-        }
-    } else {
-        printf("Error: No value provided\n");
-        printf("Usage: set_gear_ratio <ratio>\n");
-        printf("Example: set_gear_ratio 2.2\n");
-    }
-    ui_force_config_reload(); // Force UI to reload config
-}
-
-static void handle_set_wheel_size(const char* command)
-{
-    const char* value_str = strchr(command, ' ');
-    if (value_str) {
-        value_str++; // Skip the space
-        int size_mm = atoi(value_str);
-        if (size_mm > 0 && size_mm <= 65535) {
-            hand_controller_config.wheel_diameter_mm = (uint16_t)size_mm;
-            printf("Wheel diameter set to: %d mm\n", size_mm);
-            // Save configuration to NVS
-            esp_err_t err = vesc_config_save(&hand_controller_config);
-            if (err != ESP_OK) {
-                printf("Warning: Failed to save setting to memory\n");
-            }
-        } else {
-            printf("Error: Invalid wheel size value. Must be between 1 and 65535 mm\n");
-        }
-    } else {
-        printf("Error: No value provided\n");
-        printf("Usage: set_wheel_size <mm>\n");
-        printf("Example: set_wheel_size 115\n");
-    }
-    ui_force_config_reload(); // Force UI to reload config
-}
-
-static void handle_set_motor_poles(const char* command)
-{
-    const char* value_str = strchr(command, ' ');
-    if (value_str) {
-        value_str++; // Skip the space
-        int poles = atoi(value_str);
-        if (poles > 0 && poles <= 255) {
-            hand_controller_config.motor_poles = (uint8_t)poles;
-            printf("Motor poles set to: %d\n", poles);
-            // Save configuration to NVS
-            esp_err_t err = vesc_config_save(&hand_controller_config);
-            if (err != ESP_OK) {
-                printf("Warning: Failed to save setting to memory\n");
-            }
-        } else {
-            printf("Error: Invalid motor poles value. Must be between 1 and 255\n");
-        }
-    } else {
-        printf("Error: No value provided\n");
-        printf("Usage: set_motor_poles <poles>\n");
-        printf("Example: set_motor_poles 14\n");
-    }
-    ui_force_config_reload(); // Force UI to reload config
+    rsp_ok("Odometer reset");
 }
 
 static void handle_get_config(const char* command)
@@ -340,191 +267,155 @@ static void handle_get_config(const char* command)
     // Reload configuration to ensure we have the latest settings
     esp_err_t err = vesc_config_load(&hand_controller_config);
     if (err != ESP_OK) {
-        printf("Warning: Failed to reload configuration\n");
+        rsp_err("Failed to load config");
+        return;
     }
 
-    printf("\n=== Current Configuration ===\n");
-    printf("GB Remote Model: %s\n", TARGET_NAME);
-    printf("Firmware Version: %s\n", APP_VERSION_STRING);
-    printf("Build Date: %s %s\n", BUILD_DATE, BUILD_TIME);
-    printf("Speed Unit: %s\n",
-           hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
-    printf("Motor Poles: %d\n", hand_controller_config.motor_poles);
-    printf("Gear Ratio: %.3f\n", hand_controller_config.gear_ratio_x1000 / 1000.0f);
-    printf("Wheel Diameter: %d mm\n", hand_controller_config.wheel_diameter_mm);
+    // Device info
+    rsp_data("model", "%s", TARGET_NAME);
+    rsp_data("firmware_version", "%s", APP_VERSION_STRING);
+    rsp_data("build_date", "%s %s", BUILD_DATE, BUILD_TIME);
+
+    // User preferences (saved locally)
+    rsp_data("speed_unit", "%s", hand_controller_config.speed_unit_mph ? "mph" : "kmh");
 #ifdef CONFIG_TARGET_LITE
-    printf("Throttle Inversion: %s\n", hand_controller_config.invert_throttle ? "Enabled" : "Disabled");
+    rsp_data("throttle_inverted", "%d", hand_controller_config.invert_throttle ? 1 : 0);
 #endif
 
-    // Display backlight brightness
+    // Get backlight brightness
     nvs_handle_t nvs_handle;
+    uint8_t brightness = LCD_BACKLIGHT_DEFAULT;
     err = nvs_open(NVS_NAMESPACE_LCD, NVS_READONLY, &nvs_handle);
     if (err == ESP_OK) {
-        uint8_t brightness;
-        err = nvs_get_u8(nvs_handle, NVS_KEY_BACKLIGHT, &brightness);
-        if (err == ESP_OK) {
-            printf("Backlight Brightness: %d%%\n", brightness);
-        } else {
-            printf("Backlight Brightness: %d%% (default)\n", LCD_BACKLIGHT_DEFAULT);
-        }
+        nvs_get_u8(nvs_handle, NVS_KEY_BACKLIGHT, &brightness);
         nvs_close(nvs_handle);
-    } else {
-        printf("Backlight Brightness: %d%% (default)\n", LCD_BACKLIGHT_DEFAULT);
     }
+    rsp_data("backlight", "%d", brightness);
 
-    printf("BLE Connected: %s\n", is_connect ? "Yes" : "No");
+    // Connection status
+    rsp_data("ble_connected", "%d", is_connect ? 1 : 0);
 
-    // Calculate and display current speed if connected
+    // Motor config from VESC (read-only, received via BLE)
+    rsp_data("vesc_motor_poles", "%d", hand_controller_config.motor_poles);
+    rsp_data("vesc_gear_ratio", "%.3f", hand_controller_config.gear_ratio_x1000 / 1000.0f);
+    rsp_data("vesc_wheel_diameter_mm", "%d", hand_controller_config.wheel_diameter_mm);
+
     if (is_connect) {
         int32_t speed = vesc_config_get_speed(&hand_controller_config);
-        printf("Current Speed: %ld %s\n", speed,
-               hand_controller_config.speed_unit_mph ? "mi/h" : "km/h");
+        rsp_data("current_speed", "%ld", speed);
     }
-    printf("\n");
+
+    rsp_ok("config");
 }
 
 static void handle_calibrate_throttle(const char* command)
 {
-    printf("\n=== Throttle Calibration ===\n");
-    printf("Starting manual throttle calibration...\n");
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-    printf("Please move the throttle AND brake through their full range during the next 6 seconds.\n");
-#else
-    printf("Please move the throttle through its full range during the next 6 seconds.\n");
-#endif
-    printf("Progress: ");
+    rsp_print("Starting calibration (6 seconds)...");
 
-    // Trigger the throttle calibration
-    throttle_calibrate();
+    // Trigger the throttle calibration - returns true if successful
+    bool calibration_succeeded = throttle_calibrate();
 
-    // Check if calibration was successful
-    if (throttle_is_calibrated()) {
-        printf("Throttle calibration completed successfully!\n");
-        printf("Calibration values have been saved to memory.\n");
-        printf("Throttle signals were set to neutral during calibration.\n");
+    if (calibration_succeeded) {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-        // Display brake calibration values for dual throttle
+        uint32_t throttle_min, throttle_max;
+        throttle_get_calibration_values(&throttle_min, &throttle_max);
+        rsp_data("throttle_min", "%lu", throttle_min);
+        rsp_data("throttle_max", "%lu", throttle_max);
+
         uint32_t brake_min, brake_max;
         brake_get_calibration_values(&brake_min, &brake_max);
-        printf("Brake calibration values: Min=%lu, Max=%lu, Range=%lu\n",
-               brake_min, brake_max, brake_max - brake_min);
-        // Display current BLE value being sent
-        uint8_t ble_value = get_throttle_brake_ble_value();
-        printf("Current BLE value being sent: %d\n", ble_value);
+        rsp_data("brake_min", "%lu", brake_min);
+        rsp_data("brake_max", "%lu", brake_max);
 #else
-        // Display current BLE value being sent (lite mode)
-        uint32_t current_ble_value = adc_get_latest_value();
-        printf("Current BLE value being sent: %lu\n", current_ble_value);
+        uint32_t throttle_min, throttle_max;
+        throttle_get_calibration_values(&throttle_min, &throttle_max);
+        rsp_data("throttle_min", "%lu", throttle_min);
+        rsp_data("throttle_max", "%lu", throttle_max);
 #endif
+        rsp_ok("calibration");
     } else {
-        printf("\n✗ Throttle calibration failed!\n");
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-        printf("This usually means the throttle or brake wasn't moved through its full range.\n");
-        printf("Please ensure you move both the throttle and brake from minimum to maximum position\n");
-#else
-        printf("This usually means the throttle wasn't moved through its full range.\n");
-        printf("Please ensure you move the throttle from minimum to maximum position\n");
-#endif
-        printf("and try the calibration again.\n");
+        rsp_data("previous_calibration_active", "%d", throttle_is_calibrated() ? 1 : 0);
+        rsp_err("Calibration failed - insufficient movement");
     }
-    printf("\n");
 }
 
 static void handle_get_calibration(const char* command)
 {
-    printf("\n=== Throttle Calibration Status ===\n");
-
     bool is_calibrated = throttle_is_calibrated();
-    printf("Calibration Status: %s\n", is_calibrated ? "Calibrated" : "Not Calibrated");
+    rsp_data("calibrated", "%d", is_calibrated ? 1 : 0);
 
     if (is_calibrated) {
         uint32_t min_val, max_val;
         throttle_get_calibration_values(&min_val, &max_val);
-        printf("Throttle - Calibrated Min Value: %lu\n", min_val);
-        printf("Throttle - Calibrated Max Value: %lu\n", max_val);
+        rsp_data("throttle_min", "%lu", min_val);
+        rsp_data("throttle_max", "%lu", max_val);
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-        // Display brake calibration values for dual throttle
         uint32_t brake_min, brake_max;
         brake_get_calibration_values(&brake_min, &brake_max);
-        printf("Brake - Calibrated Min Value: %lu\n", brake_min);
-        printf("Brake - Calibrated Max Value: %lu\n", brake_max);
-
-        uint8_t ble_value = get_throttle_brake_ble_value();
-        printf("Current BLE value being sent: %d\n", ble_value);
+        rsp_data("brake_min", "%lu", brake_min);
+        rsp_data("brake_max", "%lu", brake_max);
+        rsp_data("ble_value", "%d", get_throttle_brake_ble_value());
 #else
-        // Display current BLE value being sent (lite mode)
-        uint32_t current_ble_value = adc_get_latest_value();
-        printf("Current BLE value being sent: %lu\n", current_ble_value);
+        rsp_data("ble_value", "%lu", adc_get_latest_value());
 #endif
+        rsp_ok("calibration");
     } else {
-        printf("No calibration data available.\n");
-        printf("Use 'calibrate_throttle' to perform calibration.\n");
+        rsp_err("Not calibrated");
     }
-    printf("\n");
 }
 
 static void handle_get_firmware_version(const char* command)
 {
-    printf("Firmware version: %s\n", APP_VERSION_STRING);
-    printf("Build date: %s %s\n", BUILD_DATE, BUILD_TIME);
-    printf("Product Model: %s\n", TARGET_NAME);
-    printf("IDF version: %s\n", esp_get_idf_version());
+    rsp_data("firmware_version", "%s", APP_VERSION_STRING);
+    rsp_data("build_date", "%s %s", BUILD_DATE, BUILD_TIME);
+    rsp_data("model", "%s", TARGET_NAME);
+    rsp_data("idf_version", "%s", esp_get_idf_version());
+    rsp_ok("version");
 }
 
 static void handle_set_speed_unit_kmh(const char* command)
 {
     hand_controller_config.speed_unit_mph = false;
-    printf("Speed unit set to: km/h\n");
-
-    // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
-    if (err != ESP_OK) {
-        printf("Warning: Failed to save setting to memory\n");
-    }
-
-    // Immediately update the speed unit label in the UI
     ui_update_speed_unit(hand_controller_config.speed_unit_mph);
+    ui_force_config_reload();
 
-    ui_force_config_reload(); // Force UI to reload config
+    if (err == ESP_OK) {
+        rsp_ok("speed_unit=kmh");
+    } else {
+        rsp_err("Failed to save speed_unit");
+    }
 }
 
 static void handle_set_speed_unit_mph(const char* command)
 {
     hand_controller_config.speed_unit_mph = true;
-    printf("Speed unit set to: mi/h\n");
-
-    // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
-    if (err != ESP_OK) {
-        printf("Warning: Failed to save setting to memory\n");
-    }
-
-    // Immediately update the speed unit label in the UI
     ui_update_speed_unit(hand_controller_config.speed_unit_mph);
+    ui_force_config_reload();
 
-    ui_force_config_reload(); // Force UI to reload config
+    if (err == ESP_OK) {
+        rsp_ok("speed_unit=mph");
+    } else {
+        rsp_err("Failed to save speed_unit");
+    }
 }
 
 static void handle_invert_throttle(const char* command)
 {
 #ifdef CONFIG_TARGET_LITE
-    // Toggle the invert_throttle setting
     hand_controller_config.invert_throttle = !hand_controller_config.invert_throttle;
-    printf("Throttle inversion %s\n", hand_controller_config.invert_throttle ? "enabled" : "disabled");
-
-    // Save configuration to NVS
     esp_err_t err = vesc_config_save(&hand_controller_config);
-    if (err != ESP_OK) {
-        printf("Warning: Failed to save setting to memory\n");
-    } else {
-        printf("Setting saved successfully\n");
-    }
+    ui_force_config_reload();
 
-    ui_force_config_reload(); // Force UI to reload config
+    if (err == ESP_OK) {
+        rsp_ok("throttle_inverted=%d", hand_controller_config.invert_throttle ? 1 : 0);
+    } else {
+        rsp_err("Failed to save throttle_inverted");
+    }
 #else
-    printf("Error: invert_throttle command is only available for lite target\n");
-    printf("Current target: %s\n", TARGET_NAME);
+    rsp_err("Command only available for lite target");
 #endif
 }
 
@@ -538,7 +429,6 @@ static void handle_set_backlight(const char* command)
             // Map percentage (0-100) to PWM duty (0-255)
             uint8_t pwm_value = (brightness * 255) / 100;
             lcd_set_backlight(pwm_value);
-            printf("Backlight brightness set to: %d%%\n", brightness);
 
             // Save to NVS
             nvs_handle_t nvs_handle;
@@ -549,22 +439,42 @@ static void handle_set_backlight(const char* command)
                     err = nvs_commit(nvs_handle);
                 }
                 nvs_close(nvs_handle);
+            }
 
-                if (err != ESP_OK) {
-                    printf("Warning: Failed to save setting to memory\n");
-                }
+            if (err == ESP_OK) {
+                rsp_ok("backlight=%d", brightness);
             } else {
-                printf("Warning: Failed to save setting to memory\n");
+                rsp_err("Failed to save backlight");
             }
         } else {
-            printf("Error: Invalid brightness value. Must be between %d and %d\n",
-                   LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_MAX);
+            rsp_err("Invalid backlight (range: %d-%d)", LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_MAX);
         }
     } else {
-        printf("Error: No value provided\n");
-        printf("Usage: set_backlight <brightness>\n");
-        printf("Example: set_backlight 50\n");
-        printf("Valid range: %d-%d (default: %d)\n",
-               LCD_BACKLIGHT_MIN, LCD_BACKLIGHT_MAX, LCD_BACKLIGHT_DEFAULT);
+        rsp_err("Usage: set_backlight <0-100>");
     }
+}
+
+static void handle_help(const char* command)
+{
+    rsp_print("Available commands:");
+    rsp_print("  get_config           - Get all configuration");
+    rsp_print("  get_firmware_version - Get firmware version");
+    rsp_print("  get_calibration      - Get throttle calibration status");
+    rsp_print("  calibrate_throttle   - Start throttle calibration");
+    rsp_print("  set_speed_unit_kmh   - Set speed unit to km/h");
+    rsp_print("  set_speed_unit_mph   - Set speed unit to mi/h");
+    rsp_print("  set_backlight <0-100>- Set backlight brightness");
+    rsp_print("  reset_odometer       - Reset trip distance");
+#ifdef CONFIG_TARGET_LITE
+    rsp_print("  invert_throttle      - Toggle throttle inversion");
+#endif
+    rsp_print("");
+    rsp_print("Note: Motor config (poles, gear ratio, wheel size)");
+    rsp_print("      is received from VESC via BLE (read-only).");
+    rsp_print("");
+    rsp_print("Response format:");
+    rsp_print("  #>OK   - Success");
+    rsp_print("  #>ERR  - Error");
+    rsp_print("  #>DATA - Key=value data");
+    rsp_ok("help");
 }
