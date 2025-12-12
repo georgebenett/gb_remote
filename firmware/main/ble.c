@@ -427,9 +427,15 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         spp_conn_id = p_data->connect.conn_id;
         memcpy(gl_profile_tab[PROFILE_APP_ID].remote_bda, p_data->connect.remote_bda, sizeof(esp_bd_addr_t));
         esp_ble_gattc_search_service(spp_gattc_if, spp_conn_id, &spp_service_uuid);
+
+        // Send serial notification for config tool
+        printf("#>DATA ble_status=connected\n");
         break;
     case ESP_GATTC_DISCONNECT_EVT:
         ESP_LOGI(GATTC_TAG, "disconnect");
+
+        // Send serial notification for config tool
+        printf("#>DATA ble_status=disconnected\n");
 
         // Reset speed and battery values to 0 when disconnected
         latest_erpm = 0;

@@ -305,6 +305,24 @@ static void handle_get_config(const char* command)
         rsp_data("current_speed", "%ld", speed);
     }
 
+    // Calibration status
+    bool is_calibrated = throttle_is_calibrated();
+    rsp_data("calibrated", "%d", is_calibrated ? 1 : 0);
+
+    if (is_calibrated) {
+        uint32_t min_val, max_val;
+        throttle_get_calibration_values(&min_val, &max_val);
+        rsp_data("throttle_min", "%lu", min_val);
+        rsp_data("throttle_max", "%lu", max_val);
+
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+        uint32_t brake_min, brake_max;
+        brake_get_calibration_values(&brake_min, &brake_max);
+        rsp_data("brake_min", "%lu", brake_min);
+        rsp_data("brake_max", "%lu", brake_max);
+#endif
+    }
+
     rsp_ok("config");
 }
 
