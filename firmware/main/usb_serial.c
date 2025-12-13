@@ -154,7 +154,7 @@ void usb_serial_init_esp32s3(void)
 static void usb_serial_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "USB Serial task started");
-    
+
     uint8_t temp_crc_buffer[PACKET_MAX_PAYLOAD_SIZE + 4]; // CMD + LEN(2) + PAYLOAD
 
     for (;;) {
@@ -198,7 +198,7 @@ static void usb_serial_task(void *pvParameters)
 
             case STATE_WAIT_LEN_MSB:
                 rx_packet.payload_length |= ((uint16_t)data << 8);
-                
+
                 // Validate payload length
                 if (rx_packet.payload_length > PACKET_MAX_PAYLOAD_SIZE) {
                     ESP_LOGW(TAG, "Invalid payload length: %d", rx_packet.payload_length);
@@ -226,26 +226,26 @@ static void usb_serial_task(void *pvParameters)
 
             case STATE_WAIT_CRC_MSB:
                 rx_packet.crc |= ((uint16_t)data << 8);
-                
+
                 // Calculate CRC over [CMD][LEN_LSB][LEN_MSB][PAYLOAD]
                 temp_crc_buffer[0] = rx_packet.cmd_id;
                 temp_crc_buffer[1] = rx_packet.payload_length & 0xFF;
                 temp_crc_buffer[2] = (rx_packet.payload_length >> 8) & 0xFF;
                 memcpy(&temp_crc_buffer[3], rx_packet.payload, rx_packet.payload_length);
-                
+
                 rx_crc_calculated = calculate_crc16(temp_crc_buffer, 3 + rx_packet.payload_length);
-                
+
                 if (rx_crc_calculated == rx_packet.crc) {
                     // Valid packet received, process it
-                    ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d", 
+                    ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d",
                              rx_packet.cmd_id, rx_packet.payload_length);
                     usb_serial_process_packet(&rx_packet);
                 } else {
-                    ESP_LOGW(TAG, "CRC mismatch: expected 0x%04X, got 0x%04X", 
+                    ESP_LOGW(TAG, "CRC mismatch: expected 0x%04X, got 0x%04X",
                              rx_crc_calculated, rx_packet.crc);
                     usb_serial_send_ack(rx_packet.cmd_id, ERR_CRC_MISMATCH);
                 }
-                
+
                 rx_state = STATE_WAIT_START;
                 break;
 
@@ -286,7 +286,7 @@ void usb_serial_send_response(uint8_t cmd_id, const uint8_t* payload, uint16_t l
 
     // Send packet
     usb_serial_jtag_write_bytes((const char*)packet, idx, pdMS_TO_TICKS(100));
-    
+
     ESP_LOGD(TAG, "Sent response: CMD=0x%02X, LEN=%d, CRC=0x%04X", cmd_id, length, crc);
 }
 
@@ -302,14 +302,14 @@ void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code) {
 void usb_serial_send_error(error_code_t error_code, const char* message) {
     uint8_t payload[256];
     payload[0] = (uint8_t)error_code;
-    
+
     uint16_t msg_len = 0;
     if (message != NULL) {
         msg_len = strlen(message);
         if (msg_len > 255) msg_len = 255;
         memcpy(&payload[1], message, msg_len);
     }
-    
+
     usb_serial_send_response(RSP_ERROR, payload, 1 + msg_len);
 }
 
@@ -375,7 +375,7 @@ static void handle_cmd_get_firmware_version(const binary_packet_t* packet) {
     // Parse version string (e.g., "v1.2.3")
     uint8_t major = 1, minor = 0, patch = 0;
     sscanf(APP_VERSION_STRING, "v%hhu.%hhu.%hhu", &major, &minor, &patch);
-    
+
     payload[idx++] = major;
     payload[idx++] = minor;
     payload[idx++] = patch;
@@ -458,12 +458,12 @@ static void handle_cmd_get_config(const binary_packet_t* packet) {
     if (throttle_is_calibrated()) {
         uint32_t min_val, max_val;
         throttle_get_calibration_values(&min_val, &max_val);
-        
+
         payload[idx++] = (min_val >> 0) & 0xFF;
         payload[idx++] = (min_val >> 8) & 0xFF;
         payload[idx++] = (min_val >> 16) & 0xFF;
         payload[idx++] = (min_val >> 24) & 0xFF;
-        
+
         payload[idx++] = (max_val >> 0) & 0xFF;
         payload[idx++] = (max_val >> 8) & 0xFF;
         payload[idx++] = (max_val >> 16) & 0xFF;
@@ -472,12 +472,12 @@ static void handle_cmd_get_config(const binary_packet_t* packet) {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
         uint32_t brake_min, brake_max;
         brake_get_calibration_values(&brake_min, &brake_max);
-        
+
         payload[idx++] = (brake_min >> 0) & 0xFF;
         payload[idx++] = (brake_min >> 8) & 0xFF;
         payload[idx++] = (brake_min >> 16) & 0xFF;
         payload[idx++] = (brake_min >> 24) & 0xFF;
-        
+
         payload[idx++] = (brake_max >> 0) & 0xFF;
         payload[idx++] = (brake_max >> 8) & 0xFF;
         payload[idx++] = (brake_max >> 16) & 0xFF;
@@ -495,7 +495,7 @@ static void handle_cmd_reset_odometer(const binary_packet_t* packet) {
 
 static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
     ESP_LOGI(TAG, "Starting throttle calibration...");
-    
+
     // Trigger the throttle calibration - returns true if successful
     bool calibration_succeeded = throttle_calibrate();
 
@@ -503,17 +503,17 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
         // Build calibration response
         uint8_t payload[32];
         uint16_t idx = 0;
-        
+
         payload[idx++] = 1; // Success flag
-        
+
         uint32_t throttle_min, throttle_max;
         throttle_get_calibration_values(&throttle_min, &throttle_max);
-        
+
         payload[idx++] = (throttle_min >> 0) & 0xFF;
         payload[idx++] = (throttle_min >> 8) & 0xFF;
         payload[idx++] = (throttle_min >> 16) & 0xFF;
         payload[idx++] = (throttle_min >> 24) & 0xFF;
-        
+
         payload[idx++] = (throttle_max >> 0) & 0xFF;
         payload[idx++] = (throttle_max >> 8) & 0xFF;
         payload[idx++] = (throttle_max >> 16) & 0xFF;
@@ -522,18 +522,18 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
         uint32_t brake_min, brake_max;
         brake_get_calibration_values(&brake_min, &brake_max);
-        
+
         payload[idx++] = (brake_min >> 0) & 0xFF;
         payload[idx++] = (brake_min >> 8) & 0xFF;
         payload[idx++] = (brake_min >> 16) & 0xFF;
         payload[idx++] = (brake_min >> 24) & 0xFF;
-        
+
         payload[idx++] = (brake_max >> 0) & 0xFF;
         payload[idx++] = (brake_max >> 8) & 0xFF;
         payload[idx++] = (brake_max >> 16) & 0xFF;
         payload[idx++] = (brake_max >> 24) & 0xFF;
 #endif
-        
+
         usb_serial_send_response(RSP_CALIBRATION, payload, idx);
     } else {
         usb_serial_send_ack(CMD_CALIBRATE_THROTTLE, ERR_CALIBRATION_FAILED);
@@ -542,7 +542,7 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
 
 static void handle_cmd_get_calibration(const binary_packet_t* packet) {
     bool is_calibrated = throttle_is_calibrated();
-    
+
     if (!is_calibrated) {
         usb_serial_send_ack(CMD_GET_CALIBRATION, ERR_NOT_CALIBRATED);
         return;
@@ -551,17 +551,17 @@ static void handle_cmd_get_calibration(const binary_packet_t* packet) {
     // Build calibration response
     uint8_t payload[64];
     uint16_t idx = 0;
-    
+
     payload[idx++] = 1; // Calibrated flag
-    
+
     uint32_t throttle_min, throttle_max;
     throttle_get_calibration_values(&throttle_min, &throttle_max);
-    
+
     payload[idx++] = (throttle_min >> 0) & 0xFF;
     payload[idx++] = (throttle_min >> 8) & 0xFF;
     payload[idx++] = (throttle_min >> 16) & 0xFF;
     payload[idx++] = (throttle_min >> 24) & 0xFF;
-    
+
     payload[idx++] = (throttle_max >> 0) & 0xFF;
     payload[idx++] = (throttle_max >> 8) & 0xFF;
     payload[idx++] = (throttle_max >> 16) & 0xFF;
@@ -570,12 +570,12 @@ static void handle_cmd_get_calibration(const binary_packet_t* packet) {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     uint32_t brake_min, brake_max;
     brake_get_calibration_values(&brake_min, &brake_max);
-    
+
     payload[idx++] = (brake_min >> 0) & 0xFF;
     payload[idx++] = (brake_min >> 8) & 0xFF;
     payload[idx++] = (brake_min >> 16) & 0xFF;
     payload[idx++] = (brake_min >> 24) & 0xFF;
-    
+
     payload[idx++] = (brake_max >> 0) & 0xFF;
     payload[idx++] = (brake_max >> 8) & 0xFF;
     payload[idx++] = (brake_max >> 16) & 0xFF;
@@ -679,18 +679,18 @@ static void handle_cmd_invert_throttle(const binary_packet_t* packet) {
 
 static void handle_cmd_start_streaming(const binary_packet_t* packet) {
     uint16_t rate_hz = 10; // Default 10Hz
-    
+
     if (packet->payload_length >= 2) {
         // Payload: [rate_hz_lsb][rate_hz_msb]
         rate_hz = packet->payload[0] | (packet->payload[1] << 8);
     }
-    
+
     // Validate rate (1Hz - 100Hz)
     if (rate_hz < 1) rate_hz = 1;
     if (rate_hz > 100) rate_hz = 100;
-    
+
     usb_serial_start_streaming(rate_hz);
-    
+
     ESP_LOGI(TAG, "Streaming started at %d Hz", rate_hz);
     usb_serial_send_ack(CMD_START_STREAMING, ERR_OK);
 }
@@ -706,17 +706,17 @@ static void handle_cmd_set_stream_rate(const binary_packet_t* packet) {
         usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_INVALID_PAYLOAD);
         return;
     }
-    
+
     uint16_t rate_hz = packet->payload[0] | (packet->payload[1] << 8);
-    
+
     // Validate rate (1Hz - 100Hz)
     if (rate_hz < 1 || rate_hz > 100) {
         usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_OUT_OF_RANGE);
         return;
     }
-    
+
     stream_config.rate_hz = rate_hz;
-    
+
     ESP_LOGI(TAG, "Streaming rate changed to %d Hz", rate_hz);
     usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_OK);
 }
@@ -735,91 +735,67 @@ void usb_serial_send_stream_data(void) {
     if (!stream_config.enabled) {
         return;
     }
-    
+
     // Build streaming data packet
-    // Format: [timestamp_ms(4)][flags(1)][speed(4)][throttle_raw(4)][throttle_pct(1)][brake_raw(4)][brake_pct(1)][battery_pct(1)]
+    // Format: [timestamp_ms(4)][flags(1)][throttle_raw(4)][brake_raw(4)][throttle_brake_ble(1)]
     uint8_t payload[32];
     uint16_t idx = 0;
-    
+
     // Timestamp (milliseconds since boot)
     uint32_t timestamp_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     payload[idx++] = (timestamp_ms >> 0) & 0xFF;
     payload[idx++] = (timestamp_ms >> 8) & 0xFF;
     payload[idx++] = (timestamp_ms >> 16) & 0xFF;
     payload[idx++] = (timestamp_ms >> 24) & 0xFF;
-    
+
     // Flags: [bit0:ble_connected][bit1:calibrated][bit2-7:reserved]
     uint8_t flags = 0;
     if (is_connect) flags |= 0x01;
     if (throttle_is_calibrated()) flags |= 0x02;
     payload[idx++] = flags;
-    
-    // Current speed (4 bytes, signed, in units specified by config)
-    int32_t speed = 0;
-    if (is_connect) {
-        speed = vesc_config_get_speed(&hand_controller_config);
-    }
-    payload[idx++] = (speed >> 0) & 0xFF;
-    payload[idx++] = (speed >> 8) & 0xFF;
-    payload[idx++] = (speed >> 16) & 0xFF;
-    payload[idx++] = (speed >> 24) & 0xFF;
-    
-    // Throttle raw value (4 bytes)
-    uint32_t throttle_raw = 0;
-    uint8_t throttle_pct = 0;
-    
+
+    // Throttle raw value (4 bytes, signed)
+    int32_t throttle_raw = throttle_read_value();
+    if (throttle_raw < 0) throttle_raw = 0;  // Clamp negative values to 0
+    uint32_t throttle_raw_uint = (uint32_t)throttle_raw;
+    payload[idx++] = (throttle_raw_uint >> 0) & 0xFF;
+    payload[idx++] = (throttle_raw_uint >> 8) & 0xFF;
+    payload[idx++] = (throttle_raw_uint >> 16) & 0xFF;
+    payload[idx++] = (throttle_raw_uint >> 24) & 0xFF;
+
+    // Brake raw value (4 bytes, signed)
+    uint32_t brake_raw_uint = 0;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-    throttle_raw = get_throttle_brake_ble_value();
-#else
-    throttle_raw = adc_get_latest_value();
+    int32_t brake_raw = brake_read_value();
+    if (brake_raw < 0) brake_raw = 0;  // Clamp negative values to 0
+    brake_raw_uint = (uint32_t)brake_raw;
 #endif
-    
-    // Calculate throttle percentage if calibrated
-    if (throttle_is_calibrated()) {
-        uint32_t min_val, max_val;
-        throttle_get_calibration_values(&min_val, &max_val);
-        
-        if (throttle_raw <= min_val) {
-            throttle_pct = 0;
-        } else if (throttle_raw >= max_val) {
-            throttle_pct = 100;
-        } else {
-            throttle_pct = ((throttle_raw - min_val) * 100) / (max_val - min_val);
+    payload[idx++] = (brake_raw_uint >> 0) & 0xFF;
+    payload[idx++] = (brake_raw_uint >> 8) & 0xFF;
+    payload[idx++] = (brake_raw_uint >> 16) & 0xFF;
+    payload[idx++] = (brake_raw_uint >> 24) & 0xFF;
+
+    // Throttle/brake combination value sent to BLE (1 byte, 0-255)
+    uint8_t throttle_brake_ble = 0;
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    throttle_brake_ble = get_throttle_brake_ble_value();
+#elif defined(CONFIG_TARGET_LITE)
+    // Get the value that would be sent to BLE (with inversion applied if configured)
+    uint32_t adc_value = adc_get_latest_value();
+    if (throttle_should_use_neutral()) {
+        throttle_brake_ble = VESC_NEUTRAL_VALUE;
+    } else {
+        throttle_brake_ble = (uint8_t)adc_value;
+
+        // Apply throttle inversion if configured (same logic as ble.c)
+        vesc_config_t config;
+        esp_err_t err = vesc_config_load(&config);
+        if (err == ESP_OK && config.invert_throttle) {
+            throttle_brake_ble = 255 - throttle_brake_ble;
         }
     }
-    
-    payload[idx++] = (throttle_raw >> 0) & 0xFF;
-    payload[idx++] = (throttle_raw >> 8) & 0xFF;
-    payload[idx++] = (throttle_raw >> 16) & 0xFF;
-    payload[idx++] = (throttle_raw >> 24) & 0xFF;
-    payload[idx++] = throttle_pct;
-    
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-    // Brake raw value and percentage (if dual throttle)
-    uint32_t brake_raw = 0;
-    uint8_t brake_pct = 0;
-    
-    uint32_t brake_min, brake_max;
-    brake_get_calibration_values(&brake_min, &brake_max);
-    
-    if (brake_raw <= brake_min) {
-        brake_pct = 0;
-    } else if (brake_raw >= brake_max) {
-        brake_pct = 100;
-    } else {
-        brake_pct = ((brake_raw - brake_min) * 100) / (brake_max - brake_min);
-    }
-    
-    payload[idx++] = (brake_raw >> 0) & 0xFF;
-    payload[idx++] = (brake_raw >> 8) & 0xFF;
-    payload[idx++] = (brake_raw >> 16) & 0xFF;
-    payload[idx++] = (brake_raw >> 24) & 0xFF;
-    payload[idx++] = brake_pct;
 #endif
-    
-    // Battery percentage (if available from VESC)
-    uint8_t battery_pct = 0;  // TODO: Get from VESC telemetry if available
-    payload[idx++] = battery_pct;
-    
+    payload[idx++] = throttle_brake_ble;
+
     usb_serial_send_response(RSP_STREAM_DATA, payload, idx);
 }

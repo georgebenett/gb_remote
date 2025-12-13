@@ -358,8 +358,6 @@ bool throttle_calibrate(void) {
     uint32_t brake_min = UINT32_MAX;
     uint32_t brake_max = 0;
 #endif
-    int progress = 0;
-    int last_reported_progress = -1;
 
     // Take multiple samples to find the actual range
     for (int i = 0; i < ADC_CALIBRATION_SAMPLES; i++) {
@@ -384,14 +382,6 @@ bool throttle_calibrate(void) {
         }
 #endif
 
-        // Calculate and report progress every 10%
-        progress = (i * 100) / ADC_CALIBRATION_SAMPLES;
-        if (progress % 10 == 0 && progress != last_reported_progress) {
-            printf("%d%%...", progress);
-            fflush(stdout);
-            last_reported_progress = progress;
-        }
-
         // Use a longer delay to ensure 6 seconds total
         vTaskDelay(pdMS_TO_TICKS(ADC_CALIBRATION_DELAY_MS));
     }
@@ -415,9 +405,9 @@ bool throttle_calibrate(void) {
             ESP_LOGW(TAG, "Throttle: insufficient range %lu (need 150+)", throttle_range);
         } else {
             throttle_range_ok = true;
-            // Add small margins to prevent edge cases (5% margin)
-            adc_input_min_value = throttle_min + (throttle_range * 0.05);
-            adc_input_max_value = throttle_max - (throttle_range * 0.05);
+            // Use measured values directly without margins
+            adc_input_min_value = throttle_min;
+            adc_input_max_value = throttle_max;
             ESP_LOGI(TAG, "Throttle calibrated: %lu - %lu", adc_input_min_value, adc_input_max_value);
         }
     } else {
@@ -434,9 +424,9 @@ bool throttle_calibrate(void) {
             ESP_LOGW(TAG, "Brake: insufficient range %lu (need 150+)", brake_range);
         } else {
             brake_range_ok = true;
-            // Add small margins to prevent edge cases (5% margin)
-            brake_input_min_value = brake_min + (brake_range * 0.05);
-            brake_input_max_value = brake_max - (brake_range * 0.05);
+            // Use measured values directly without margins
+            brake_input_min_value = brake_min;
+            brake_input_max_value = brake_max;
             ESP_LOGI(TAG, "Brake calibrated: %lu - %lu", brake_input_min_value, brake_input_max_value);
         }
     } else {
