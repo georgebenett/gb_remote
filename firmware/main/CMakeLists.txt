@@ -26,16 +26,16 @@ file(GLOB_RECURSE UI_SOURCES
 
 idf_component_register(
     SRCS
-        "button.c"
-        "power.c"
-        "ble.c"
-        "main.c"
-        "throttle.c"
-        "lcd.c"
-        "vesc_config.c"
-        "ui_updater.c"
         "battery.c"
-        "usb_serial_handler.c"
+        "ble.c"
+        "button.c"
+        "lcd.c"
+        "main.c"
+        "power.c"
+        "throttle.c"
+        "ui_updater.c"
+        "usb_serial.c"
+        "vesc_config.c"
         "viber.c"
         ${UI_SOURCES}
     INCLUDE_DIRS
