@@ -546,34 +546,20 @@ uint8_t get_throttle_brake_ble_value(void) {
         return VESC_NEUTRAL_VALUE;  // Avoid division by zero
     }
 
-    // Calculate brake factor: 0.0 at MIN, 1.0 at MAX
+    // Calculate brake factor: 0.0 at MIN (953), 1.0 at MAX (3027)
     float brake_factor = (float)(brake_raw - brake_input_min_value) / (float)brake_range;
 
-    // Brake overrides throttle: when brake is at MIN, BLE = 0
-    // When brake is at MIN (factor=0): brake forces BLE to 0
-    // When brake is at MAX (factor=1): brake allows throttle control
-    if (brake_factor < 0.01f) {
-        // Brake at MIN: brake overrides, BLE = 0
-        return 0;
-    }
-
-    // Brake is at MAX (or close to MAX): throttle controls BLE value
-    // When throttle at MAX: BLE = 128
-    // When throttle at MIN: BLE = 255
+    // Calculate throttle factor: 0.0 at MIN (948), 1.0 at MAX (3007)
     float throttle_factor = (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
 
-    // Invert throttle mapping: throttle MAX (factor=1.0) = 128, throttle MIN (factor=0.0) = 255
-    uint8_t ble_value = VESC_NEUTRAL_VALUE + (uint8_t)((1.0f - throttle_factor) * 128.0f);
+    // Throttle mapping: throttle MAX (factor=1.0) = 255, throttle MIN (factor=0.0) = 128 (neutral)
+    uint8_t throttle_ble_value = VESC_NEUTRAL_VALUE + (uint8_t)(throttle_factor * 127.0f);
 
-    // If brake is not fully at MAX, interpolate between brake override (0-128) and throttle control (128-255)
-    if (brake_factor < 1.0f) {
-        // When brake moves from MIN to MAX, it transitions from override (0) to allowing throttle
-        // Brake at MAX: use throttle value (128-255)
-        // Brake between MIN and MAX: interpolate between 0 and throttle value
-        uint8_t brake_override_value = 0;  // When brake at MIN
-        float interpolated = brake_override_value + (brake_factor * (float)ble_value);
-        ble_value = (uint8_t)interpolated;
-    }
+    // Brake logic: brake MAX (factor=1.0) = 0, brake MIN (factor=0.0) = throttle value
+    // When brake is at MAX (3027), BLE = 0
+    // When brake is at MIN (953), BLE = throttle value (128-255)
+    // Interpolate between throttle value (when brake at MIN) and 0 (when brake at MAX)
+    uint8_t ble_value = (uint8_t)(throttle_ble_value * (1.0f - brake_factor));
 
     return ble_value;
 }
