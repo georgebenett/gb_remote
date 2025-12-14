@@ -9,10 +9,14 @@ extern "C" {
 
 typedef struct _objects_t {
     lv_obj_t *splash_screen;
+    lv_obj_t *charging_screen;
     lv_obj_t *home_screen;
     lv_obj_t *shutdown_screen;
     lv_obj_t *firmware_version;
     lv_obj_t *firmware_text;
+    lv_obj_t *main_battery_text;
+    lv_obj_t *batt_charging_main;
+    lv_obj_t *lightning;
     lv_obj_t *skate_battery;
     lv_obj_t *skate_battery_text;
     lv_obj_t *controller_battery;
@@ -31,12 +35,16 @@ extern objects_t objects;
 
 enum ScreensEnum {
     SCREEN_ID_SPLASH_SCREEN = 1,
-    SCREEN_ID_HOME_SCREEN = 2,
-    SCREEN_ID_SHUTDOWN_SCREEN = 3,
+    SCREEN_ID_CHARGING_SCREEN = 2,
+    SCREEN_ID_HOME_SCREEN = 3,
+    SCREEN_ID_SHUTDOWN_SCREEN = 4,
 };
 
 void create_screen_splash_screen();
 void tick_screen_splash_screen();
+
+void create_screen_charging_screen();
+void tick_screen_charging_screen();
 
 void create_screen_home_screen();
 void tick_screen_home_screen();
