@@ -367,18 +367,13 @@ static void handle_cmd_ping(const binary_packet_t* packet) {
 }
 
 static void handle_cmd_get_firmware_version(const binary_packet_t* packet) {
-    // Build firmware version response
-    // Format: [version_major][version_minor][version_patch][build_date_str][model_str][idf_version_str]
     uint8_t payload[256];
     uint16_t idx = 0;
 
-    // Parse version string (e.g., "v1.2.3")
-    uint8_t major = 1, minor = 0, patch = 0;
-    sscanf(APP_VERSION_STRING, "v%hhu.%hhu.%hhu", &major, &minor, &patch);
-
-    payload[idx++] = major;
-    payload[idx++] = minor;
-    payload[idx++] = patch;
+    // Get version from version.h
+    payload[idx++] = APP_VERSION_MAJOR;
+    payload[idx++] = APP_VERSION_MINOR;
+    payload[idx++] = APP_VERSION_PATCH;
 
     // Build date string
     char build_str[64];
@@ -412,12 +407,9 @@ static void handle_cmd_get_config(const binary_packet_t* packet) {
         return;
     }
 
-    // Build configuration response
-    // Format: [flags][backlight][motor_poles][gear_ratio_x1000][wheel_diameter_mm][speed][throttle_min][throttle_max][brake_min][brake_max]
     uint8_t payload[256];
     uint16_t idx = 0;
 
-    // Flags byte: [bit0:speed_unit_mph][bit1:throttle_inverted][bit2:ble_connected][bit3:calibrated]
     uint8_t flags = 0;
     if (hand_controller_config.speed_unit_mph) flags |= 0x01;
 #ifdef CONFIG_TARGET_LITE
@@ -736,19 +728,15 @@ void usb_serial_send_stream_data(void) {
         return;
     }
 
-    // Build streaming data packet
-    // Format: [timestamp_ms(4)][flags(1)][throttle_raw(4)][brake_raw(4)][throttle_brake_ble(1)]
     uint8_t payload[32];
     uint16_t idx = 0;
 
-    // Timestamp (milliseconds since boot)
     uint32_t timestamp_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     payload[idx++] = (timestamp_ms >> 0) & 0xFF;
     payload[idx++] = (timestamp_ms >> 8) & 0xFF;
     payload[idx++] = (timestamp_ms >> 16) & 0xFF;
     payload[idx++] = (timestamp_ms >> 24) & 0xFF;
 
-    // Flags: [bit0:ble_connected][bit1:calibrated][bit2-7:reserved]
     uint8_t flags = 0;
     if (is_connect) flags |= 0x01;
     if (throttle_is_calibrated()) flags |= 0x02;
@@ -787,7 +775,7 @@ void usb_serial_send_stream_data(void) {
     } else {
         throttle_brake_ble = (uint8_t)adc_value;
 
-        // Apply throttle inversion if configured (same logic as ble.c)
+        // Apply throttle inversion if configured
         vesc_config_t config;
         esp_err_t err = vesc_config_load(&config);
         if (err == ESP_OK && config.invert_throttle) {
