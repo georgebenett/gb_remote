@@ -22,4 +22,8 @@ void battery_start_monitoring(void);
 float battery_get_voltage(void);
 int battery_get_percentage(void);
 
+// Battery ADC functions (internal use)
+esp_err_t adc_battery_init(void);
+int32_t adc_read_battery_voltage(uint8_t channel);
+
 #endif // BATTERY_H

@@ -65,6 +65,59 @@ static void battery_monitoring_task(void *pvParameters);
 
 float battery_read_voltage(void);
 
+esp_err_t adc_battery_init(void) {
+    if (!adc_is_initialized() || !adc_get_handle()) {
+        ESP_LOGE(TAG, "ADC not properly initialized");
+        return ESP_FAIL;
+    }
+
+    adc_oneshot_unit_handle_t adc1_handle = adc_get_handle();
+
+    // Configure the battery ADC channel
+    adc_oneshot_chan_cfg_t battery_config = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12
+    };
+
+    esp_err_t ret = adc_oneshot_config_channel(adc1_handle, BATTERY_VOLTAGE_PIN, &battery_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Battery ADC channel configuration failed");
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Battery ADC initialized successfully on ADC1_CH%d", BATTERY_VOLTAGE_PIN);
+    return ESP_OK;
+}
+
+int32_t adc_read_battery_voltage(uint8_t channel) {
+    if (!adc_is_initialized() || !adc_get_handle()) {
+        ESP_LOGE(TAG, "ADC not properly initialized");
+        return -1;
+    }
+
+    adc_oneshot_unit_handle_t adc1_handle = adc_get_handle();
+
+    // Take multiple readings and average
+    const int NUM_SAMPLES = 10;
+    int32_t sum = 0;
+    int valid_samples = 0;
+
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        int adc_raw = 0;
+        esp_err_t ret = adc_oneshot_read(adc1_handle, channel, &adc_raw);
+
+        if (ret == ESP_OK) {
+            sum += adc_raw;
+            valid_samples++;
+        }
+
+        // Small delay between samples
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    return valid_samples > 0 ? (sum / valid_samples) : -1;
+}
+
 esp_err_t battery_init(void) {
     if (battery_initialized) {
         ESP_LOGI(TAG, "Battery monitoring already initialized");

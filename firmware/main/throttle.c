@@ -34,6 +34,15 @@ static esp_err_t load_calibration_from_nvs(void);
 
 void adc_deinit(void);
 
+// Getter function for battery module to access ADC handle
+adc_oneshot_unit_handle_t adc_get_handle(void) {
+    return adc1_handle;
+}
+
+bool adc_is_initialized(void) {
+    return adc_initialized;
+}
+
 esp_err_t adc_init(void)
 {
     if (adc_initialized) {
@@ -546,19 +555,15 @@ uint8_t get_throttle_brake_ble_value(void) {
         return VESC_NEUTRAL_VALUE;  // Avoid division by zero
     }
 
-    // Calculate brake factor: 0.0 at MIN (953), 1.0 at MAX (3027)
+    // Calculate brake factor
     float brake_factor = (float)(brake_raw - brake_input_min_value) / (float)brake_range;
 
-    // Calculate throttle factor: 0.0 at MIN (948), 1.0 at MAX (3007)
+    // Calculate throttle factor
     float throttle_factor = (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
 
     // Throttle mapping: throttle MAX (factor=1.0) = 255, throttle MIN (factor=0.0) = 128 (neutral)
     uint8_t throttle_ble_value = VESC_NEUTRAL_VALUE + (uint8_t)(throttle_factor * 127.0f);
 
-    // Brake logic: brake MAX (factor=1.0) = 0, brake MIN (factor=0.0) = throttle value
-    // When brake is at MAX (3027), BLE = 0
-    // When brake is at MIN (953), BLE = throttle value (128-255)
-    // Interpolate between throttle value (when brake at MIN) and 0 (when brake at MAX)
     uint8_t ble_value = (uint8_t)(throttle_ble_value * (1.0f - brake_factor));
 
     return ble_value;
@@ -571,52 +576,3 @@ uint8_t map_adc_value(uint32_t adc_value) {
     return map_throttle_value(adc_value);
 }
 #endif
-
-esp_err_t adc_battery_init(void) {
-    if (!adc_initialized || !adc1_handle) {
-        ESP_LOGE(TAG, "ADC not properly initialized");
-        return ESP_FAIL;
-    }
-
-    // Configure the battery ADC channel
-    adc_oneshot_chan_cfg_t battery_config = {
-        .atten = ADC_ATTEN_DB_12,
-        .bitwidth = ADC_BITWIDTH_12
-    };
-
-    esp_err_t ret = adc_oneshot_config_channel(adc1_handle, BATTERY_VOLTAGE_PIN, &battery_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Battery ADC channel configuration failed");
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "Battery ADC initialized successfully on ADC1_CH%d", BATTERY_VOLTAGE_PIN);
-    return ESP_OK;
-}
-
-int32_t adc_read_battery_voltage(uint8_t channel) {
-    if (!adc_initialized || !adc1_handle) {
-        ESP_LOGE(TAG, "ADC not properly initialized");
-        return -1;
-    }
-
-    // Take multiple readings and average
-    const int NUM_SAMPLES = 10;
-    int32_t sum = 0;
-    int valid_samples = 0;
-
-    for (int i = 0; i < NUM_SAMPLES; i++) {
-        int adc_raw = 0;
-        esp_err_t ret = adc_oneshot_read(adc1_handle, channel, &adc_raw);
-
-        if (ret == ESP_OK) {
-            sum += adc_raw;
-            valid_samples++;
-        }
-
-        // Small delay between samples
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
-
-    return valid_samples > 0 ? (sum / valid_samples) : -1;
-}
