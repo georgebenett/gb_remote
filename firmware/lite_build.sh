@@ -15,13 +15,16 @@ if [ ! -f sdkconfig.defaults.lite ]; then
     echo "CONFIG_LCD_OFFSET_Y=0" >> sdkconfig.defaults.lite
 fi
 
-# Copy target defaults
-cp sdkconfig.defaults.lite sdkconfig.defaults
+# Update sdkconfig if target changed
+if [ ! -f sdkconfig ]; then
+    # No sdkconfig exists, use defaults
+    cp sdkconfig.defaults.lite sdkconfig.defaults
+elif ! grep -q "^CONFIG_TARGET_LITE=y" sdkconfig 2>/dev/null; then
+    # Target is not set to LITE, update it
+    echo "Updating target configuration to LITE..."
+    cp sdkconfig.defaults.lite sdkconfig.defaults
 
-# Directly update sdkconfig to ensure target selection is correct
-# This is necessary because reconfigure doesn't always override choice options
-if [ -f sdkconfig ]; then
-    # Replace target configuration lines
+    # Update sdkconfig directly
     sed -i 's/^CONFIG_TARGET_DUAL_THROTTLE=y/# CONFIG_TARGET_DUAL_THROTTLE is not set/' sdkconfig
     sed -i 's/^# CONFIG_TARGET_LITE is not set$/CONFIG_TARGET_LITE=y/' sdkconfig
     sed -i 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=240/' sdkconfig
@@ -36,12 +39,11 @@ if [ -f sdkconfig ]; then
 # CONFIG_TARGET_DUAL_THROTTLE is not set\
 CONFIG_TARGET_LITE=y' sdkconfig
     fi
+else
+    echo "Target already configured for LITE..."
 fi
 
-# Reconfigure to apply settings
-idf.py reconfigure
-
-# Build
+# Build (will auto-reconfigure if sdkconfig changed)
 idf.py build
 
 # Flash function that tries multiple ports

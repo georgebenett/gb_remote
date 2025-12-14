@@ -14,13 +14,16 @@ if [ ! -f sdkconfig.defaults.dual_throttle ]; then
     echo "CONFIG_LCD_OFFSET_Y=0" >> sdkconfig.defaults.dual_throttle
 fi
 
-# Copy target defaults
-cp sdkconfig.defaults.dual_throttle sdkconfig.defaults
+# Update sdkconfig if target changed
+if [ ! -f sdkconfig ]; then
+    # No sdkconfig exists, use defaults
+    cp sdkconfig.defaults.dual_throttle sdkconfig.defaults
+elif ! grep -q "^CONFIG_TARGET_DUAL_THROTTLE=y" sdkconfig 2>/dev/null; then
+    # Target is not set to DUAL_THROTTLE, update it
+    echo "Updating target configuration to DUAL_THROTTLE..."
+    cp sdkconfig.defaults.dual_throttle sdkconfig.defaults
 
-# Directly update sdkconfig to ensure target selection is correct
-# This is necessary because reconfigure doesn't always override choice options
-if [ -f sdkconfig ]; then
-    # Replace target configuration lines
+    # Update sdkconfig directly
     sed -i 's/^# CONFIG_TARGET_DUAL_THROTTLE is not set$/CONFIG_TARGET_DUAL_THROTTLE=y/' sdkconfig
     sed -i 's/^CONFIG_TARGET_LITE=y/# CONFIG_TARGET_LITE is not set/' sdkconfig
     sed -i 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=172/' sdkconfig
@@ -35,12 +38,11 @@ if [ -f sdkconfig ]; then
 CONFIG_TARGET_DUAL_THROTTLE=y\
 # CONFIG_TARGET_LITE is not set' sdkconfig
     fi
+else
+    echo "Target already configured for DUAL_THROTTLE..."
 fi
 
-# Reconfigure to apply settings
-idf.py reconfigure
-
-# Build
+# Build (will auto-reconfigure if sdkconfig changed)
 idf.py build
 
 # Flash function that tries multiple ports
