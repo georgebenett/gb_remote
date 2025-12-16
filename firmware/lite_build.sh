@@ -3,6 +3,13 @@
 
 set -e
 
+# Detect OS for sed compatibility (macOS requires backup extension, Linux doesn't)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    SED_INPLACE="sed -i ''"
+else
+    SED_INPLACE="sed -i"
+fi
+
 echo "Building for lite target ..."
 
 # Create target-specific defaults if it doesn't exist
@@ -25,16 +32,16 @@ elif ! grep -q "^CONFIG_TARGET_LITE=y" sdkconfig 2>/dev/null; then
     cp sdkconfig.defaults.lite sdkconfig.defaults
 
     # Update sdkconfig directly
-    sed -i 's/^CONFIG_TARGET_DUAL_THROTTLE=y/# CONFIG_TARGET_DUAL_THROTTLE is not set/' sdkconfig
-    sed -i 's/^# CONFIG_TARGET_LITE is not set$/CONFIG_TARGET_LITE=y/' sdkconfig
-    sed -i 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=240/' sdkconfig
-    sed -i 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
-    sed -i 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=0/' sdkconfig
-    sed -i 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
+    $SED_INPLACE 's/^CONFIG_TARGET_DUAL_THROTTLE=y/# CONFIG_TARGET_DUAL_THROTTLE is not set/' sdkconfig
+    $SED_INPLACE 's/^# CONFIG_TARGET_LITE is not set$/CONFIG_TARGET_LITE=y/' sdkconfig
+    $SED_INPLACE 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=240/' sdkconfig
+    $SED_INPLACE 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
+    $SED_INPLACE 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=0/' sdkconfig
+    $SED_INPLACE 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
 
     # Ensure CONFIG_TARGET_LITE=y exists (add if missing)
     if ! grep -q "^CONFIG_TARGET_LITE=y" sdkconfig; then
-        sed -i '/^# Hardware Target Configuration$/a\
+        $SED_INPLACE '/^# Hardware Target Configuration$/a\
 #\
 # CONFIG_TARGET_DUAL_THROTTLE is not set\
 CONFIG_TARGET_LITE=y' sdkconfig
@@ -44,14 +51,27 @@ else
 fi
 
 # Build (will auto-reconfigure if sdkconfig changed)
+echo "Starting build..."
+BUILD_START=$(date +%s)
 idf.py build
+BUILD_END=$(date +%s)
+BUILD_TIME=$((BUILD_END - BUILD_START))
+echo "Build completed in ${BUILD_TIME} seconds"
 
 # Flash function that tries multiple ports
 flash_firmware() {
     echo "Flashing firmware to device..."
 
-    # Priority ports to try first
-    PRIORITY_PORTS=("/dev/ttyACM0" "/dev/ttyACM1")
+    # Detect OS and set priority ports accordingly
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS ports
+        PRIORITY_PORTS=("/dev/tty.usbmodem101" "/dev/tty.usbmodem*" "/dev/tty.usbserial*")
+        SCAN_PATTERNS=("/dev/tty.usbmodem*" "/dev/tty.usbserial*")
+    else
+        # Linux ports
+        PRIORITY_PORTS=("/dev/ttyACM0" "/dev/ttyACM1")
+        SCAN_PATTERNS=("/dev/ttyACM*" "/dev/ttyUSB*")
+    fi
 
     # Function to try flashing to a specific port
     try_flash_port() {
@@ -71,16 +91,39 @@ flash_firmware() {
         fi
     }
 
-    # Try priority ports first
-    for port in "${PRIORITY_PORTS[@]}"; do
-        if try_flash_port "$port"; then
-            return 0
+    # Try priority ports first (expand globs for macOS)
+    for port_pattern in "${PRIORITY_PORTS[@]}"; do
+        # Expand glob pattern if it contains wildcards
+        if [[ "$port_pattern" == *"*"* ]]; then
+            # Expand glob and try each matching port
+            for port in $port_pattern; do
+                # Check if port actually exists (not the literal pattern)
+                if [ "$port" != "$port_pattern" ] && [ -e "$port" ] && try_flash_port "$port"; then
+                    return 0
+                fi
+            done
+        else
+            if try_flash_port "$port_pattern"; then
+                return 0
+            fi
         fi
     done
 
-    # If priority ports failed, try other available ttyACM and ttyUSB ports
+    # If priority ports failed, try other available ports
     echo "Priority ports failed, scanning for other available ports..."
-    OTHER_PORTS=$(ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | grep -v -E "(ttyACM0|ttyACM1)$" || true)
+    OTHER_PORTS=""
+    for pattern in "${SCAN_PATTERNS[@]}"; do
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # For macOS, exclude already tried ports
+            FOUND=$(ls $pattern 2>/dev/null | grep -v -E "(usbmodem101)$" || true)
+        else
+            # For Linux, exclude priority ports
+            FOUND=$(ls $pattern 2>/dev/null | grep -v -E "(ttyACM0|ttyACM1)$" || true)
+        fi
+        if [ -n "$FOUND" ]; then
+            OTHER_PORTS="$OTHER_PORTS $FOUND"
+        fi
+    done
 
     if [ -n "$OTHER_PORTS" ]; then
         for port in $OTHER_PORTS; do
@@ -92,7 +135,11 @@ flash_firmware() {
 
     echo "ERROR: Failed to flash to any available port!"
     echo "Available ports:"
-    ls -la /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || echo "No ttyACM or ttyUSB ports found"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        ls -la /dev/tty.usbmodem* /dev/tty.usbserial* 2>/dev/null || echo "No macOS USB serial ports found"
+    else
+        ls -la /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || echo "No ttyACM or ttyUSB ports found"
+    fi
     return 1
 }
 
