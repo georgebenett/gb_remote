@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "esp_log.h"
 #include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 #include "esp_vfs_usb_serial_jtag.h"
 #include "esp_vfs_dev.h"
 #include "fcntl.h"
@@ -129,8 +130,8 @@ void usb_serial_init_esp32s3(void)
     setvbuf(stdin, NULL, _IONBF, 0);
 
     /* Binary mode - no line ending conversion */
-    esp_vfs_dev_usb_serial_jtag_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
-    esp_vfs_dev_usb_serial_jtag_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
+    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
+    usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
 
     /* Enable non-blocking mode on stdin and stdout */
     fcntl(fileno(stdout), F_SETFL, O_NONBLOCK);
@@ -149,7 +150,7 @@ void usb_serial_init_esp32s3(void)
     }
 
     /* Tell vfs to use usb-serial-jtag driver */
-    esp_vfs_usb_serial_jtag_use_driver();
+    usb_serial_jtag_vfs_use_driver();
 
     ESP_LOGI(TAG, "USB Serial JTAG (Binary Mode) initialized successfully");
 }
