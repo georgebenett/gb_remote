@@ -12,6 +12,7 @@
 #include "viber.h"
 #include "nvs.h"
 #include "ble.h"
+#include "esp_sleep.h"
 
 #define TAG "POWER"
 
@@ -171,5 +172,6 @@ void power_shutdown(void) {
     vTaskDelay(pdMS_TO_TICKS(100));
     // Shut down by setting GPIO 4 to LOW
     gpio_set_level(POWER_HOLD_GPIO, 0);
+    esp_deep_sleep_start();
 }
 
