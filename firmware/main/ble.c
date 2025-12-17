@@ -187,9 +187,7 @@ static void ble_trim_load_offset(void)
     if (err == ESP_OK) {
         int8_t offset = 0;
         if (nvs_get_i8(nvs_handle, BLE_TRIM_NVS_KEY_OFFSET, &offset) == ESP_OK) {
-            // Clamp to valid range
             if (offset < -127) offset = -127;
-            if (offset > 127) offset = 127;
             ble_trim_offset = offset;
             ESP_LOGI(GATTC_TAG, "BLE trim offset loaded from NVS: %d", ble_trim_offset);
         }
