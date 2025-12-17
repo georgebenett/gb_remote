@@ -8,11 +8,13 @@
 #include "ui_updater.h"
 #include "esp_err.h"
 #include "driver/gpio.h"
+#include "driver/rtc_io.h"
 #include "button.h"
 #include "viber.h"
 #include "nvs.h"
 #include "ble.h"
 #include "esp_sleep.h"
+#include "hw_config.h"
 
 #define TAG "POWER"
 
@@ -102,6 +104,59 @@ static void power_button_callback(button_event_t event, void* user_data) {
     }
 }
 
+bool power_check_wake_from_sleep(void) {
+    // Check if we woke from deep sleep
+    esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
+
+    if (wakeup_cause == ESP_SLEEP_WAKEUP_GPIO) {
+        ESP_LOGI(TAG, "Woke from deep sleep via GPIO");
+
+        // Configure button GPIO to check if it's still pressed
+        gpio_config_t button_conf = {
+            .pin_bit_mask = (1ULL << MAIN_BUTTON_GPIO),
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE
+        };
+        gpio_config(&button_conf);
+
+        // Wait a bit for GPIO to stabilize after wake
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        // Check if button is still pressed (active low)
+        bool button_pressed = (gpio_get_level(MAIN_BUTTON_GPIO) == 0);
+
+        if (button_pressed) {
+            ESP_LOGI(TAG, "Button is pressed after wake, waiting for long press");
+
+            // Wait for long press duration (500ms)
+            // Keep checking that button remains pressed
+            TickType_t start_time = xTaskGetTickCount();
+            const TickType_t long_press_ticks = pdMS_TO_TICKS(BUTTON_LONG_PRESS_TIME_MS);
+
+            while ((xTaskGetTickCount() - start_time) < long_press_ticks) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                button_pressed = (gpio_get_level(MAIN_BUTTON_GPIO) == 0);
+
+                if (!button_pressed) {
+                    ESP_LOGI(TAG, "Button released before long press - going back to sleep");
+                    return false; // Button released too early, go back to sleep
+                }
+            }
+
+            // Button was held for long press duration
+            ESP_LOGI(TAG, "Long press detected - turning device on");
+            return true; // Device should turn on
+        } else {
+            ESP_LOGI(TAG, "Button not pressed after wake - going back to sleep");
+            return false; // Button not pressed, go back to sleep
+        }
+    }
+
+    return true; // Not waking from sleep, normal boot
+}
+
 void power_init(void) {
     // Set POWER_HOLD_GPIO to HIGH as first action
     gpio_config_t POWER_HOLD_GPIO_conf = {
@@ -144,6 +199,29 @@ void power_check_inactivity(bool is_ble_connected)
     }
 }
 
+static void power_enter_sleep(void) {
+    // Configure button GPIO as input with pull-up before enabling wake-up
+    // Button is active low, so we wake on LOW level (button pressed)
+    ESP_LOGI(TAG, "Configuring button GPIO %d as wake-up source", MAIN_BUTTON_GPIO);
+
+    gpio_config_t button_conf = {
+        .pin_bit_mask = (1ULL << MAIN_BUTTON_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&button_conf);
+
+    // Enable GPIO wake-up and configure for LOW level (button pressed = active low)
+    esp_sleep_enable_gpio_wakeup();
+    gpio_wakeup_enable(MAIN_BUTTON_GPIO, GPIO_INTR_LOW_LEVEL);
+
+    // Shut down by setting GPIO 4 to LOW
+    gpio_set_level(POWER_HOLD_GPIO, 0);
+    esp_deep_sleep_start();
+}
+
 void power_shutdown(void) {
     ESP_LOGI(TAG, "Preparing for shutdown");
 
@@ -170,8 +248,12 @@ void power_shutdown(void) {
         ESP_LOGE(TAG, "Failed to save trip distance: %s", esp_err_to_name(err));
     }
     vTaskDelay(pdMS_TO_TICKS(100));
-    // Shut down by setting GPIO 4 to LOW
-    gpio_set_level(POWER_HOLD_GPIO, 0);
-    esp_deep_sleep_start();
+
+    power_enter_sleep();
+}
+
+void power_sleep_immediate(void) {
+    ESP_LOGI(TAG, "Going to sleep immediately (wake-up check failed)");
+    power_enter_sleep();
 }
 

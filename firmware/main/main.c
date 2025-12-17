@@ -20,6 +20,8 @@
 #include "version.h"
 #include "target_config.h"
 #include "viber.h"
+#include "esp_sleep.h"
+#include "hw_config.h"
 
 #define TAG "MAIN"
 
@@ -33,7 +35,6 @@ static void splash_timer_cb(lv_timer_t * timer)
 
 void app_main(void)
 {
-
     ESP_LOGI(TAG, "Starting Application");
 
     ESP_LOGI(TAG, "Firmware version: %s", APP_VERSION_STRING);
@@ -41,11 +42,19 @@ void app_main(void)
     ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
     ESP_LOGI(TAG, "IDF version: %s", esp_get_idf_version());
 
-    // Initialize main button
+    // Initialize main button early to check wake-up
     ESP_ERROR_CHECK(button_init_main());
 
-    // Initialize power module
+    // Initialize power module (sets POWER_HOLD_GPIO high)
     power_init();
+
+    // Check if we woke from sleep and if button long press is required
+    if (!power_check_wake_from_sleep()) {
+        // Button not held long enough or not pressed - go back to sleep immediately
+        // Use immediate sleep to avoid initializing everything
+        power_sleep_immediate();
+        return; // Should not reach here, but just in case
+    }
 
     // Initialize NVS
     esp_err_t ret = nvs_flash_init();
