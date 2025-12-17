@@ -1,0 +1,19 @@
+# Editor backup files
+*''
+*'*
+*.bak
+*.swp
+*.swo
+*~
+
+# Build artifacts
+build/
+.cache/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
