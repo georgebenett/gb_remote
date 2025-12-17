@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "esp_err.h"
 
 extern bool is_connect;
 
@@ -24,5 +25,10 @@ int get_bms_battery_percentage(void);
 // Auxiliary output control
 void ble_toggle_aux_output(void);
 bool ble_get_aux_output_state(void);
+
+// BLE trim offset control
+int8_t ble_get_trim_offset(void);
+esp_err_t ble_increase_trim_offset(void);
+esp_err_t ble_decrease_trim_offset(void);
 
 #endif // SPP_CLIENT_DEMO_H

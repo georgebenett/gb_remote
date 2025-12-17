@@ -4,9 +4,9 @@
 
 This document describes the binary communication protocol used between the host (config tool) and the device (GB Remote firmware) over USB Serial (USB CDC). The protocol uses a packet-based binary format with CRC-16 error checking.
 
-**Protocol Version:** 1.0  
-**Target Device:** ESP32-S3  
-**Communication:** USB Serial (USB CDC)  
+**Protocol Version:** 1.0
+**Target Device:** ESP32-S3
+**Communication:** USB Serial (USB CDC)
 **Baud Rate:** Not applicable (USB CDC)
 
 ---
@@ -83,6 +83,9 @@ def calculate_crc16(data):
 | `CMD_START_STREAMING` | `0x10` | Start real-time data streaming (optional payload: `uint16` rate in Hz) |
 | `CMD_STOP_STREAMING` | `0x11` | Stop real-time data streaming (no payload) |
 | `CMD_SET_STREAM_RATE` | `0x12` | Set streaming rate (payload: `uint16` rate in Hz, 1-100) |
+| `CMD_INCREASE_BLE_TRIM` | `0x13` | Increase BLE output trim offset by 1 (no payload) |
+| `CMD_DECREASE_BLE_TRIM` | `0x14` | Decrease BLE output trim offset by 1 (no payload) |
+| `CMD_GET_BLE_TRIM` | `0x15` | Get current BLE trim offset value (no payload) |
 
 ### Response Commands (Device → Host)
 
@@ -93,6 +96,7 @@ def calculate_crc16(data):
 | `RSP_FIRMWARE_VERSION` | `0x82` | Firmware version data |
 | `RSP_CONFIG` | `0x83` | Configuration data |
 | `RSP_CALIBRATION` | `0x84` | Calibration data |
+| `RSP_BLE_TRIM` | `0x85` | BLE trim offset data |
 | `RSP_STREAM_DATA` | `0x90` | Real-time streaming data |
 
 ---
@@ -117,7 +121,7 @@ def calculate_crc16(data):
 
 ### CMD_PING (0x01)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_ACK` with `ERR_OK`
 
 Simple connectivity test.
@@ -126,7 +130,7 @@ Simple connectivity test.
 
 ### CMD_GET_FIRMWARE_VERSION (0x02)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_FIRMWARE_VERSION`
 
 **Response Payload Format:**
@@ -152,7 +156,7 @@ Simple connectivity test.
 
 ### CMD_GET_CONFIG (0x03)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_CONFIG`
 
 **Response Payload Format:**
@@ -163,6 +167,7 @@ Simple connectivity test.
 [gear_ratio_x1000: uint16, little-endian]
 [wheel_diameter_mm: uint16, little-endian]
 [speed: int32, little-endian, signed]
+[ble_trim_offset: int8] (signed 8-bit integer, range: -127 to +127)
 [throttle_min: uint32, little-endian] (if calibrated)
 [throttle_max: uint32, little-endian] (if calibrated)
 [brake_min: uint32, little-endian] (if calibrated, dual throttle only)
@@ -180,13 +185,14 @@ Simple connectivity test.
 - `backlight`: 0-100 (percentage)
 - `gear_ratio_x1000`: Stored as integer × 1000 (e.g., 2200 = 2.2)
 - `speed`: Current speed in configured units (km/h or mph), only valid if BLE connected
+- `ble_trim_offset`: Current BLE output trim offset (-127 to +127, default: 0)
 - Throttle/brake calibration values are only included if device is calibrated
 
 ---
 
 ### CMD_GET_CALIBRATION (0x04)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_CALIBRATION` or `RSP_ACK` with `ERR_NOT_CALIBRATED`
 
 **Response Payload Format (if calibrated):**
@@ -207,7 +213,7 @@ Simple connectivity test.
 
 ### CMD_CALIBRATE_THROTTLE (0x05)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_CALIBRATION` (on success) or `RSP_ACK` with `ERR_CALIBRATION_FAILED`
 
 **Response Payload Format (on success):**
@@ -219,7 +225,7 @@ Same as `CMD_GET_CALIBRATION` response.
 
 ### CMD_RESET_ODOMETER (0x06)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_ACK` with `ERR_OK`
 
 Resets the trip distance/odometer to zero.
@@ -250,7 +256,7 @@ Resets the trip distance/odometer to zero.
 
 ### CMD_INVERT_THROTTLE (0x09)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_ACK` with error code
 
 **Note:** Only supported on Lite mode. On dual throttle, returns `ERR_NOT_SUPPORTED`.
@@ -265,7 +271,7 @@ Resets the trip distance/odometer to zero.
 [rate_hz_msb: uint8]
 ```
 
-If no payload provided, defaults to 10 Hz.  
+If no payload provided, defaults to 10 Hz.
 Valid range: 1-100 Hz
 
 **Response:** `RSP_ACK` with `ERR_OK`
@@ -276,7 +282,7 @@ Starts streaming real-time data at the specified rate. The device will send `RSP
 
 ### CMD_STOP_STREAMING (0x11)
 
-**Request:** No payload  
+**Request:** No payload
 **Response:** `RSP_ACK` with `ERR_OK`
 
 Stops the real-time data streaming.
@@ -296,6 +302,44 @@ Valid range: 1-100 Hz
 **Response:** `RSP_ACK` with error code
 
 Changes the streaming rate without stopping the stream.
+
+---
+
+### CMD_INCREASE_BLE_TRIM (0x13)
+
+**Request:** No payload
+**Response:** `RSP_ACK` with error code
+
+Increases the BLE output trim offset by 1. The trim offset is used to adjust the center point of the BLE output (0-255 range, where 128 is neutral). This is useful when the device doesn't come with magnets perfectly centered, allowing fine-tuning of the neutral position.
+
+**Trim Offset Range:** -127 to +127
+**Default:** 0 (no offset)
+
+**Error Codes:**
+- `ERR_OK`: Trim offset increased successfully
+- `ERR_OUT_OF_RANGE`: Trim offset already at maximum (+127)
+- `ERR_SAVE_FAILED`: Failed to save trim offset to NVS
+
+**Note:** The trim offset is applied to the final BLE output value and is clamped to the valid range (0-255). The offset is persisted to NVS and will be restored on device restart.
+
+---
+
+### CMD_DECREASE_BLE_TRIM (0x14)
+
+**Request:** No payload
+**Response:** `RSP_ACK` with error code
+
+Decreases the BLE output trim offset by 1. The trim offset is used to adjust the center point of the BLE output (0-255 range, where 128 is neutral). This is useful when the device doesn't come with magnets perfectly centered, allowing fine-tuning of the neutral position.
+
+**Trim Offset Range:** -127 to +127
+**Default:** 0 (no offset)
+
+**Error Codes:**
+- `ERR_OK`: Trim offset decreased successfully
+- `ERR_OUT_OF_RANGE`: Trim offset already at minimum (-127)
+- `ERR_SAVE_FAILED`: Failed to save trim offset to NVS
+
+**Note:** The trim offset is applied to the final BLE output value and is clamped to the valid range (0-255). The offset is persisted to NVS and will be restored on device restart.
 
 ---
 

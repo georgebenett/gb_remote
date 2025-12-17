@@ -42,13 +42,17 @@ typedef enum {
     CMD_START_STREAMING        = 0x10,  // Start real-time data streaming
     CMD_STOP_STREAMING         = 0x11,  // Stop real-time data streaming
     CMD_SET_STREAM_RATE        = 0x12,  // Set streaming rate in Hz (payload: uint16)
-    
+    CMD_INCREASE_BLE_TRIM      = 0x13,  // Increase BLE output trim offset by 1
+    CMD_DECREASE_BLE_TRIM      = 0x14,  // Decrease BLE output trim offset by 1
+    CMD_GET_BLE_TRIM           = 0x15,  // Get current BLE trim offset value
+
     // Response IDs (Device -> Host)
     RSP_ACK                    = 0x80,  // Acknowledge with result code
     RSP_ERROR                  = 0x81,  // Error response
     RSP_FIRMWARE_VERSION       = 0x82,  // Firmware version data
     RSP_CONFIG                 = 0x83,  // Configuration data
     RSP_CALIBRATION            = 0x84,  // Calibration data
+    RSP_BLE_TRIM               = 0x85,  // BLE trim offset data
     RSP_STREAM_DATA            = 0x90,  // Real-time streaming data
 } packet_command_t;
 

@@ -25,6 +25,7 @@
 #include "esp_gatt_defs.h"
 #include "esp_bt_main.h"
 #include "esp_system.h"
+#include "esp_err.h"
 #include "esp_gatt_common_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -39,6 +40,8 @@
 
 #define AUX_NVS_NAMESPACE           "aux_cfg"
 #define AUX_NVS_KEY_STATE           "aux_state"
+#define BLE_TRIM_NVS_NAMESPACE      "ble_cfg"
+#define BLE_TRIM_NVS_KEY_OFFSET     "trim_offset"
 
 #define PROFILE_NUM                 1
 #define PROFILE_APP_ID              0
@@ -140,6 +143,7 @@ static float latest_temp_mos = 0.0f;
 static float latest_temp_motor = 0.0f;
 
 static bool aux_output_state = false;
+static int8_t ble_trim_offset = 0;  // Trim offset for BLE output (-127 to +127)
 
 float get_latest_temp_mos(void)
 {
@@ -174,6 +178,70 @@ static void aux_output_load_state(void)
         }
         nvs_close(nvs_handle);
     }
+}
+
+static void ble_trim_load_offset(void)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(BLE_TRIM_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err == ESP_OK) {
+        int8_t offset = 0;
+        if (nvs_get_i8(nvs_handle, BLE_TRIM_NVS_KEY_OFFSET, &offset) == ESP_OK) {
+            // Clamp to valid range
+            if (offset < -127) offset = -127;
+            if (offset > 127) offset = 127;
+            ble_trim_offset = offset;
+            ESP_LOGI(GATTC_TAG, "BLE trim offset loaded from NVS: %d", ble_trim_offset);
+        }
+        nvs_close(nvs_handle);
+    }
+}
+
+static esp_err_t ble_trim_save_offset(void)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(BLE_TRIM_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_i8(nvs_handle, BLE_TRIM_NVS_KEY_OFFSET, ble_trim_offset);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs_handle);
+    }
+    nvs_close(nvs_handle);
+    return err;
+}
+
+int8_t ble_get_trim_offset(void)
+{
+    return ble_trim_offset;
+}
+
+esp_err_t ble_increase_trim_offset(void)
+{
+    if (ble_trim_offset < 127) {
+        ble_trim_offset++;
+        esp_err_t err = ble_trim_save_offset();
+        if (err == ESP_OK) {
+            ESP_LOGI(GATTC_TAG, "BLE trim offset increased to: %d", ble_trim_offset);
+        }
+        return err;
+    }
+    return ESP_ERR_INVALID_ARG;  // Already at maximum
+}
+
+esp_err_t ble_decrease_trim_offset(void)
+{
+    if (ble_trim_offset > -127) {
+        ble_trim_offset--;
+        esp_err_t err = ble_trim_save_offset();
+        if (err == ESP_OK) {
+            ESP_LOGI(GATTC_TAG, "BLE trim offset decreased to: %d", ble_trim_offset);
+        }
+        return err;
+    }
+    return ESP_ERR_INVALID_ARG;  // Already at minimum
 }
 
 void ble_toggle_aux_output(void)
@@ -769,6 +837,9 @@ void spp_client_demo_init(void)
     // Load aux output state from NVS
     aux_output_load_state();
 
+    // Load BLE trim offset from NVS
+    ble_trim_load_offset();
+
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret) {
         ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
@@ -831,9 +902,38 @@ static void adc_send_task(void *pvParameters) {
             }
 #endif
 
+            // Apply trim offset with range compensation to maintain full 0-255 span
+            // The trim offset shifts the center point, and we scale proportionally to preserve full range
+            uint8_t final_ble_value;
+            int32_t new_center = VESC_NEUTRAL_VALUE + ble_trim_offset;
+
+            // Clamp new center to valid range
+            if (new_center < 0) new_center = 0;
+            if (new_center > 255) new_center = 255;
+
+            if (adc_value <= VESC_NEUTRAL_VALUE) {
+                // Scale lower half (0-128) to map to 0 to new_center, preserving proportion
+                if (VESC_NEUTRAL_VALUE > 0) {
+                    int32_t scaled = (int32_t)((float)adc_value * (float)new_center / (float)VESC_NEUTRAL_VALUE + 0.5f);
+                    final_ble_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+                } else {
+                    final_ble_value = 0;
+                }
+            } else {
+                // Scale upper half (129-255) to map from new_center to 255, preserving proportion
+                int32_t upper_output_range = 255 - new_center;
+                int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
+                if (upper_input_range > 0) {
+                    int32_t scaled = new_center + (int32_t)((float)(adc_value - VESC_NEUTRAL_VALUE) * (float)upper_output_range / (float)upper_input_range + 0.5f);
+                    final_ble_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+                } else {
+                    final_ble_value = (uint8_t)new_center;
+                }
+            }
+
             // Pack the ADC value into 2 bytes (little-endian)
-            data_buffer[0] = (uint8_t)(adc_value & 0xFF);         // Low byte
-            data_buffer[1] = (uint8_t)((adc_value >> 8) & 0xFF);  // High byte
+            data_buffer[0] = (uint8_t)(final_ble_value & 0xFF);         // Low byte
+            data_buffer[1] = (uint8_t)((final_ble_value >> 8) & 0xFF);  // High byte
             // Byte 2: Auxiliary output state
             data_buffer[2] = aux_output_state ? 1 : 0;
 

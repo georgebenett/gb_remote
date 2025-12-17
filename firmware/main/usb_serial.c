@@ -54,6 +54,9 @@ static void handle_cmd_invert_throttle(const binary_packet_t* packet);
 static void handle_cmd_start_streaming(const binary_packet_t* packet);
 static void handle_cmd_stop_streaming(const binary_packet_t* packet);
 static void handle_cmd_set_stream_rate(const binary_packet_t* packet);
+static void handle_cmd_increase_ble_trim(const binary_packet_t* packet);
+static void handle_cmd_decrease_ble_trim(const binary_packet_t* packet);
+static void handle_cmd_get_ble_trim(const binary_packet_t* packet);
 
 // CRC-16-CCITT calculation (polynomial: 0x1021)
 uint16_t calculate_crc16(const uint8_t* data, uint16_t length) {
@@ -352,6 +355,15 @@ void usb_serial_process_packet(const binary_packet_t* packet) {
         case CMD_SET_STREAM_RATE:
             handle_cmd_set_stream_rate(packet);
             break;
+        case CMD_INCREASE_BLE_TRIM:
+            handle_cmd_increase_ble_trim(packet);
+            break;
+        case CMD_DECREASE_BLE_TRIM:
+            handle_cmd_decrease_ble_trim(packet);
+            break;
+        case CMD_GET_BLE_TRIM:
+            handle_cmd_get_ble_trim(packet);
+            break;
         default:
             ESP_LOGW(TAG, "Unknown command: 0x%02X", packet->cmd_id);
             usb_serial_send_ack(packet->cmd_id, ERR_UNKNOWN_CMD);
@@ -445,6 +457,10 @@ static void handle_cmd_get_config(const binary_packet_t* packet) {
     payload[idx++] = (speed >> 8) & 0xFF;
     payload[idx++] = (speed >> 16) & 0xFF;
     payload[idx++] = (speed >> 24) & 0xFF;
+
+    // BLE trim offset (1 byte, signed)
+    int8_t trim_offset = ble_get_trim_offset();
+    payload[idx++] = (uint8_t)trim_offset;  // Cast to uint8_t for transmission (will be interpreted as int8_t on receive)
 
     // Throttle calibration (4 bytes each, little-endian)
     if (throttle_is_calibrated()) {
@@ -669,6 +685,39 @@ static void handle_cmd_invert_throttle(const binary_packet_t* packet) {
 
 // ========== STREAMING FUNCTIONS ==========
 
+// Apply trim offset with range compensation to maintain full 0-255 span
+static uint8_t apply_trim_with_compensation(uint8_t adc_value, int8_t trim_offset) {
+    int32_t new_center = VESC_NEUTRAL_VALUE + trim_offset;
+
+    // Clamp new center to valid range
+    if (new_center < 0) new_center = 0;
+    if (new_center > 255) new_center = 255;
+
+    uint8_t final_value;
+
+    if (adc_value <= VESC_NEUTRAL_VALUE) {
+        // Scale lower half (0-128) to map to 0 to new_center, preserving proportion
+        if (VESC_NEUTRAL_VALUE > 0) {
+            int32_t scaled = (int32_t)((float)adc_value * (float)new_center / (float)VESC_NEUTRAL_VALUE + 0.5f);
+            final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+        } else {
+            final_value = 0;
+        }
+    } else {
+        // Scale upper half (129-255) to map from new_center to 255, preserving proportion
+        int32_t upper_output_range = 255 - new_center;
+        int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
+        if (upper_input_range > 0) {
+            int32_t scaled = new_center + (int32_t)((float)(adc_value - VESC_NEUTRAL_VALUE) * (float)upper_output_range / (float)upper_input_range + 0.5f);
+            final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+        } else {
+            final_value = (uint8_t)new_center;
+        }
+    }
+
+    return final_value;
+}
+
 static void handle_cmd_start_streaming(const binary_packet_t* packet) {
     uint16_t rate_hz = 10; // Default 10Hz
 
@@ -767,6 +816,8 @@ void usb_serial_send_stream_data(void) {
     uint8_t throttle_brake_ble = 0;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     throttle_brake_ble = get_throttle_brake_ble_value();
+    // Apply trim offset with range compensation to match what's actually sent via BLE
+    throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
 #elif defined(CONFIG_TARGET_LITE)
     // Get the value that would be sent to BLE (with inversion applied if configured)
     uint32_t adc_value = adc_get_latest_value();
@@ -782,8 +833,41 @@ void usb_serial_send_stream_data(void) {
             throttle_brake_ble = 255 - throttle_brake_ble;
         }
     }
+
+    // Apply trim offset with range compensation to match what's actually sent via BLE (for lite mode)
+    throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
 #endif
+
     payload[idx++] = throttle_brake_ble;
 
     usb_serial_send_response(RSP_STREAM_DATA, payload, idx);
+}
+
+static void handle_cmd_increase_ble_trim(const binary_packet_t* packet) {
+    esp_err_t err = ble_increase_trim_offset();
+    if (err == ESP_OK) {
+        usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OK);
+    } else if (err == ESP_ERR_INVALID_ARG) {
+        usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OUT_OF_RANGE);
+    } else {
+        usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_SAVE_FAILED);
+    }
+}
+
+static void handle_cmd_decrease_ble_trim(const binary_packet_t* packet) {
+    esp_err_t err = ble_decrease_trim_offset();
+    if (err == ESP_OK) {
+        usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OK);
+    } else if (err == ESP_ERR_INVALID_ARG) {
+        usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OUT_OF_RANGE);
+    } else {
+        usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_SAVE_FAILED);
+    }
+}
+
+static void handle_cmd_get_ble_trim(const binary_packet_t* packet) {
+    int8_t trim_offset = ble_get_trim_offset();
+    uint8_t payload[1];
+    payload[0] = (uint8_t)trim_offset;  // Cast to uint8_t for transmission (interpret as int8_t on receive)
+    usb_serial_send_response(RSP_BLE_TRIM, payload, 1);
 }
