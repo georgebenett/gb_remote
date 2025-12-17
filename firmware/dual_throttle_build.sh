@@ -4,9 +4,9 @@ set -e
 
 # Detect OS for sed compatibility (macOS requires backup extension, Linux doesn't)
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    SED_INPLACE="sed -i ''"
+    sed_inplace() { sed -i '' "$@"; }
 else
-    SED_INPLACE="sed -i"
+    sed_inplace() { sed -i "$@"; }
 fi
 
 echo "Building for dual_throttle target ..."
@@ -31,22 +31,32 @@ elif ! grep -q "^CONFIG_TARGET_DUAL_THROTTLE=y" sdkconfig 2>/dev/null; then
     cp sdkconfig.defaults.dual_throttle sdkconfig.defaults
 
     # Update sdkconfig directly
-    $SED_INPLACE 's/^# CONFIG_TARGET_DUAL_THROTTLE is not set$/CONFIG_TARGET_DUAL_THROTTLE=y/' sdkconfig
-    $SED_INPLACE 's/^CONFIG_TARGET_LITE=y/# CONFIG_TARGET_LITE is not set/' sdkconfig
-    $SED_INPLACE 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=172/' sdkconfig
-    $SED_INPLACE 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
-    $SED_INPLACE 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=34/' sdkconfig
-    $SED_INPLACE 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
+    sed_inplace 's/^# CONFIG_TARGET_DUAL_THROTTLE is not set$/CONFIG_TARGET_DUAL_THROTTLE=y/' sdkconfig
+    sed_inplace 's/^CONFIG_TARGET_LITE=y/# CONFIG_TARGET_LITE is not set/' sdkconfig
+    sed_inplace 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=172/' sdkconfig
+    sed_inplace 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
+    sed_inplace 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=34/' sdkconfig
+    sed_inplace 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
 
     # Ensure CONFIG_TARGET_DUAL_THROTTLE=y exists (add if missing)
     if ! grep -q "^CONFIG_TARGET_DUAL_THROTTLE=y" sdkconfig; then
-        $SED_INPLACE '/^# Hardware Target Configuration$/a\
+        sed_inplace '/^# Hardware Target Configuration$/a\
 #\
 CONFIG_TARGET_DUAL_THROTTLE=y\
 # CONFIG_TARGET_LITE is not set' sdkconfig
     fi
 else
     echo "Target already configured for DUAL_THROTTLE..."
+fi
+
+# Enable ccache if available
+if command -v ccache &> /dev/null; then
+    export IDF_CCACHE_ENABLE=1
+    echo "ccache enabled for faster builds"
+    # Show ccache stats before build
+    ccache -s > /dev/null 2>&1 && echo "ccache stats before build:" && ccache -s | head -5
+else
+    echo "ccache not found - install it for faster builds (brew install ccache on macOS)"
 fi
 
 # Build (will auto-reconfigure if sdkconfig changed)
@@ -56,6 +66,13 @@ idf.py build
 BUILD_END=$(date +%s)
 BUILD_TIME=$((BUILD_END - BUILD_START))
 echo "Build completed in ${BUILD_TIME} seconds"
+
+# Show ccache stats after build if available
+if command -v ccache &> /dev/null && [ "$IDF_CCACHE_ENABLE" = "1" ]; then
+    echo ""
+    echo "ccache stats after build:"
+    ccache -s | head -10
+fi
 
 # Flash function that tries multiple ports
 flash_firmware() {
