@@ -160,13 +160,25 @@ build_target() {
 
     print_info "Packaging $target artifacts into $ZIP_NAME..."
 
-    # Create zip with all necessary binaries
-    cd build
+    # Create a temporary staging directory for packaging
+    STAGING_DIR=$(mktemp -d)
+
+    # Copy and rename files to staging directory with correct names
+    # The updater expects: gb_controller_<target>.bin, bootloader.bin, partition-table.bin
+    cp "$APP_BIN" "$STAGING_DIR/gb_controller_${target}.bin"
+    cp "build/bootloader/bootloader.bin" "$STAGING_DIR/bootloader.bin"
+    cp "build/partition_table/partition-table.bin" "$STAGING_DIR/partition-table.bin"
+
+    # Create zip from staging directory (files will be at root level)
+    cd "$STAGING_DIR"
     zip -q "$ZIP_PATH" \
-        bootloader/bootloader.bin \
-        partition_table/partition-table.bin \
-        "$(basename $APP_BIN)"
-    cd ..
+        gb_controller_${target}.bin \
+        bootloader.bin \
+        partition-table.bin
+    cd - > /dev/null
+
+    # Clean up staging directory
+    rm -rf "$STAGING_DIR"
 
     # Verify zip was created
     if [ ! -f "$ZIP_PATH" ]; then
@@ -253,7 +265,7 @@ else
 Each zip contains:
 - \`bootloader.bin\` - Bootloader binary
 - \`partition-table.bin\` - Partition table
-- Application binary" \
+- \`gb_controller_lite.bin\` or \`gb_controller_dual_throttle.bin\` - Application binary (target-specific)" \
         "$ARTIFACTS_DIR"/*.zip
 fi
 
