@@ -17,7 +17,7 @@
 
 
 
-/*CUSTOM FUNCTION DECLARATIONS:*/ 
+/*CUSTOM FUNCTION DECLARATIONS:*/
 
 
 #if defined(EEZ_FOR_LVGL)
@@ -52,7 +52,7 @@ void loadScreen(enum ScreensEnum screenId) {
 
 void ui_init() {
     create_screens();
-    
+
     /*CUSTOM CODE HERE:
     this is responsible for navigating the screens with swipe motion
     edit this only in EEZ STUDIO*/
@@ -60,10 +60,10 @@ void ui_init() {
    // Set firmware version and target text on splash screen
    if (objects.firmware_text != NULL) {
        char version_str[64];
-       snprintf(version_str, sizeof(version_str), "%s (%s)", APP_VERSION_STRING, TARGET_NAME);
+       snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION, TARGET_NAME);
        lv_label_set_text(objects.firmware_text, version_str);
    }
-   
+
     loadScreen(SCREEN_ID_SPLASH_SCREEN);
 
 }

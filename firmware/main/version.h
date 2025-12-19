@@ -2,12 +2,7 @@
 #define VERSION_H
 
 // Application version information
-#define APP_VERSION_MAJOR 1
-#define APP_VERSION_MINOR 1
-#define APP_VERSION_PATCH 5
-
-// Version string
-#define APP_VERSION_STRING "1.1.5"
+#define FW_VERSION "1.1.7"
 
 // Build information
 #define BUILD_DATE __DATE__

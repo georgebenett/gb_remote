@@ -129,7 +129,7 @@ static void initialize_backlight(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting Application");
-    ESP_LOGI(TAG, "Firmware version: %s", APP_VERSION_STRING);
+    ESP_LOGI(TAG, "Firmware version: %s", FW_VERSION);
     ESP_LOGI(TAG, "Build date: %s %s", BUILD_DATE, BUILD_TIME);
     ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
     ESP_LOGI(TAG, "IDF version: %s", esp_get_idf_version());

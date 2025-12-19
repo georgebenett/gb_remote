@@ -383,10 +383,12 @@ static void handle_cmd_get_firmware_version(const binary_packet_t* packet) {
     uint8_t payload[256];
     uint16_t idx = 0;
 
-    // Get version from version.h
-    payload[idx++] = APP_VERSION_MAJOR;
-    payload[idx++] = APP_VERSION_MINOR;
-    payload[idx++] = APP_VERSION_PATCH;
+    // Parse version string to get individual components
+    uint8_t major = 0, minor = 0, patch = 0;
+    sscanf(FW_VERSION, "%hhu.%hhu.%hhu", &major, &minor, &patch);
+    payload[idx++] = major;
+    payload[idx++] = minor;
+    payload[idx++] = patch;
 
     // Build date string
     char build_str[64];
