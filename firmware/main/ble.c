@@ -273,67 +273,68 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
     if(handle == db[SPP_IDX_SPP_DATA_NTY_VAL].attribute_handle){
         if(p_data->notify.value_len == 60) {  // Combined VESC + BMS + motor config data
             // First process VESC data (first 14 bytes)
+            // All values are little-endian (LSB first, MSB second)
             // temp_mos (bytes 0-1)
-            int16_t temp_mos = (p_data->notify.value[0] << 8) | p_data->notify.value[1];
+            int16_t temp_mos = p_data->notify.value[0] | ((int16_t)p_data->notify.value[1] << 8);
             latest_temp_mos = temp_mos / 100.0f;
 
             // temp_motor (bytes 2-3)
-            int16_t temp_motor = (p_data->notify.value[2] << 8) | p_data->notify.value[3];
+            int16_t temp_motor = p_data->notify.value[2] | ((int16_t)p_data->notify.value[3] << 8);
             latest_temp_motor = temp_motor / 100.0f;
 
             // current_motor (bytes 4-5)
-            int16_t current_motor = (p_data->notify.value[4] << 8) | p_data->notify.value[5];
+            int16_t current_motor = p_data->notify.value[4] | ((int16_t)p_data->notify.value[5] << 8);
             latest_current_motor = current_motor / 100.0f;
 
             // current_in (bytes 6-7)
-            int16_t current_in = (p_data->notify.value[6] << 8) | p_data->notify.value[7];
+            int16_t current_in = p_data->notify.value[6] | ((int16_t)p_data->notify.value[7] << 8);
             latest_current_in = current_in / 100.0f;
 
-            // rpm (bytes 8-11)
-            int32_t rpm_raw = ((int32_t)p_data->notify.value[8] << 24) |
-                             ((int32_t)p_data->notify.value[9] << 16) |
-                             ((int32_t)p_data->notify.value[10] << 8) |
-                             (int32_t)p_data->notify.value[11];
+            // rpm (bytes 8-11) - little-endian
+            int32_t rpm_raw = ((int32_t)p_data->notify.value[8]) |
+                             ((int32_t)p_data->notify.value[9] << 8) |
+                             ((int32_t)p_data->notify.value[10] << 16) |
+                             ((int32_t)p_data->notify.value[11] << 24);
 
             latest_erpm = rpm_raw;
 
             // voltage (bytes 12-13)
-            int16_t voltage = (p_data->notify.value[12] << 8) | p_data->notify.value[13];
+            int16_t voltage = p_data->notify.value[12] | ((int16_t)p_data->notify.value[13] << 8);
             latest_voltage = voltage / 100.0f;
 
             // total_voltage (bytes 14-15)
-            int16_t total_voltage = (p_data->notify.value[14] << 8) | p_data->notify.value[15];
+            int16_t total_voltage = p_data->notify.value[14] | ((int16_t)p_data->notify.value[15] << 8);
             bms_total_voltage = total_voltage / 100.0f;
 
             // current (bytes 16-17)
-            int16_t bms_current_raw = (p_data->notify.value[16] << 8) | p_data->notify.value[17];
+            int16_t bms_current_raw = p_data->notify.value[16] | ((int16_t)p_data->notify.value[17] << 8);
             bms_current = bms_current_raw / 100.0f;
 
             // remaining_capacity (bytes 18-19)
-            int16_t remaining_cap = (p_data->notify.value[18] << 8) | p_data->notify.value[19];
+            int16_t remaining_cap = p_data->notify.value[18] | ((int16_t)p_data->notify.value[19] << 8);
             bms_remaining_capacity = remaining_cap / 100.0f;
 
             // nominal_capacity (bytes 20-21)
-            int16_t nominal_cap = (p_data->notify.value[20] << 8) | p_data->notify.value[21];
+            int16_t nominal_cap = p_data->notify.value[20] | ((int16_t)p_data->notify.value[21] << 8);
             bms_nominal_capacity = nominal_cap / 100.0f;
 
             // num_cells (byte 22)
             bms_num_cells = p_data->notify.value[22];
 
-            // cell_voltages (bytes 23-54, 16 cells * 2 bytes each)
+            // cell_voltages (bytes 23-54, 16 cells * 2 bytes each) - little-endian
             for(int i = 0; i < bms_num_cells && i < 16; i++) {
-                int16_t cell_voltage = (p_data->notify.value[23 + i*2] << 8) | p_data->notify.value[24 + i*2];
+                int16_t cell_voltage = p_data->notify.value[23 + i*2] | ((int16_t)p_data->notify.value[23 + i*2 + 1] << 8);
                 bms_cell_voltages[i] = cell_voltage / 1000.0f;  // Convert to volts
             }
 
             // motor_poles (byte 55)
             uint8_t motor_poles = p_data->notify.value[55];
 
-            // gear_ratio (bytes 56-57, uint16_t, scale ÷1000)
-            uint16_t gear_ratio_x1000 = (p_data->notify.value[56] << 8) | p_data->notify.value[57];
+            // gear_ratio (bytes 56-57, uint16_t, scale ÷1000) - little-endian
+            uint16_t gear_ratio_x1000 = p_data->notify.value[56] | ((uint16_t)p_data->notify.value[57] << 8);
 
-            // wheel_diameter (bytes 58-59, uint16_t in mm, scale ÷1000 = meters)
-            uint16_t wheel_diameter_mm = (p_data->notify.value[58] << 8) | p_data->notify.value[59];
+            // wheel_diameter (bytes 58-59, uint16_t in mm, scale ÷1000 = meters) - little-endian
+            uint16_t wheel_diameter_mm = p_data->notify.value[58] | ((uint16_t)p_data->notify.value[59] << 8);
 
             // Update motor config from VESC (not saved to NVS, only kept in memory)
             vesc_config_update_motor(motor_poles, gear_ratio_x1000, wheel_diameter_mm);
