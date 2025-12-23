@@ -130,7 +130,9 @@ int32_t vesc_config_get_speed(const vesc_config_t *config) {
 
     int32_t erpm = get_latest_erpm();
 
-    float rpm = (float)erpm / (float)config->motor_poles;  // Convert ERPM to mechanical RPM
+    // Convert ERPM to mechanical RPM: ERPM / pole_pairs = ERPM / (motor_poles / 2)
+    float pole_pairs = (float)config->motor_poles / 2.0f;
+    float rpm = (float)erpm / pole_pairs;
     float gear_ratio = (float)config->gear_ratio_x1000 / 1000.0f;  // gear_ratio from BLE (already scaled)
 
     float wheel_circumference_m = (float)config->wheel_diameter_mm / 1000.0f * M_PI;
