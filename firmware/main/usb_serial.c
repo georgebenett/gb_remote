@@ -817,6 +817,7 @@ void usb_serial_send_stream_data(void) {
 
     // Throttle/brake combination value sent to BLE (1 byte, 0-255)
     uint8_t throttle_brake_ble = 0;
+    bool throttle_inverted = false;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     throttle_brake_ble = get_throttle_brake_ble_value();
     // Apply trim offset with range compensation to match what's actually sent via BLE
@@ -834,11 +835,14 @@ void usb_serial_send_stream_data(void) {
         esp_err_t err = vesc_config_load(&config);
         if (err == ESP_OK && config.invert_throttle) {
             throttle_brake_ble = 255 - throttle_brake_ble;
+            throttle_inverted = true;
         }
     }
 
     // Apply trim offset with range compensation to match what's actually sent via BLE (for lite mode)
-    throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
+    // If throttle is inverted, we need to invert the trim offset direction to compensate
+    int8_t effective_trim = throttle_inverted ? -ble_get_trim_offset() : ble_get_trim_offset();
+    throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, effective_trim);
 #endif
 
     payload[idx++] = throttle_brake_ble;

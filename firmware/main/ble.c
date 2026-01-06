@@ -879,6 +879,7 @@ static void adc_send_task(void *pvParameters) {
              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
 
             uint32_t adc_value;
+            bool throttle_inverted = false;
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
             adc_value = get_throttle_brake_ble_value();
@@ -897,14 +898,17 @@ static void adc_send_task(void *pvParameters) {
                 if (config.invert_throttle) {
                     // Apply throttle inversion by inverting the ADC value
                     adc_value = 255 - adc_value;
+                    throttle_inverted = true;
                 }
             }
 #endif
 
             // Apply trim offset with range compensation to maintain full 0-255 span
             // The trim offset shifts the center point, and we scale proportionally to preserve full range
+            // If throttle is inverted, we need to invert the trim offset direction to compensate
             uint8_t final_ble_value;
-            int32_t new_center = VESC_NEUTRAL_VALUE + ble_trim_offset;
+            int8_t effective_trim = throttle_inverted ? -ble_trim_offset : ble_trim_offset;
+            int32_t new_center = VESC_NEUTRAL_VALUE + effective_trim;
 
             // Clamp new center to valid range
             if (new_center < 0) new_center = 0;
