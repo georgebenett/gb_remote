@@ -29,6 +29,7 @@
 #include "esp_gatt_common_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "ui_updater.h"
@@ -101,6 +102,7 @@ static esp_ble_scan_params_t ble_scan_params = {
 };
 
 bool is_connect = false;
+static SemaphoreHandle_t is_connect_mutex = NULL;
 static const char device_name[] = DEVICE_NAME;
 static uint16_t spp_conn_id = 0;
 static uint16_t spp_mtu_size = 23;
@@ -353,7 +355,12 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t * p_data)
 
 static void free_gattc_srv_db(void)
 {
-    is_connect = false;
+    if (is_connect_mutex != NULL && xSemaphoreTake(is_connect_mutex, portMAX_DELAY) == pdTRUE) {
+        is_connect = false;
+        xSemaphoreGive(is_connect_mutex);
+    } else {
+        is_connect = false;
+    }
     spp_gattc_if = 0xff;
     spp_conn_id = 0;
     spp_mtu_size = 23;
@@ -490,7 +497,12 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         ESP_LOGI(GATTC_TAG, "REMOTE BDA:");
         esp_log_buffer_hex(GATTC_TAG, gl_profile_tab[PROFILE_APP_ID].remote_bda, sizeof(esp_bd_addr_t));
         spp_gattc_if = gattc_if;
-        is_connect = true;
+        if (is_connect_mutex != NULL && xSemaphoreTake(is_connect_mutex, portMAX_DELAY) == pdTRUE) {
+            is_connect = true;
+            xSemaphoreGive(is_connect_mutex);
+        } else {
+            is_connect = true;
+        }
         spp_conn_id = p_data->connect.conn_id;
         memcpy(gl_profile_tab[PROFILE_APP_ID].remote_bda, p_data->connect.remote_bda, sizeof(esp_bd_addr_t));
         esp_ble_gattc_search_service(spp_gattc_if, spp_conn_id, &spp_service_uuid);
@@ -524,7 +536,23 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
 
         ESP_LOGI(GATTC_TAG, "Speed and battery values reset to 0 due to disconnection");
 
-        // Trigger UI updates to show 0 values
+        if (db != NULL && ((db+SPP_IDX_SPP_DATA_RECV_VAL)->properties &
+            (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+            uint8_t neutral_buffer[3] = {
+                VESC_NEUTRAL_VALUE & 0xFF,
+                (VESC_NEUTRAL_VALUE >> 8) & 0xFF,
+                0
+            };
+            esp_err_t ret = esp_ble_gattc_write_char(
+                spp_gattc_if, spp_conn_id,
+                (db+SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle,
+                sizeof(neutral_buffer), neutral_buffer,
+                ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE
+            );
+            if (ret != ESP_OK) {
+                ESP_LOGW(GATTC_TAG, "Failed to send neutral value on disconnect: %s", esp_err_to_name(ret));
+            }
+        }
         ui_update_speed(0);
         ui_update_skate_battery_percentage(0);
 
@@ -720,6 +748,13 @@ void ble_client_appRegister(void)
     esp_err_t status;
     char err_msg[20];
 
+    if (is_connect_mutex == NULL) {
+        is_connect_mutex = xSemaphoreCreateMutex();
+        if (is_connect_mutex == NULL) {
+            ESP_LOGE(GATTC_TAG, "Failed to create is_connect mutex");
+        }
+    }
+
     ESP_LOGI(GATTC_TAG, "register callback");
 
     //register the scan callback function to the gap module
@@ -894,28 +929,21 @@ static void adc_send_task(void *pvParameters) {
             esp_err_t err = vesc_config_load(&config);
 
             if (err == ESP_OK) {
-                // Apply throttle inversion (lite mode only)
                 if (config.invert_throttle) {
-                    // Apply throttle inversion by inverting the ADC value
                     adc_value = 255 - adc_value;
                     throttle_inverted = true;
                 }
             }
 #endif
 
-            // Apply trim offset with range compensation to maintain full 0-255 span
-            // The trim offset shifts the center point, and we scale proportionally to preserve full range
-            // If throttle is inverted, we need to invert the trim offset direction to compensate
             uint8_t final_ble_value;
             int8_t effective_trim = throttle_inverted ? -ble_trim_offset : ble_trim_offset;
             int32_t new_center = VESC_NEUTRAL_VALUE + effective_trim;
 
-            // Clamp new center to valid range
             if (new_center < 0) new_center = 0;
             if (new_center > 255) new_center = 255;
 
             if (adc_value <= VESC_NEUTRAL_VALUE) {
-                // Scale lower half (0-128) to map to 0 to new_center, preserving proportion
                 if (VESC_NEUTRAL_VALUE > 0) {
                     int32_t scaled = (int32_t)((float)adc_value * (float)new_center / (float)VESC_NEUTRAL_VALUE + 0.5f);
                     final_ble_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
@@ -923,7 +951,6 @@ static void adc_send_task(void *pvParameters) {
                     final_ble_value = 0;
                 }
             } else {
-                // Scale upper half (129-255) to map from new_center to 255, preserving proportion
                 int32_t upper_output_range = 255 - new_center;
                 int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
                 if (upper_input_range > 0) {
@@ -934,13 +961,11 @@ static void adc_send_task(void *pvParameters) {
                 }
             }
 
-            // Pack the ADC value into 2 bytes (little-endian)
-            data_buffer[0] = (uint8_t)(final_ble_value & 0xFF);         // Low byte
-            data_buffer[1] = (uint8_t)((final_ble_value >> 8) & 0xFF);  // High byte
-            // Byte 2: Auxiliary output state
+            data_buffer[0] = (uint8_t)(final_ble_value & 0xFF);
+            data_buffer[1] = (uint8_t)((final_ble_value >> 8) & 0xFF);
             data_buffer[2] = aux_output_state ? 1 : 0;
 
-            esp_ble_gattc_write_char(
+            esp_err_t ret = esp_ble_gattc_write_char(
                 spp_gattc_if,
                 spp_conn_id,
                 (db+SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle,
@@ -949,6 +974,9 @@ static void adc_send_task(void *pvParameters) {
                 ESP_GATT_WRITE_TYPE_NO_RSP,
                 ESP_GATT_AUTH_REQ_NONE
             );
+            if (ret != ESP_OK) {
+                ESP_LOGW(GATTC_TAG, "Failed to send throttle value: %s", esp_err_to_name(ret));
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(75));
     }
@@ -1015,7 +1043,7 @@ static void log_rssi_task(void *pvParameters) {
                 ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Check RSSI every second
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
@@ -1028,6 +1056,17 @@ int get_bms_battery_percentage(void) {
     if (percentage < 0.0f) percentage = 0.0f;
 
     return (int)percentage;
+}
+
+bool ble_is_connected(void) {
+    bool result = false;
+    if (is_connect_mutex != NULL && xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        result = is_connect;
+        xSemaphoreGive(is_connect_mutex);
+    } else {
+        result = is_connect;
+    }
+    return result;
 }
 
 

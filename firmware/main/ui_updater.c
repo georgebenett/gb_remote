@@ -620,7 +620,6 @@ static void ui_cmd_processor_task(void *pvParameters) {
                 if (xQueueSendToFront(ui_cmd_queue, &cmd, 0) != pdTRUE) {
                     ESP_LOGW(TAG, "Failed to re-queue UI command, update dropped");
                 }
-                // Small delay before retry to avoid busy loop
                 vTaskDelay(pdMS_TO_TICKS(5));
             }
         }

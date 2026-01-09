@@ -507,7 +507,6 @@ static void handle_cmd_reset_odometer(const binary_packet_t* packet) {
 static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
     ESP_LOGI(TAG, "Starting throttle calibration...");
 
-    // Trigger the throttle calibration - returns true if successful
     bool calibration_succeeded = throttle_calibrate();
 
     if (calibration_succeeded) {
@@ -822,7 +821,6 @@ void usb_serial_send_stream_data(void) {
     // Apply trim offset with range compensation to match what's actually sent via BLE
     throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
 #elif defined(CONFIG_TARGET_LITE)
-    // Get the value that would be sent to BLE (with inversion applied if configured)
     bool throttle_inverted = false;
     uint32_t adc_value = adc_get_latest_value();
     if (throttle_should_use_neutral()) {

@@ -109,7 +109,6 @@ static void show_splash_screen(void)
     viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
     lv_disp_load_scr(objects.splash_screen);
 
-    // Create timer to switch to home screen after 4 seconds
     lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);
     lv_timer_set_repeat_count(splash_timer, 1);
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -134,13 +133,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
     ESP_LOGI(TAG, "IDF version: %s", esp_get_idf_version());
 
-    // Initialize main button early to check wake-up
     ESP_ERROR_CHECK(button_init_main());
-
-    // Initialize power module (sets POWER_HOLD_GPIO high)
     power_init();
-
-    // Check if we woke from sleep and if button long press is required
     if (!power_check_wake_from_sleep()) {
         // Button not held long enough or not pressed - go back to sleep immediately
         power_sleep_immediate();

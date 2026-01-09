@@ -6,6 +6,7 @@
 #include "esp_err.h"
 
 extern bool is_connect;
+bool ble_is_connected(void);
 
 void spp_client_demo_init(void);
 float get_latest_voltage(void);

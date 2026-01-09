@@ -116,7 +116,6 @@ static void button_monitor_task(void* pvParameters) {
             current_state = BUTTON_PRESSED;
             notify_callbacks(BUTTON_EVENT_PRESSED);
         } else if (current_reading && button_pressed) {
-            // Check for long press while button is held
             uint32_t press_duration = (xTaskGetTickCount() - press_start_time) * portTICK_PERIOD_MS;
             if (!long_press_sent && press_duration >= button_cfg.long_press_time_ms) {
                 current_state = BUTTON_LONG_PRESS;

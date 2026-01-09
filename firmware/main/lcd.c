@@ -125,9 +125,7 @@ void lcd_init(void) {
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 1000));
 
-    // Initialize UI updater before starting display tasks
     ui_updater_init();
-    // Start display tasks
     lcd_start_tasks();
 }
 

@@ -150,7 +150,7 @@ int32_t brake_read_value(void)
 
 static void adc_task(void *pvParameters) {
     uint32_t last_value = 0;
-    const uint32_t CHANGE_THRESHOLD = 2; // Adjust this threshold as needed
+    const uint32_t CHANGE_THRESHOLD = 2;
 
     while (1) {
 
@@ -171,7 +171,8 @@ static void adc_task(void *pvParameters) {
                     error_count = 0;
                 }
             }
-            vTaskDelay(pdMS_TO_TICKS(100));  // Wait before retry
+            latest_adc_value = VESC_NEUTRAL_VALUE;
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
         error_count = 0;  // Reset error count on successful read
@@ -194,7 +195,11 @@ static void adc_task(void *pvParameters) {
             }
         }
 
-        xQueueSend(adc_display_queue, &mapped_value, 0);
+        if (xQueueSend(adc_display_queue, &mapped_value, 0) != pdTRUE) {
+            uint32_t dummy;
+            xQueueReceive(adc_display_queue, &dummy, 0);
+            xQueueSend(adc_display_queue, &mapped_value, 0);
+        }
         vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLING_TICKS));
     }
 }
@@ -355,7 +360,6 @@ static esp_err_t save_calibration_to_nvs(void) {
 bool throttle_calibrate(void) {
     ESP_LOGI(TAG, "Starting ADC calibration...");
 
-    // Set calibration in progress flag BEFORE any early returns
     calibration_in_progress = true;
 
     // Save the previous calibration state so we can restore it if calibration fails
@@ -409,7 +413,6 @@ bool throttle_calibrate(void) {
     if (throttle_valid) {
         uint32_t throttle_range = throttle_max - throttle_min;
 
-        // Check if the range is sufficient (at least 150 ADC units)
         if (throttle_range < 150) {
             ESP_LOGW(TAG, "Throttle: insufficient range %lu (need 150+)", throttle_range);
         } else {

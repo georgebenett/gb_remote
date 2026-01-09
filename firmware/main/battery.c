@@ -54,7 +54,7 @@ static float voltage_to_soc(float v) {
             return soc_table[i+1].soc + ratio * dsoc;
         }
     }
-    return 0.0f; // fallback
+    return 0.0f;
 }
 
 static float battery_voltage_samples[BATTERY_VOLTAGE_SAMPLES] = {0};
@@ -176,15 +176,11 @@ void battery_start_monitoring(void) {
 }
 
 float battery_read_voltage(void) {
-    // Enable battery probe before reading
     gpio_set_level(BATTERY_PROBE_PIN, 1);
-
-    // Small delay to allow probe to stabilize
     vTaskDelay(pdMS_TO_TICKS(100));
 
     int32_t adc_value = adc_read_battery_voltage(BATTERY_VOLTAGE_PIN);
 
-    // Disable battery probe after reading
     gpio_set_level(BATTERY_PROBE_PIN, 0);
 
     if (adc_value < 0) {
@@ -226,7 +222,6 @@ static void battery_monitoring_task(void *pvParameters) {
         if (voltage > 0.0f) {
             latest_battery_voltage = voltage;
 
-            // Add to rolling average
             battery_voltage_samples[battery_sample_index] = voltage;
             battery_sample_index = (battery_sample_index + 1) % BATTERY_VOLTAGE_SAMPLES;
 
