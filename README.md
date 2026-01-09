@@ -4,7 +4,10 @@
   <img src="https://github.com/georgebenett/gb_remote/blob/main/gb_remotes.jpg" width="50%" alt="GB Controller">
 </div>
 
-A sophisticated, open-source hand controller for electric skateboards built with the ESP32S3. This project provides a complete wireless control solution with real-time telemetry monitoring, featuring a custom BLE SPP client that communicates with VESC motor controllers and BMS systems.
+A firmware open-source hand controller for electric skateboards built with the ESP32S3. This project provides a complete wireless control solution with real-time telemetry monitoring, featuring a custom BLE protocol that communicates with VESC motor controllers and Jiabaida/Kaly BMS systems.
+
+This repository contains the **remote controller firmware**. The complete system also includes:
+- **Receiver Firmware** (`gb_receiver`): The BLE server firmware that runs on the receiver
 
 ## Key Features
 
@@ -15,27 +18,22 @@ A sophisticated, open-source hand controller for electric skateboards built with
 - **Power Management**: Soft latching hardware where power consumption while "sleeping is 1uA"
 
 ### Modern UI
-- **LVGL Graphics Library**: Beautiful, responsive user interface built with SquareLine Studio
+- **LVGL Graphics Library**: Beautiful, responsive user interface built with EEZ Studio (open-source)
 - **Real-time Speed Display**: Large, easy-to-read speedometer with km/h and mi/h display
 - **Dual Battery Monitoring**: Separate battery indicators for controller and skateboard
 - **Connection Status**: Visual feedback for BLE connection quality
 - **Trip Distance Tracking**: Built-in odometer with persistent storage
-- **Adjustable Backlight**: Configurable display brightness (1-100%) with fade effects
+- **Adjustable Backlight**: Configurable display brightness (1-100%)
 
 ### Comprehensive Telemetry
-- **VESC Integration**: Real-time motor data including RPM, current, temperature, and voltage
+- **VESC Integration**: Real-time data from VESC
 - **BMS Support**: Full battery management system monitoring with cell-level voltage tracking
-  - **Compatible BMS Systems**: Jaiabaida and Kaly BMS telemetry support
+  - **Compatible BMS Systems**: Jiabaida and Kaly BMS telemetry support
   - **Cell Voltage Monitoring**: Individual cell voltage tracking for up to 16 cells
   - **Capacity Tracking**: Real-time remaining and nominal capacity monitoring
 - **Custom BLE Protocol**: Optimized data transmission for low latency and high reliability
-- **Configurable Parameters**: Adjustable motor pulley, wheel diameter, and throttle settings
+- **Automatic Parameter Configuration**: Motor pulley, wheel diameter, and throttle settings are automatically retrieved by the receiver from the vesc
 
-### Advanced Configuration
-- **VESC Parameter Tuning**: Configurable motor poles, pulley ratios, and wheel diameter
-- **Throttle Calibration**: Automatic ADC calibration for precise control
-- **Persistent Settings**: NVS storage for configuration persistence across reboots
-- **Invertible Controls**: Support for inverted throttle direction
 
 ## Technical Specifications
 
@@ -55,14 +53,13 @@ A sophisticated, open-source hand controller for electric skateboards built with
 
 ## Communication Protocol
 
-### BLE SPP Service
-- **Service UUID**: `0xABF0`
-- **Data Characteristic**: `0xABF2`
-- **VESC Data Packet**: 14 bytes (temperature, current, RPM, voltage)
-- **BMS Data Packet**: 41 bytes (voltage, current, capacity, cell voltages)
-  - **Compatible BMS**: Jaiabaida and Kaly BMS systems
-  - **Cell Monitoring**: Up to 16 individual cell voltages
-  - **Capacity Data**: Remaining and nominal capacity tracking
+
+## Project Structure
+
+This repository contains the **remote controller firmware**. The complete GB Remote system consists of:
+
+1. **Remote Controller** (this repository): ESP32S3-based hand controller with display and throttle
+2. **Receiver Firmware** (`gb_receiver`): BLE server firmware for the skateboard/receiver side that interfaces with VESC and BMS
 
 ## Getting Started
 
@@ -76,39 +73,26 @@ A sophisticated, open-source hand controller for electric skateboards built with
 
 **Easy Configuration via Web Interface**
 
-Configure your GB Remote Lite controller easily using our online configuration tool:
+Configure your GB Remote controller easily using our online configuration tool hosted on the GB Engineering website:
 
-**[GB Remote Lite Config Tool](https://georgebenett.github.io/gb_config_tool/)**
+**[GB Remote Configuration Tool](https://gbengineering.se/config-tool/)**
+
+The configuration tool provides a comprehensive web-based interface for setting up and managing your GB Remote system.
 
 ### Features:
 - **USB Serial Connection**: Connect directly via USB cable
 - **Real-time Configuration**: Adjust settings without recompiling firmware
 - **Firmware Updates**: Easy firmware flashing and updates
-- **Throttle Calibration**: Can calibrate throttle and brake
-- **Parameter Management**: Configure motor poles, pulley ratios, wheel diameter
+- **Throttle Calibration**: Calibrate throttle and brake inputs
 - **Status Monitoring**: Real-time device status and logs
 
 ### Quick Setup:
-1. Flash the firmware to your Remote
+1. Flash the firmware to your Remote (and Receiver if needed)
 2. Connect your controller via USB cable
-3. Open the [Config Tool](https://georgebenett.github.io/gb_remote_tool/)
-4. Click "Connect to Remote" to establish connection
+3. Open the [Configuration Tool](https://gbengineering.se/config-tool/)
+4. Click "Connect to Remote" to establish USB serial connection
 5. Configure your settings and calibrate throttle
-6. Pair with your electric skateboard's BLE server
 
-### Configuration
-1. Flash the firmware to your remote
-2. Use the [Flashing Tool](https://georgebenett.github.io/gb_flashing_tool/) for easy flashing
-3. Calibrate the throttle input on first use
-4. Configure VESC parameters in the settings
-5. Pair with your electric skateboard's BLE server
-
-## Use Cases
-
-- **Electric Skateboards**: Primary use case with VESC motor controllers
-- **Electric Scooters**: Compatible with similar motor control systems
-- **DIY Electric Vehicles**: Customizable for various electric vehicle applications
-- **Research & Development**: Open-source platform for electric vehicle control research
 
 ## BMS Compatibility
 
@@ -116,7 +100,8 @@ This controller is specifically designed to work with popular electric skateboar
 
 - **Jaiabaida BMS**: Full telemetry support including cell voltages and capacity data
 - **Kaly BMS**: Complete compatibility with all monitoring features
-- **Custom BMS**: Extensible protocol for other BMS systems
+
+The receiver firmware (`gb_receiver`) handles the BMS communication and forwards the telemetry data to the remote controller via BLE.
 
 
 ## Contributing
