@@ -950,7 +950,7 @@ static void adc_send_task(void *pvParameters) {
                 ESP_GATT_AUTH_REQ_NONE
             );
         }
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(75));
     }
 }
 

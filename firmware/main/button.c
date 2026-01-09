@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "ui.h"
 #include "lvgl.h"
+#include "ui_updater.h"
 #include "hw_config.h"
 
 #define TAG "BUTTON"
@@ -141,7 +142,7 @@ static void button_monitor_task(void* pvParameters) {
         }
 
         last_reading = current_reading;
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
@@ -205,6 +206,10 @@ static void default_button_handler(button_event_t event, void* user_data) {
 
 void switch_to_screen2_callback(button_event_t event, void* user_data) {
     if (event == BUTTON_EVENT_LONG_PRESS) {
-        lv_disp_load_scr(objects.shutdown_screen);
+        if (take_lvgl_mutex()) {
+            lv_disp_load_scr(objects.shutdown_screen);
+            lv_obj_invalidate(objects.shutdown_screen);
+            give_lvgl_mutex();
+        }
     }
 }

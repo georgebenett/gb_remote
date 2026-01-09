@@ -817,13 +817,13 @@ void usb_serial_send_stream_data(void) {
 
     // Throttle/brake combination value sent to BLE (1 byte, 0-255)
     uint8_t throttle_brake_ble = 0;
-    bool throttle_inverted = false;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     throttle_brake_ble = get_throttle_brake_ble_value();
     // Apply trim offset with range compensation to match what's actually sent via BLE
     throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
 #elif defined(CONFIG_TARGET_LITE)
     // Get the value that would be sent to BLE (with inversion applied if configured)
+    bool throttle_inverted = false;
     uint32_t adc_value = adc_get_latest_value();
     if (throttle_should_use_neutral()) {
         throttle_brake_ble = VESC_NEUTRAL_VALUE;

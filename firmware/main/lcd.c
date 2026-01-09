@@ -30,7 +30,7 @@ static lv_disp_drv_t disp_drv;
 static esp_timer_handle_t periodic_timer;
 
 #define UI_TASK_WDT_TIMEOUT_SECONDS 5
-#define LVGL_UPDATE_MS         10
+#define LVGL_UPDATE_MS         16
 
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map);
 static void lv_tick_task(void *arg);

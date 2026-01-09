@@ -13,7 +13,7 @@
 
 #define CALIBRATE_THROTTLE 0
 
-#define ADC_SAMPLING_TICKS 20
+#define ADC_SAMPLING_TICKS 30
 
 // Initial values that will be updated by calibration
 #define ADC_INITIAL_MAX_VALUE 4095  // 12-bit ADC max

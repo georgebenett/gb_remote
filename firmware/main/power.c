@@ -58,12 +58,20 @@ static void power_button_callback(button_event_t event, void* user_data) {
 
             if (arc_animation_active) {
                 // If released before full, cancel shutdown
-                lv_anim_del(objects.shutting_down_bar, set_bar_value);
-                lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
-                arc_animation_active = false;
-                lv_disp_load_scr(objects.home_screen);
-                // Force full screen redraw to ensure no artifacts from previous screen
-                lv_obj_invalidate(objects.home_screen);
+                // Take mutex to ensure thread-safe LVGL operations
+                if (take_lvgl_mutex()) {
+                    lv_anim_del(objects.shutting_down_bar, set_bar_value);
+                    lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
+                    arc_animation_active = false;
+                    lv_disp_load_scr(objects.home_screen);
+                    // Force full screen redraw - invalidate entire screen and all children
+                    lv_obj_invalidate(objects.home_screen);
+                    give_lvgl_mutex();
+                    // Screen will refresh on next LVGL handler cycle (16ms)
+                } else {
+                    // If mutex unavailable, just set flag - screen will switch on next handler cycle
+                    arc_animation_active = false;
+                }
             }
             long_press_triggered = false;
             break;
@@ -78,18 +86,22 @@ static void power_button_callback(button_event_t event, void* user_data) {
 
             if (!long_press_triggered) {
                 long_press_triggered = true;
-                // Switch to shutdown screen
-                lv_disp_load_scr(objects.shutdown_screen);
-                // Force full screen redraw to ensure no artifacts from previous screen
-                lv_obj_invalidate(objects.shutdown_screen);
-                // Start bar animation
-                lv_anim_init(&arc_anim);
-                lv_anim_set_var(&arc_anim, objects.shutting_down_bar);
-                lv_anim_set_exec_cb(&arc_anim, set_bar_value);
-                lv_anim_set_time(&arc_anim, 2000);  // 2 seconds to fill
-                lv_anim_set_values(&arc_anim, 0, 100);
-                lv_anim_start(&arc_anim);
-                arc_animation_active = true;
+                // Take mutex to ensure thread-safe LVGL operations
+                if (take_lvgl_mutex()) {
+                    // Switch to shutdown screen
+                    lv_disp_load_scr(objects.shutdown_screen);
+                    // Force full screen redraw to ensure no artifacts from previous screen
+                    lv_obj_invalidate(objects.shutdown_screen);
+                    // Start bar animation
+                    lv_anim_init(&arc_anim);
+                    lv_anim_set_var(&arc_anim, objects.shutting_down_bar);
+                    lv_anim_set_exec_cb(&arc_anim, set_bar_value);
+                    lv_anim_set_time(&arc_anim, 2000);  // 2 seconds to fill
+                    lv_anim_set_values(&arc_anim, 0, 100);
+                    lv_anim_start(&arc_anim);
+                    arc_animation_active = true;
+                    give_lvgl_mutex();
+                }
             }
             break;
 

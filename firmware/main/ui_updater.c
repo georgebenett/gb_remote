@@ -65,7 +65,7 @@ static uint32_t last_update_time = 0;
 
 extern volatile bool entering_power_off_mode;
 
-#define SPEED_UPDATE_MS       20    // 50Hz for speed updates
+#define SPEED_UPDATE_MS       50
 #define TRIP_UPDATE_MS       1000    // 1Hz for distance
 #define BATTERY_UPDATE_MS    1000    // 1Hz for battery
 #define CONNECTION_UPDATE_MS 5000    // 0.2Hz for connection

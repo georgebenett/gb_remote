@@ -11,7 +11,7 @@
 #define USB_CDC_USE_PRIMARY_CONSOLE 1
 #define USB_CDC_USE_SECONDARY_CONSOLE 0
 #define USB_CDC_INIT_DELAY_MS 100
-#define USB_CDC_TASK_DELAY_MS 10  // Reduced for better real-time response
+#define USB_CDC_TASK_DELAY_MS 20
 #define USB_CDC_BUFFER_SIZE 2048  // Increased for binary protocol
 
 // Binary Protocol Configuration
