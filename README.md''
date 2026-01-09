@@ -13,9 +13,7 @@ This repository contains the **remote controller firmware**. The complete system
 
 ### Intuitive Control Interface
 - **Analog Throttle Control**: High-precision ADC-based throttle input with automatic calibration
-- **Dual Throttle Support**: Separate throttle and brake inputs on dual throttle variant with neutral position
 - **Smart Button Interface**: Multi-function button with long-press and double-press detection
-- **Haptic Feedback**: Vibration patterns for connection status, alerts, and user feedback
 - **Sleep Management**: Automatic power management with inactivity detection and power modes
 - **Power Management**: Soft latching hardware where power consumption while "sleeping is 1uA"
 
@@ -37,31 +35,14 @@ This repository contains the **remote controller firmware**. The complete system
 - **Automatic Parameter Configuration**: Motor pulley, wheel diameter, and throttle settings are automatically retrieved by the receiver from the vesc
 
 
-## Hardware Variants
-
-The firmware supports two hardware variants:
-
-### GB Remote Lite
-- **Display**: 240×320 pixel TFT LCD
-- **Throttle**: Single analog throttle with inversion support
-- **Use Case**: Standard single-throttle control
-
-### GB Remote Dual Throttle
-- **Display**: 172×320 pixel TFT LCD
-- **Throttle**: Dual analog inputs (throttle + brake)
-- **Use Case**: Separate throttle and brake control with neutral position
-
-Both variants share the same core firmware with target-specific configurations.
-
 ## Technical Specifications
 
 ### Hardware Platform
 - **MCU**: ESP32 S3
-- **Display**: TFT LCD ST7789 (resolution varies by variant)
-- **Input**: Analog throttle with ADC calibration (dual inputs on dual throttle variant)
+- **Display**: TFT LCD ST7789
+- **Input**: Analog throttle with ADC calibration
 - **Connectivity**: Bluetooth Low Energy (BLE) SPP client
 - **Power**: Built-in battery monitoring and power management
-- **Haptic Feedback**: Vibration motor for user notifications
 
 ### Software Architecture
 - **RTOS**: FreeRTOS for real-time task management
@@ -71,20 +52,6 @@ Both variants share the same core firmware with target-specific configurations.
 - **Power Management**: Advanced power modes and soft latching circuit
 
 ## Communication Protocol
-
-### BLE SPP Protocol
-- **Service UUID**: `0xABF0`
-- **Data Characteristic**: `0xABF2`
-- **Protocol**: Custom BLE SPP for low-latency communication with receiver
-- **Data Exchange**: Throttle/brake commands from remote, VESC and BMS telemetry from receiver
-
-### USB Serial Binary Protocol
-The remote communicates with the configuration tool via a binary protocol over USB Serial (USB CDC):
-
-- **Packet-based**: Binary protocol with CRC-16-CCITT error checking
-- **Real-time Streaming**: Configurable data streaming (1-100 Hz) for monitoring and debugging
-- **Commands**: Firmware version, configuration management, calibration, odometer control, BLE trim adjustment
-- **Documentation**: See [`firmware/docs/USB_SERIAL_PROTOCOL.md`](firmware/docs/USB_SERIAL_PROTOCOL.md) for complete protocol specification
 
 
 ## Project Structure
@@ -100,19 +67,7 @@ This repository contains the **remote controller firmware**. The complete GB Rem
 - ESP-IDF development environment
 
 ### Build & Flash
-
-The project includes build scripts for easy compilation:
-
-- **Lite variant**: `./lite_build.sh` - Builds for 240×320 display with single throttle
-- **Dual Throttle variant**: `./dual_throttle_build.sh` - Builds for 172×320 display with dual throttle/brake
-- **Release build**: `./build_and_release.sh` - Builds both variants for release
-
-After building, flash using ESP-IDF:
-```bash
-idf.py flash monitor
-```
-
-Or use the [Configuration Tool](https://gbengineering.se/config-tool/) for easy firmware updates.
+- Use the build scripts to build for different target (lite or dual trigger)
 
 ## Configuration Tool
 
@@ -127,13 +82,8 @@ The configuration tool provides a comprehensive web-based interface for setting 
 ### Features:
 - **USB Serial Connection**: Connect directly via USB cable
 - **Real-time Configuration**: Adjust settings without recompiling firmware
-- **Automatic Firmware Updates**: The configuration tool automatically checks for firmware updates every time the remote is connected. Update with a simple button confirmation
-- **Throttle Calibration**: Calibrate throttle and brake inputs with guided calibration process
-- **Speed Unit Toggle**: Switch between km/h and mph display units
-- **Backlight Control**: Adjustable display brightness (0-100%)
-- **BLE Trim Adjustment**: Fine-tune BLE output offset for precise throttle control
-- **Odometer Management**: Reset trip distance counter
-- **Real-time Data Streaming**: Monitor live telemetry data at configurable rates (1-100 Hz)
+- **Firmware Updates**: Easy firmware flashing and updates
+- **Throttle Calibration**: Calibrate throttle and brake inputs
 - **Status Monitoring**: Real-time device status and logs
 
 ### Quick Setup:
