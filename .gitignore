@@ -1,6 +1,7 @@
 # Build directories
 firmware/build
 debug/
+gb_engineering_website/
 release/
 out/
 build/

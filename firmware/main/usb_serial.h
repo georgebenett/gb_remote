@@ -45,6 +45,8 @@ typedef enum {
     CMD_INCREASE_BLE_TRIM      = 0x13,  // Increase BLE output trim offset by 1
     CMD_DECREASE_BLE_TRIM      = 0x14,  // Decrease BLE output trim offset by 1
     CMD_GET_BLE_TRIM           = 0x15,  // Get current BLE trim offset value
+    CMD_CHECK_COREDUMP         = 0x16,  // Check if coredump exists
+    CMD_GET_COREDUMP           = 0x17,  // Get coredump data (payload: chunk_offset uint16)
 
     // Response IDs (Device -> Host)
     RSP_ACK                    = 0x80,  // Acknowledge with result code
@@ -53,6 +55,8 @@ typedef enum {
     RSP_CONFIG                 = 0x83,  // Configuration data
     RSP_CALIBRATION            = 0x84,  // Calibration data
     RSP_BLE_TRIM               = 0x85,  // BLE trim offset data
+    RSP_COREDUMP_INFO          = 0x86,  // Coredump info (exists flag, size)
+    RSP_COREDUMP_CHUNK         = 0x87,  // Coredump data chunk
     RSP_STREAM_DATA            = 0x90,  // Real-time streaming data
 } packet_command_t;
 
@@ -67,6 +71,8 @@ typedef enum {
     ERR_NOT_CALIBRATED         = 0x06,  // Device not calibrated
     ERR_OUT_OF_RANGE           = 0x07,  // Parameter out of range
     ERR_NOT_SUPPORTED          = 0x08,  // Command not supported on this target
+    ERR_NO_COREDUMP            = 0x09,  // No coredump available
+    ERR_READ_FAILED            = 0x0A,  // Failed to read data
 } error_code_t;
 
 // Packet state machine

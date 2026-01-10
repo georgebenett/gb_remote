@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
+#include <assert.h>
 #include "esp_log.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
@@ -17,6 +19,7 @@
 #include "lcd.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_partition.h"
 
 #define TAG "USB_SERIAL"
 
@@ -58,6 +61,8 @@ static void handle_cmd_set_stream_rate(const binary_packet_t* packet);
 static void handle_cmd_increase_ble_trim(const binary_packet_t* packet);
 static void handle_cmd_decrease_ble_trim(const binary_packet_t* packet);
 static void handle_cmd_get_ble_trim(const binary_packet_t* packet);
+static void handle_cmd_check_coredump(const binary_packet_t* packet);
+static void handle_cmd_get_coredump(const binary_packet_t* packet);
 
 // CRC-16-CCITT calculation (polynomial: 0x1021)
 uint16_t calculate_crc16(const uint8_t* data, uint16_t length) {
@@ -364,6 +369,12 @@ void usb_serial_process_packet(const binary_packet_t* packet) {
             break;
         case CMD_GET_BLE_TRIM:
             handle_cmd_get_ble_trim(packet);
+            break;
+        case CMD_CHECK_COREDUMP:
+            handle_cmd_check_coredump(packet);
+            break;
+        case CMD_GET_COREDUMP:
+            handle_cmd_get_coredump(packet);
             break;
         default:
             ESP_LOGW(TAG, "Unknown command: 0x%02X", packet->cmd_id);
@@ -875,4 +886,225 @@ static void handle_cmd_get_ble_trim(const binary_packet_t* packet) {
     uint8_t payload[1];
     payload[0] = (uint8_t)trim_offset;  // Cast to uint8_t for transmission (interpret as int8_t on receive)
     usb_serial_send_response(RSP_BLE_TRIM, payload, 1);
+}
+
+// ========== COREDUMP FUNCTIONS ==========
+
+static void handle_cmd_check_coredump(const binary_packet_t* packet) {
+    // Find the coredump partition
+    const esp_partition_t* coredump_partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
+
+    if (coredump_partition == NULL) {
+        ESP_LOGW(TAG, "Coredump partition not found");
+        usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_NO_COREDUMP);
+        return;
+    }
+
+    // Check partition directly - ESP-IDF stores coredumps with a header structure
+    // Read a larger buffer to check for coredump data (header + ELF data)
+    // ESP-IDF coredump header is typically 16-32 bytes, then ELF data starts
+    uint8_t check_buffer[256];
+    esp_err_t err = esp_partition_read(coredump_partition, 0, check_buffer, sizeof(check_buffer));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read coredump partition: %s", esp_err_to_name(err));
+        usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_READ_FAILED);
+        return;
+    }
+
+    // Check if partition is all 0xFF (erased) - definitely no coredump
+    bool is_empty = true;
+    for (int i = 0; i < sizeof(check_buffer); i++) {
+        if (check_buffer[i] != 0xFF) {
+            is_empty = false;
+            break;
+        }
+    }
+
+    bool has_valid_coredump = false;
+    uint32_t actual_coredump_size = 0;
+
+    if (is_empty) {
+        has_valid_coredump = false;
+    } else {
+        // Partition has data - find where the actual coredump data ends
+        // Search backwards from the end to find where a large block of 0xFF starts
+        // This is more accurate than finding the last non-0xFF byte (which might include padding)
+        uint32_t data_end = 0;
+        uint8_t end_check_buffer[512];
+        const uint32_t min_empty_block = 256;  // Require at least 256 consecutive 0xFF bytes to consider it padding
+
+        // Start from the end and work backwards in chunks
+        bool found_data_end = false;
+        uint32_t consecutive_ff = 0;
+
+        for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
+             offset >= 0 && !found_data_end;
+             offset -= sizeof(end_check_buffer)) {
+
+            if (offset < 0) offset = 0;
+            uint32_t read_size = (coredump_partition->size - offset < sizeof(end_check_buffer)) ?
+                                 (coredump_partition->size - offset) : sizeof(end_check_buffer);
+
+            esp_err_t end_err = esp_partition_read(coredump_partition, offset, end_check_buffer, read_size);
+            if (end_err != ESP_OK) break;
+
+            // Check backwards through this chunk
+            for (int32_t i = read_size - 1; i >= 0; i--) {
+                if (end_check_buffer[i] == 0xFF) {
+                    consecutive_ff++;
+                } else {
+                    // Found non-0xFF byte - if we had a large block of 0xFF before this,
+                    // that was padding, so the data ends before the padding
+                    if (consecutive_ff >= min_empty_block) {
+                        // The data ends at the start of the padding block
+                        data_end = offset + i + 1 + consecutive_ff - min_empty_block;
+                        found_data_end = true;
+                        break;
+                    }
+                    consecutive_ff = 0;
+                }
+            }
+        }
+
+        // If we didn't find a clear end (no large padding block), use the last non-0xFF byte
+        // but round down to nearest 1KB boundary to be conservative
+        if (!found_data_end) {
+            // Find last non-0xFF byte
+            for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
+                 offset >= 0;
+                 offset -= sizeof(end_check_buffer)) {
+
+                if (offset < 0) offset = 0;
+                uint32_t read_size = (coredump_partition->size - offset < sizeof(end_check_buffer)) ?
+                                     (coredump_partition->size - offset) : sizeof(end_check_buffer);
+
+                esp_err_t end_err = esp_partition_read(coredump_partition, offset, end_check_buffer, read_size);
+                if (end_err != ESP_OK) break;
+
+                for (int32_t i = read_size - 1; i >= 0; i--) {
+                    if (end_check_buffer[i] != 0xFF) {
+                        data_end = offset + i + 1;
+                        // Round down to nearest 1KB (1024-byte) boundary to be conservative
+                        // This accounts for any padding or metadata
+                        data_end = (data_end / 1024) * 1024;
+                        found_data_end = true;
+                        break;
+                    }
+                }
+                if (found_data_end) break;
+            }
+        }
+
+        // If still not found, use partition size but round down
+        if (!found_data_end) {
+            data_end = coredump_partition->size;
+            data_end = (data_end / 1024) * 1024;  // Round down to 1KB boundary
+        }
+
+        // Additional safety: if calculated size is very close to partition size,
+        // subtract 4KB to account for potential padding/metadata
+        if (data_end > coredump_partition->size - 4096) {
+            data_end = coredump_partition->size - 4096;
+            data_end = (data_end / 1024) * 1024;  // Round down to 1KB boundary
+        }
+
+        actual_coredump_size = data_end;
+        // Check for ELF magic at various offsets in the header area
+        bool found_elf = false;
+        for (int offset = 0; offset < sizeof(check_buffer) - 4; offset++) {
+            if (check_buffer[offset] == 0x7F &&
+                check_buffer[offset + 1] == 'E' &&
+                check_buffer[offset + 2] == 'L' &&
+                check_buffer[offset + 3] == 'F') {
+                found_elf = true;
+                break;
+            }
+        }
+
+        if (found_elf || actual_coredump_size > 0) {
+            has_valid_coredump = true;
+        }
+    }
+
+    // Payload: [exists_flag][size_lsb][size_msb][first_16_bytes]
+    uint8_t payload[3 + 16];
+    uint16_t idx = 0;
+
+    if (has_valid_coredump) {
+        uint32_t reported_size = (actual_coredump_size > 0) ? actual_coredump_size : coredump_partition->size;
+        payload[idx++] = 1;  // exists flag
+        payload[idx++] = (reported_size >> 0) & 0xFF;
+        payload[idx++] = (reported_size >> 8) & 0xFF;
+        // Include first 16 bytes
+        for (int i = 0; i < 16; i++) {
+            payload[idx++] = check_buffer[i];
+        }
+        ESP_LOGI(TAG, "Coredump found: size=%" PRIu32 " bytes", reported_size);
+    } else {
+        payload[idx++] = 0;  // no coredump
+        payload[idx++] = 0;
+        payload[idx++] = 0;
+        // Include first 16 bytes
+        for (int i = 0; i < 16; i++) {
+            payload[idx++] = check_buffer[i];
+        }
+    }
+
+    usb_serial_send_response(RSP_COREDUMP_INFO, payload, idx);
+}
+
+static void handle_cmd_get_coredump(const binary_packet_t* packet) {
+    // Payload: [chunk_offset_lsb][chunk_offset_msb]
+    if (packet->payload_length != 2) {
+        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_INVALID_PAYLOAD);
+        return;
+    }
+
+    uint16_t chunk_offset = packet->payload[0] | (packet->payload[1] << 8);
+
+    // Find the coredump partition
+    const esp_partition_t* coredump_partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
+
+    if (coredump_partition == NULL) {
+        ESP_LOGW(TAG, "Coredump partition not found");
+        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_NO_COREDUMP);
+        return;
+    }
+
+    // Validate chunk offset
+    if (chunk_offset >= coredump_partition->size) {
+        ESP_LOGW(TAG, "Chunk offset out of range: %" PRIu16 " >= %" PRIu32, chunk_offset, coredump_partition->size);
+        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_OUT_OF_RANGE);
+        return;
+    }
+
+    // Calculate chunk size (max payload - 2 bytes for chunk info)
+    uint16_t max_chunk_size = PACKET_MAX_PAYLOAD_SIZE - 4;  // Reserve 4 bytes for chunk_offset and chunk_size
+    uint32_t remaining = coredump_partition->size - chunk_offset;
+    uint16_t chunk_size = (remaining < max_chunk_size) ? (uint16_t)remaining : max_chunk_size;
+
+    // Read chunk from partition
+    uint8_t payload[PACKET_MAX_PAYLOAD_SIZE];
+    uint16_t idx = 0;
+
+    // Add chunk metadata: [chunk_offset_lsb][chunk_offset_msb][chunk_size_lsb][chunk_size_msb]
+    payload[idx++] = (chunk_offset >> 0) & 0xFF;
+    payload[idx++] = (chunk_offset >> 8) & 0xFF;
+    payload[idx++] = (chunk_size >> 0) & 0xFF;
+    payload[idx++] = (chunk_size >> 8) & 0xFF;
+
+    // Read data from partition
+    esp_err_t err = esp_partition_read(coredump_partition, chunk_offset, &payload[idx], chunk_size);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read coredump chunk at offset %" PRIu16 ": %s", chunk_offset, esp_err_to_name(err));
+        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_READ_FAILED);
+        return;
+    }
+
+    idx += chunk_size;
+
+    ESP_LOGD(TAG, "Sending coredump chunk: offset=%" PRIu16 ", size=%" PRIu16, chunk_offset, chunk_size);
+    usb_serial_send_response(RSP_COREDUMP_CHUNK, payload, idx);
 }
