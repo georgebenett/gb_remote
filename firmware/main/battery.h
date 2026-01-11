@@ -13,7 +13,7 @@
 #define ADC_REFERENCE_VOLTAGE   3.3f
 #define ADC_RESOLUTION          4095
 #define BATTERY_MAX_VOLTAGE     4.15f
-#define BATTERY_MIN_VOLTAGE     2.8f
+#define BATTERY_LOW_VOLTAGE_THRESHOLD 2.95f
 #define BATTERY_VOLTAGE_SAMPLES 10
 
 
@@ -21,6 +21,7 @@ esp_err_t battery_init(void);
 void battery_start_monitoring(void);
 float battery_get_voltage(void);
 int battery_get_percentage(void);
+bool battery_is_low_voltage(void);
 
 // Battery ADC functions (internal use)
 esp_err_t adc_battery_init(void);

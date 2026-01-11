@@ -221,7 +221,8 @@
                   },
                   "icon": "svg:page"
                 }
-              ]
+              ],
+              "active": true
             },
             {
               "type": "row",
@@ -241,8 +242,7 @@
                       "enableClose": false,
                       "icon": "svg:properties"
                     }
-                  ],
-                  "active": true
+                  ]
                 },
                 {
                   "type": "tabset",
@@ -1524,13 +1524,8 @@
     "[eezproject.eez-project]:/userPages/1[flow-state]": {
       "selection": {
         "0": {
-          "1": {
-            "0": {}
-          },
-          "2": {},
-          "7": {
-            "$selected": true
-          }
+          "1": {},
+          "2": {}
         }
       },
       "transform": {

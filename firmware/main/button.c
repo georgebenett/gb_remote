@@ -9,6 +9,7 @@
 #include "lvgl.h"
 #include "ui_updater.h"
 #include "hw_config.h"
+#include "esp_task_wdt.h"
 
 #define TAG "BUTTON"
 #define DEBOUNCE_TIME_MS 20
@@ -67,6 +68,9 @@ void button_unregister_callback(button_callback_t callback) {
 }
 
 static void button_monitor_task(void* pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     bool last_reading = !button_cfg.active_low;
     bool button_pressed = false;
     bool long_press_sent = false;
@@ -141,6 +145,9 @@ static void button_monitor_task(void* pvParameters) {
         }
 
         last_reading = current_reading;
+
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }

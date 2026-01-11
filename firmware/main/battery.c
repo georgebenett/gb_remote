@@ -10,10 +10,18 @@
 #include <stdint.h>
 #include "throttle.h"
 #include "hw_config.h"
+#include "power.h"
+#include "viber.h"
+#include "ui.h"
+#include "ui_updater.h"
+#include "esp_sleep.h"
+#include "esp_task_wdt.h"
 
 static const char *TAG = "BATTERY";
 static bool battery_initialized = false;
 static float latest_battery_voltage = 0.0f;
+static bool low_voltage_alerted = false;
+static bool low_voltage_shutdown_triggered = false;
 
 // Battery state of charge lookup table
 typedef struct {
@@ -62,6 +70,7 @@ static int battery_sample_index = 0;
 static bool battery_samples_filled = false;
 
 static void battery_monitoring_task(void *pvParameters);
+static void battery_low_voltage_shutdown(void);
 
 float battery_read_voltage(void);
 
@@ -214,7 +223,12 @@ float battery_get_voltage(void) {
 }
 
 static void battery_monitoring_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     TickType_t last_wake_time = xTaskGetTickCount();
+    int low_voltage_count = 0;
+    const int LOW_VOLTAGE_CONFIRM_COUNT = 3; // Require 3 consecutive low readings (1.5 seconds)
 
     while (1) {
         float voltage = battery_read_voltage();
@@ -228,10 +242,39 @@ static void battery_monitoring_task(void *pvParameters) {
             if (battery_sample_index == 0) {
                 battery_samples_filled = true;
             }
+
+            // Check for low voltage condition
+            if (voltage < BATTERY_LOW_VOLTAGE_THRESHOLD) {
+                low_voltage_count++;
+
+                // Alert user on first detection
+                if (!low_voltage_alerted) {
+                    ESP_LOGW(TAG, "Battery voltage low: %.2fV (threshold: %.2fV)",
+                             voltage, BATTERY_LOW_VOLTAGE_THRESHOLD);
+                    viber_play_pattern(VIBER_PATTERN_ALERT);
+                    low_voltage_alerted = true;
+                }
+
+                // Shutdown after confirming low voltage for multiple readings
+                if (low_voltage_count >= LOW_VOLTAGE_CONFIRM_COUNT) {
+                    battery_low_voltage_shutdown();
+                    // Should not reach here, but break just in case
+                    break;
+                }
+            } else {
+                // Voltage recovered, reset counters
+                if (low_voltage_count > 0) {
+                    ESP_LOGI(TAG, "Battery voltage recovered: %.2fV", voltage);
+                    low_voltage_count = 0;
+                    low_voltage_alerted = false;
+                }
+            }
         } else {
             ESP_LOGW(TAG, "Invalid battery reading");
         }
 
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(500));
     }
 
@@ -248,4 +291,43 @@ int battery_get_percentage(void) {
     // Calculate percentage using lookup table interpolation
     float soc = voltage_to_soc(voltage);
     return (int)(soc + 0.5f); // Round to nearest integer
+}
+
+bool battery_is_low_voltage(void) {
+    float voltage = battery_get_voltage();
+    return (voltage > 0.0f && voltage < BATTERY_LOW_VOLTAGE_THRESHOLD);
+}
+
+static void battery_low_voltage_shutdown(void) {
+    if (low_voltage_shutdown_triggered) {
+        return; // Already triggered shutdown
+    }
+
+    low_voltage_shutdown_triggered = true;
+
+    // Alert user with haptic feedback
+    viber_play_pattern(VIBER_PATTERN_ALERT);
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    // Show warning on shutdown screen if possible
+    if (take_lvgl_mutex()) {
+        if (objects.low_battery_screen != NULL) {
+            lv_disp_load_scr(objects.low_battery_screen);
+            lv_obj_invalidate(objects.low_battery_screen);
+        }
+        give_lvgl_mutex();
+    }
+
+    // Give user a moment to see the warning
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Turn off power hold pin to prevent over-discharge
+    ESP_LOGI(TAG, "Turning off power hold pin to prevent battery over-discharge");
+    gpio_set_level(POWER_HOLD_GPIO, 0);
+
+    // Small delay to ensure power is cut
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Force deep sleep as final safety measure
+    esp_deep_sleep_start();
 }

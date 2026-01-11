@@ -8,7 +8,7 @@
 #include "styles.h"
 #include "ui.h"
 
-//CUSTOM LIBRARIES: 
+//CUSTOM LIBRARIES:
 
 
 
@@ -60,7 +60,7 @@ void create_screen_splash_screen() {
             lv_label_set_text(obj, "unknown");
         }
     }
-    
+
     tick_screen_splash_screen();
 }
 
@@ -106,7 +106,7 @@ void create_screen_charging_screen() {
             lv_img_set_src(obj, &img_lightning);
         }
     }
-    
+
     tick_screen_charging_screen();
 }
 
@@ -243,7 +243,7 @@ void create_screen_home_screen() {
             lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
         }
     }
-    
+
     tick_screen_home_screen();
 }
 
@@ -286,11 +286,59 @@ void create_screen_shutdown_screen() {
             lv_obj_set_style_bg_color(obj, lv_color_hex(0xfff63428), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
     }
-    
+
     tick_screen_shutdown_screen();
 }
 
 void tick_screen_shutdown_screen() {
+}
+
+void create_screen_low_battery_screen() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.low_battery_screen = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 172, 320);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_PRESS_LOCK|LV_OBJ_FLAG_CLICK_FOCUSABLE|LV_OBJ_FLAG_GESTURE_BUBBLE|LV_OBJ_FLAG_SNAPPABLE|LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_SCROLL_ELASTIC|LV_OBJ_FLAG_SCROLL_MOMENTUM|LV_OBJ_FLAG_SCROLL_CHAIN_HOR|LV_OBJ_FLAG_SCROLL_CHAIN_VER);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(0xff000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    {
+        lv_obj_t *parent_obj = obj;
+        {
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.obj1 = obj;
+            lv_obj_set_pos(obj, 0, 70);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_font(obj, &ui_font_bebas35, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "Low battery");
+        }
+        {
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.obj2 = obj;
+            lv_obj_set_pos(obj, 0, 100);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_font(obj, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "turning off device ");
+        }
+        {
+            // batt_charging_main_1
+            lv_obj_t *obj = lv_img_create(parent_obj);
+            objects.batt_charging_main_1 = obj;
+            lv_obj_set_pos(obj, 38, 100);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_img_set_src(obj, &img_batt1);
+        }
+    }
+
+    tick_screen_low_battery_screen();
+}
+
+void tick_screen_low_battery_screen() {
 }
 
 
@@ -301,6 +349,7 @@ tick_screen_func_t tick_screen_funcs[] = {
     tick_screen_charging_screen,
     tick_screen_home_screen,
     tick_screen_shutdown_screen,
+    tick_screen_low_battery_screen,
 };
 void tick_screen(int screen_index) {
     tick_screen_funcs[screen_index]();
@@ -313,15 +362,16 @@ void create_screens() {
     lv_disp_t *dispp = lv_disp_get_default();
     lv_theme_t *theme = lv_theme_default_init(dispp, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED), false, LV_FONT_DEFAULT);
     lv_disp_set_theme(dispp, theme);
-    
+
     create_screen_splash_screen();
     create_screen_charging_screen();
     create_screen_home_screen();
     create_screen_shutdown_screen();
+    create_screen_low_battery_screen();
 }
 
 
-/*CUSTOM FUNCTIONS HERE: 
+/*CUSTOM FUNCTIONS HERE:
 this is responsible for loading the screens when touching the buttons
 edit this only in EEZ STUDIO*/
 

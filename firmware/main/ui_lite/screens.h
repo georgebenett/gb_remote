@@ -12,6 +12,7 @@ typedef struct _objects_t {
     lv_obj_t *charging_screen;
     lv_obj_t *home_screen;
     lv_obj_t *shutdown_screen;
+    lv_obj_t *low_battery_screen;
     lv_obj_t *firmware_version;
     lv_obj_t *firmware_text;
     lv_obj_t *main_battery_text;
@@ -29,6 +30,9 @@ typedef struct _objects_t {
     lv_obj_t *aux_output;
     lv_obj_t *obj0;
     lv_obj_t *shutting_down_bar;
+    lv_obj_t *obj1;
+    lv_obj_t *obj2;
+    lv_obj_t *batt_charging_main_1;
 } objects_t;
 
 extern objects_t objects;
@@ -38,6 +42,7 @@ enum ScreensEnum {
     SCREEN_ID_CHARGING_SCREEN = 2,
     SCREEN_ID_HOME_SCREEN = 3,
     SCREEN_ID_SHUTDOWN_SCREEN = 4,
+    SCREEN_ID_LOW_BATTERY_SCREEN = 5,
 };
 
 void create_screen_splash_screen();
@@ -51,6 +56,9 @@ void tick_screen_home_screen();
 
 void create_screen_shutdown_screen();
 void tick_screen_shutdown_screen();
+
+void create_screen_low_battery_screen();
+void tick_screen_low_battery_screen();
 
 void tick_screen_by_id(enum ScreensEnum screenId);
 void tick_screen(int screen_index);

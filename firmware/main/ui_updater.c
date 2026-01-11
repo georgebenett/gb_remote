@@ -14,6 +14,7 @@
 #include "driver/gpio.h"
 #include <stdio.h>
 #include <string.h>
+#include "esp_task_wdt.h"
 
 #define TAG "UI_UPDATER"
 #define TRIP_NVS_NAMESPACE "trip_data"
@@ -383,6 +384,9 @@ void ui_update_speed_unit(bool is_mph) {
 }
 
 static void speed_update_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     vesc_config_t config;
     ESP_ERROR_CHECK(vesc_config_load(&config));
 
@@ -411,10 +415,16 @@ static void speed_update_task(void *pvParameters) {
                 ui_update_speed_unit(config.speed_unit_mph);
             }
         }
+
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
     }
 }
 
 static void trip_distance_update_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     vesc_config_t config;
     ESP_ERROR_CHECK(vesc_config_load(&config));
 
@@ -434,11 +444,17 @@ static void trip_distance_update_task(void *pvParameters) {
 
         int32_t speed = vesc_config_get_speed(&config);
         ui_update_trip_distance(speed);
+
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(TRIP_UPDATE_MS));
     }
 }
 
 static void battery_update_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     static int displayed_percentage = -1;
     static uint32_t last_change_time = 0;
     const uint32_t RATE_LIMIT_MS = 5000;
@@ -494,25 +510,38 @@ static void battery_update_task(void *pvParameters) {
             }
         }
 
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(BATTERY_UPDATE_MS));
     }
 }
 
 static void connection_update_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     while (1) {
         ui_update_connection_icon();
+
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(CONNECTION_UPDATE_MS));
     }
 }
 
 // UI Command Processor Task - handles queued UI updates
 static void ui_cmd_processor_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     ui_cmd_t cmd;
     char str_buf[16];
 
     while (1) {
         // Block waiting for commands
         if (xQueueReceive(ui_cmd_queue, &cmd, portMAX_DELAY) == pdTRUE) {
+            // Reset watchdog after receiving command
+            esp_task_wdt_reset();
             // Wait for mutex with longer timeout since we're processing from queue
             if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 // Only update if on home screen (for most commands)

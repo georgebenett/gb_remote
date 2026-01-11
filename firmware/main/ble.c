@@ -28,6 +28,7 @@
 #include "esp_err.h"
 #include "esp_gatt_common_api.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "target_config.h"
@@ -718,11 +719,18 @@ void spp_client_reg_task(void* arg)
 #ifdef SUPPORT_HEARTBEAT
 void spp_heart_beat_task(void * arg)
 {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     uint16_t cmd_id;
 
     for(;;) {
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelay(50 / portTICK_PERIOD_MS);
         if(xQueueReceive(cmd_heartbeat_queue, &cmd_id, portMAX_DELAY)) {
+            // Reset watchdog after receiving command
+            esp_task_wdt_reset();
             while(1){
                 if((is_connect == true) && (db != NULL) && ((db+SPP_IDX_SPP_HEARTBEAT_VAL)->properties & (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
                     esp_ble_gattc_write_char( spp_gattc_if,
@@ -732,6 +740,8 @@ void spp_heart_beat_task(void * arg)
                                               (uint8_t *)heartbeat_s,
                                               ESP_GATT_WRITE_TYPE_NO_RSP,
                                               ESP_GATT_AUTH_REQ_NONE);
+                    // Reset watchdog before long delay
+                    esp_task_wdt_reset();
                     vTaskDelay(5000 / portTICK_PERIOD_MS);
                 }else{
                     ESP_LOGI(GATTC_TAG,"disconnect");
@@ -906,6 +916,9 @@ void spp_client_demo_init(void)
 }
 
 static void adc_send_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     uint8_t data_buffer[3];  // 2 bytes for ADC value + 1 byte for aux output
 
     while (1) {
@@ -978,6 +991,9 @@ static void adc_send_task(void *pvParameters) {
                 ESP_LOGW(GATTC_TAG, "Failed to send throttle value: %s", esp_err_to_name(ret));
             }
         }
+
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(75));
     }
 }

@@ -12,6 +12,7 @@
 #include "ble.h"
 #include "power.h"
 #include "vesc_config.h"
+#include "esp_task_wdt.h"
 
 static const char *TAG = "ADC";
 static adc_oneshot_unit_handle_t adc1_handle;
@@ -149,6 +150,9 @@ int32_t brake_read_value(void)
 #endif
 
 static void adc_task(void *pvParameters) {
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     uint32_t last_value = 0;
     const uint32_t CHANGE_THRESHOLD = 2;
 
@@ -200,6 +204,9 @@ static void adc_task(void *pvParameters) {
             xQueueReceive(adc_display_queue, &dummy, 0);
             xQueueSend(adc_display_queue, &mapped_value, 0);
         }
+
+        // Reset watchdog before delay
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLING_TICKS));
     }
 }
