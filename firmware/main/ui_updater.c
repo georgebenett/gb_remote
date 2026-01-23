@@ -517,14 +517,10 @@ static void battery_update_task(void *pvParameters) {
 }
 
 static void connection_update_task(void *pvParameters) {
-    // Register with task watchdog
-    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
 
     while (1) {
         ui_update_connection_icon();
-
-        // Reset watchdog before delay
-        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(CONNECTION_UPDATE_MS));
     }
 }

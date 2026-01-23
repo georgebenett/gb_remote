@@ -32,4 +32,8 @@ int8_t ble_get_trim_offset(void);
 esp_err_t ble_increase_trim_offset(void);
 esp_err_t ble_decrease_trim_offset(void);
 
+// Paired device management
+bool ble_has_paired_device(void);
+esp_err_t ble_clear_paired_device(void);
+
 #endif // SPP_CLIENT_DEMO_H

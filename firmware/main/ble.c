@@ -31,6 +31,8 @@
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/timers.h"
+#include "esp_timer.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "ui_updater.h"
@@ -44,6 +46,15 @@
 #define AUX_NVS_KEY_STATE           "aux_state"
 #define BLE_TRIM_NVS_NAMESPACE      "ble_cfg"
 #define BLE_TRIM_NVS_KEY_OFFSET     "trim_offset"
+#define BLE_PAIRED_NVS_NAMESPACE    "ble_paired"
+#define BLE_PAIRED_NVS_KEY_MAC      "server_mac"
+#define BLE_PAIRED_NVS_KEY_VALID    "mac_valid"
+
+#define RECONNECT_TIMEOUT_MS        15000   // 15 seconds to find stored server
+#define RECONNECT_SCAN_INTERVAL_MS  1000    // Scan interval when looking for stored server
+
+// BLE Security Configuration
+#define BLE_PASSKEY                 483265  // Fixed passkey for pairing (must match server)
 
 #define PROFILE_NUM                 1
 #define PROFILE_APP_ID              0
@@ -148,6 +159,18 @@ static float latest_temp_motor = 0.0f;
 static bool aux_output_state = false;
 static int8_t ble_trim_offset = 0;  // Trim offset for BLE output (-127 to +127)
 
+// Paired device management
+static esp_bd_addr_t paired_server_mac = {0};
+static bool has_paired_server = false;
+static bool searching_for_paired = false;
+static bool pending_scan_restart = false;  // Flag to restart scan after stop completes
+static int64_t reconnect_start_time = 0;
+static TimerHandle_t reconnect_timer = NULL;
+static TaskHandle_t reconnect_task_handle = NULL;
+
+// Task to handle reconnect operations (avoids stack overflow in timer callback)
+static void reconnect_handler_task(void *pvParameters);
+
 float get_latest_temp_mos(void)
 {
     return latest_temp_mos;
@@ -212,6 +235,130 @@ static esp_err_t ble_trim_save_offset(void)
     }
     nvs_close(nvs_handle);
     return err;
+}
+
+static void ble_paired_load_mac(void)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(BLE_PAIRED_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err == ESP_OK) {
+        uint8_t valid = 0;
+        if (nvs_get_u8(nvs_handle, BLE_PAIRED_NVS_KEY_VALID, &valid) == ESP_OK && valid == 1) {
+            size_t mac_len = sizeof(esp_bd_addr_t);
+            if (nvs_get_blob(nvs_handle, BLE_PAIRED_NVS_KEY_MAC, paired_server_mac, &mac_len) == ESP_OK) {
+                has_paired_server = true;
+                ESP_LOGI(GATTC_TAG, "Loaded paired server MAC: "BT_BD_ADDR_STR, BT_BD_ADDR_HEX(paired_server_mac));
+            }
+        }
+        nvs_close(nvs_handle);
+    }
+}
+
+static esp_err_t ble_paired_save_mac(esp_bd_addr_t mac)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(BLE_PAIRED_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Failed to open NVS for paired MAC: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = nvs_set_blob(nvs_handle, BLE_PAIRED_NVS_KEY_MAC, mac, sizeof(esp_bd_addr_t));
+    if (err == ESP_OK) {
+        uint8_t valid = 1;
+        err = nvs_set_u8(nvs_handle, BLE_PAIRED_NVS_KEY_VALID, valid);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs_handle);
+    }
+
+    if (err == ESP_OK) {
+        memcpy(paired_server_mac, mac, sizeof(esp_bd_addr_t));
+        has_paired_server = true;
+        ESP_LOGI(GATTC_TAG, "Saved paired server MAC: "BT_BD_ADDR_STR, BT_BD_ADDR_HEX(mac));
+    } else {
+        ESP_LOGE(GATTC_TAG, "Failed to save paired MAC: %s", esp_err_to_name(err));
+    }
+
+    nvs_close(nvs_handle);
+    return err;
+}
+
+esp_err_t ble_clear_paired_device(void)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(BLE_PAIRED_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t valid = 0;
+    err = nvs_set_u8(nvs_handle, BLE_PAIRED_NVS_KEY_VALID, valid);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs_handle);
+    }
+
+    if (err == ESP_OK) {
+        memset(paired_server_mac, 0, sizeof(esp_bd_addr_t));
+        has_paired_server = false;
+        ESP_LOGI(GATTC_TAG, "Cleared paired server MAC");
+    }
+
+    nvs_close(nvs_handle);
+    return err;
+}
+
+bool ble_has_paired_device(void)
+{
+    return has_paired_server;
+}
+
+static void reconnect_timeout_callback(TimerHandle_t xTimer)
+{
+    // Don't call BLE APIs directly from timer callback (limited stack)
+    // Instead, notify the reconnect handler task
+    if (reconnect_task_handle != NULL) {
+        xTaskNotifyGive(reconnect_task_handle);
+    }
+}
+
+static void reconnect_handler_task(void *pvParameters)
+{
+    while (1) {
+        // Wait for notification from timer callback
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        if (searching_for_paired && !is_connect) {
+            ESP_LOGW(GATTC_TAG, "Paired server not found after 15 seconds, scanning for any %s device...", device_name);
+            searching_for_paired = false;
+            // Stop current scan - will restart in SCAN_STOP_COMPLETE_EVT handler
+            pending_scan_restart = true;
+            esp_ble_gap_stop_scanning();
+        }
+    }
+}
+
+static void start_reconnect_timer(void)
+{
+    if (reconnect_timer == NULL) {
+        reconnect_timer = xTimerCreate("reconnect_timer",
+                                        pdMS_TO_TICKS(RECONNECT_TIMEOUT_MS),
+                                        pdFALSE,  // One-shot timer
+                                        NULL,
+                                        reconnect_timeout_callback);
+    }
+    if (reconnect_timer != NULL) {
+        xTimerStart(reconnect_timer, 0);
+        reconnect_start_time = esp_timer_get_time() / 1000;  // Convert to ms
+        ESP_LOGI(GATTC_TAG, "Started reconnect timer (15 seconds)");
+    }
+}
+
+static void stop_reconnect_timer(void)
+{
+    if (reconnect_timer != NULL) {
+        xTimerStop(reconnect_timer, 0);
+    }
 }
 
 int8_t ble_get_trim_offset(void)
@@ -406,10 +553,16 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
     case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
         if ((err = param->scan_stop_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
             ESP_LOGE(GATTC_TAG, "Scan stop failed: %s", esp_err_to_name(err));
+            pending_scan_restart = false;
             break;
         }
         ESP_LOGI(GATTC_TAG, "Scan stop successfully");
-        if (is_connect == false) {
+        if (pending_scan_restart) {
+            // Restart scan after reconnect timeout (switching from paired-only to any device)
+            pending_scan_restart = false;
+            ESP_LOGI(GATTC_TAG, "Restarting scan for any device...");
+            esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
+        } else if (is_connect == false) {
             ESP_LOGI(GATTC_TAG, "Connect to the remote device.");
             esp_ble_gattc_open(gl_profile_tab[PROFILE_APP_ID].gattc_if, scan_rst.scan_rst.bda, scan_rst.scan_rst.ble_addr_type, true);
         }
@@ -420,12 +573,29 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
         case ESP_GAP_SEARCH_INQ_RES_EVT:
             adv_name = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv, ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
 
-            // Only print logs if the device name matches
+            // Check if device name matches
             if (adv_name != NULL && strncmp((char *)adv_name, device_name, adv_name_len) == 0) {
-                ESP_LOGI(GATTC_TAG, "Found device %s, RSSI: %d",
-                        device_name, scan_result->scan_rst.rssi);
-                memcpy(&scan_rst, scan_result, sizeof(esp_ble_gap_cb_param_t));
-                esp_ble_gap_stop_scanning();
+
+                if (searching_for_paired && has_paired_server) {
+                    // Looking for specific paired server - check MAC address
+                    if (memcmp(scan_result->scan_rst.bda, paired_server_mac, sizeof(esp_bd_addr_t)) == 0) {
+                        ESP_LOGI(GATTC_TAG, "Found paired server "BT_BD_ADDR_STR", RSSI: %d",
+                                BT_BD_ADDR_HEX(scan_result->scan_rst.bda), scan_result->scan_rst.rssi);
+                        stop_reconnect_timer();
+                        memcpy(&scan_rst, scan_result, sizeof(esp_ble_gap_cb_param_t));
+                        esp_ble_gap_stop_scanning();
+                    } else {
+                        // Found a different GS-THUMB device, ignore during paired search
+                        ESP_LOGD(GATTC_TAG, "Found non-paired %s device "BT_BD_ADDR_STR", ignoring...",
+                                device_name, BT_BD_ADDR_HEX(scan_result->scan_rst.bda));
+                    }
+                } else {
+                    // Open search - connect to any matching device
+                    ESP_LOGI(GATTC_TAG, "Found device %s ("BT_BD_ADDR_STR"), RSSI: %d",
+                            device_name, BT_BD_ADDR_HEX(scan_result->scan_rst.bda), scan_result->scan_rst.rssi);
+                    memcpy(&scan_rst, scan_result, sizeof(esp_ble_gap_cb_param_t));
+                    esp_ble_gap_stop_scanning();
+                }
             }
             break;
         case ESP_GAP_SEARCH_INQ_CMPL_EVT:
@@ -451,6 +621,46 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
             ESP_LOGE(GATTC_TAG, "RSSI read failed: %d", param->read_rssi_cmpl.status);
         }
         break;
+
+    // Security events
+    case ESP_GAP_BLE_SEC_REQ_EVT:
+        ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_SEC_REQ_EVT");
+        esp_ble_gap_security_rsp(param->ble_security.ble_req.bd_addr, true);
+        break;
+
+    case ESP_GAP_BLE_PASSKEY_REQ_EVT:
+        ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_PASSKEY_REQ_EVT - entering passkey: %06lu", (unsigned long)BLE_PASSKEY);
+        esp_ble_passkey_reply(param->ble_security.ble_req.bd_addr, true, BLE_PASSKEY);
+        break;
+
+    case ESP_GAP_BLE_PASSKEY_NOTIF_EVT:
+        ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_PASSKEY_NOTIF_EVT - passkey: %06lu",
+                (unsigned long)param->ble_security.key_notif.passkey);
+        break;
+
+    case ESP_GAP_BLE_NC_REQ_EVT:
+        // Numeric comparison - accept automatically
+        ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_NC_REQ_EVT - numeric comparison: %06lu",
+                (unsigned long)param->ble_security.key_notif.passkey);
+        esp_ble_confirm_reply(param->ble_security.key_notif.bd_addr, true);
+        break;
+
+    case ESP_GAP_BLE_AUTH_CMPL_EVT:
+        if (param->ble_security.auth_cmpl.success) {
+            ESP_LOGI(GATTC_TAG, "Authentication SUCCESS, addr_type: %d, auth_mode: %d",
+                    param->ble_security.auth_cmpl.addr_type,
+                    param->ble_security.auth_cmpl.auth_mode);
+        } else {
+            ESP_LOGW(GATTC_TAG, "Authentication FAILED, reason: 0x%x",
+                    param->ble_security.auth_cmpl.fail_reason);
+        }
+        break;
+
+    case ESP_GAP_BLE_KEY_EVT:
+        ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_KEY_EVT, key_type: %d",
+                param->ble_security.ble_key.key_type);
+        break;
+
     default:
         break;
     }
@@ -491,12 +701,23 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
     switch (event) {
     case ESP_GATTC_REG_EVT:
         ESP_LOGI(GATTC_TAG, "REG EVT, set scan params");
+
+        // Check if we have a paired server to reconnect to
+        if (has_paired_server) {
+            ESP_LOGI(GATTC_TAG, "Starting search for paired server "BT_BD_ADDR_STR"...",
+                    BT_BD_ADDR_HEX(paired_server_mac));
+            searching_for_paired = true;
+            start_reconnect_timer();
+        } else {
+            ESP_LOGI(GATTC_TAG, "No paired server, scanning for any %s device...", device_name);
+            searching_for_paired = false;
+        }
+
         esp_ble_gap_set_scan_params(&ble_scan_params);
         break;
     case ESP_GATTC_CONNECT_EVT:
         ESP_LOGI(GATTC_TAG, "ESP_GATTC_CONNECT_EVT: conn_id=%d, gatt_if = %d", spp_conn_id, gattc_if);
-        ESP_LOGI(GATTC_TAG, "REMOTE BDA:");
-        esp_log_buffer_hex(GATTC_TAG, gl_profile_tab[PROFILE_APP_ID].remote_bda, sizeof(esp_bd_addr_t));
+        ESP_LOGI(GATTC_TAG, "REMOTE BDA: "BT_BD_ADDR_STR, BT_BD_ADDR_HEX(p_data->connect.remote_bda));
         spp_gattc_if = gattc_if;
         if (is_connect_mutex != NULL && xSemaphoreTake(is_connect_mutex, portMAX_DELAY) == pdTRUE) {
             is_connect = true;
@@ -506,6 +727,20 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         }
         spp_conn_id = p_data->connect.conn_id;
         memcpy(gl_profile_tab[PROFILE_APP_ID].remote_bda, p_data->connect.remote_bda, sizeof(esp_bd_addr_t));
+
+        // Stop reconnect timer if running
+        stop_reconnect_timer();
+        searching_for_paired = false;
+
+        // Save server MAC if this is a new device or different from stored
+        if (!has_paired_server || memcmp(paired_server_mac, p_data->connect.remote_bda, sizeof(esp_bd_addr_t)) != 0) {
+            ble_paired_save_mac(p_data->connect.remote_bda);
+        }
+
+        // Initiate encryption/pairing
+        ESP_LOGI(GATTC_TAG, "Initiating BLE encryption...");
+        esp_ble_set_encryption(p_data->connect.remote_bda, ESP_BLE_SEC_ENCRYPT_MITM);
+
         esp_ble_gattc_search_service(spp_gattc_if, spp_conn_id, &spp_service_uuid);
 
         // Send serial notification for config tool
@@ -558,6 +793,16 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         ui_update_skate_battery_percentage(0);
 
         free_gattc_srv_db();
+
+        // Restart scanning - try paired server first if available
+        if (has_paired_server) {
+            ESP_LOGI(GATTC_TAG, "Reconnecting to paired server "BT_BD_ADDR_STR"...",
+                    BT_BD_ADDR_HEX(paired_server_mac));
+            searching_for_paired = true;
+            start_reconnect_timer();
+        } else {
+            searching_for_paired = false;
+        }
         esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
         break;
     case ESP_GATTC_SEARCH_RES_EVT:
@@ -784,8 +1029,30 @@ void ble_client_appRegister(void)
         ESP_LOGE(GATTC_TAG, "set local  MTU failed: %s", esp_err_to_name_r(local_mtu_ret, err_msg, sizeof(err_msg)));
     }
 
+    // Configure BLE Security
+    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;  // Secure Connections, MITM protection, Bonding
+    esp_ble_io_cap_t io_cap = ESP_IO_CAP_KBDISP;  // Keyboard + display (client enters passkey)
+    uint8_t key_size = 16;
+    uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    uint32_t passkey = BLE_PASSKEY;
+    uint8_t oob_support = ESP_BLE_OOB_DISABLE;
+
+    esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, &passkey, sizeof(uint32_t));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, sizeof(uint8_t));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE, &io_cap, sizeof(uint8_t));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(uint8_t));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(uint8_t));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(uint8_t));
+    esp_ble_gap_set_security_param(ESP_BLE_SM_OOB_SUPPORT, &oob_support, sizeof(uint8_t));
+
+    ESP_LOGI(GATTC_TAG, "BLE Security configured with passkey: %06lu", (unsigned long)passkey);
+
     cmd_reg_queue = xQueueCreate(10, sizeof(uint32_t));
     xTaskCreate(spp_client_reg_task, "spp_client_reg_task", 2048, NULL, 10, NULL);
+
+    // Create reconnect handler task (handles BLE operations that would overflow timer task stack)
+    xTaskCreate(reconnect_handler_task, "reconnect_handler", 3072, NULL, 5, &reconnect_task_handle);
 
 #ifdef SUPPORT_HEARTBEAT
     cmd_heartbeat_queue = xQueueCreate(10, sizeof(uint32_t));
@@ -883,6 +1150,9 @@ void spp_client_demo_init(void)
 
     // Load BLE trim offset from NVS
     ble_trim_load_offset();
+
+    // Load paired server MAC from NVS
+    ble_paired_load_mac();
 
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret) {
