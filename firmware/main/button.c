@@ -12,9 +12,10 @@
 #include "esp_task_wdt.h"
 
 #define TAG "BUTTON"
-#define DEBOUNCE_TIME_MS 20
+#define DEBOUNCE_TIME_MS 15
+#define LONG_PRESS_CHECK_MS 50
 #define TASK_STACK_SIZE 4096
-#define TASK_PRIORITY 3
+#define TASK_PRIORITY 5
 #define MAX_CALLBACKS 4
 
 typedef struct {
@@ -37,6 +38,18 @@ static bool first_press_registered = false;
 static TaskHandle_t button_task_handle = NULL;
 static button_callback_entry_t callbacks[MAX_CALLBACKS] = {0};
 static void default_button_handler(button_event_t event, void* user_data);
+static volatile bool isr_triggered = false;
+
+// ISR handler - runs in IRAM, minimal work
+static void IRAM_ATTR button_isr_handler(void* arg)
+{
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    isr_triggered = true;
+    if (button_task_handle != NULL) {
+        vTaskNotifyGiveFromISR(button_task_handle, &xHigherPriorityTaskWoken);
+    }
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
 
 static void notify_callbacks(button_event_t event) {
     for (int i = 0; i < MAX_CALLBACKS; i++) {
@@ -67,67 +80,76 @@ void button_unregister_callback(button_callback_t callback) {
     }
 }
 
+static bool read_button_state(void) {
+    bool state = gpio_get_level(button_cfg.gpio_num);
+    return button_cfg.active_low ? !state : state;
+}
+
 static void button_monitor_task(void* pvParameters) {
     // Register with task watchdog
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
-    bool last_reading = !button_cfg.active_low;
     bool button_pressed = false;
     bool long_press_sent = false;
 
     // On startup, if button is already pressed, wait for it to be released first
-    bool current_reading = gpio_get_level(button_cfg.gpio_num);
-    if (button_cfg.active_low) {
-        current_reading = !current_reading;
-    }
-
-    if (current_reading) {
-        // Button is pressed at startup - wait for release
-        while (current_reading) {
+    if (read_button_state()) {
+        while (read_button_state()) {
             vTaskDelay(pdMS_TO_TICKS(50));
-            current_reading = gpio_get_level(button_cfg.gpio_num);
-            if (button_cfg.active_low) {
-                current_reading = !current_reading;
-            }
         }
         notify_callbacks(BUTTON_EVENT_RELEASED);
-        last_reading = current_reading;
         vTaskDelay(pdMS_TO_TICKS(100));
     } else {
         notify_callbacks(BUTTON_EVENT_RELEASED);
     }
 
+    // Install GPIO ISR service and add handler
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(button_cfg.gpio_num, button_isr_handler, NULL);
+
+    ESP_LOGI(TAG, "Button interrupt handler installed on GPIO %d", button_cfg.gpio_num);
+
     while (1) {
-        int gpio_level = gpio_get_level(button_cfg.gpio_num);
-        current_reading = gpio_level;
-        if (button_cfg.active_low) {
-            current_reading = !current_reading;
-        }
+        // Wait for interrupt or timeout (for long press detection while held)
+        TickType_t wait_time = button_pressed ? pdMS_TO_TICKS(LONG_PRESS_CHECK_MS) : portMAX_DELAY;
+        uint32_t notification = ulTaskNotifyTake(pdTRUE, wait_time);
 
-        if (current_reading != last_reading) {
+        // Reset watchdog
+        esp_task_wdt_reset();
+
+        if (notification > 0 || isr_triggered) {
+            // Interrupt triggered - debounce
+            isr_triggered = false;
             vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
-            gpio_level = gpio_get_level(button_cfg.gpio_num);
-            current_reading = gpio_level;
-            if (button_cfg.active_low) {
-                current_reading = !current_reading;
-            }
+
+            // Clear any notifications that came during debounce
+            ulTaskNotifyTake(pdTRUE, 0);
+            isr_triggered = false;
         }
 
-        if (current_reading && !button_pressed) {
+        bool current_state_pressed = read_button_state();
+
+        if (current_state_pressed && !button_pressed) {
+            // Button just pressed
             press_start_time = xTaskGetTickCount();
             button_pressed = true;
             long_press_sent = false;
             current_state = BUTTON_PRESSED;
             notify_callbacks(BUTTON_EVENT_PRESSED);
-        } else if (current_reading && button_pressed) {
+
+        } else if (current_state_pressed && button_pressed) {
+            // Button still held - check for long press
             uint32_t press_duration = (xTaskGetTickCount() - press_start_time) * portTICK_PERIOD_MS;
             if (!long_press_sent && press_duration >= button_cfg.long_press_time_ms) {
                 current_state = BUTTON_LONG_PRESS;
                 long_press_sent = true;
                 notify_callbacks(BUTTON_EVENT_LONG_PRESS);
             }
-        } else if (!current_reading && button_pressed) {
+
+        } else if (!current_state_pressed && button_pressed) {
+            // Button just released
             button_pressed = false;
+
             if (!long_press_sent) {
                 TickType_t current_time = xTaskGetTickCount();
                 if (first_press_registered &&
@@ -140,15 +162,10 @@ static void button_monitor_task(void* pvParameters) {
                     last_release_time = current_time;
                 }
             }
+
             notify_callbacks(BUTTON_EVENT_RELEASED);
             current_state = BUTTON_IDLE;
         }
-
-        last_reading = current_reading;
-
-        // Reset watchdog before delay
-        esp_task_wdt_reset();
-        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
@@ -164,7 +181,7 @@ esp_err_t button_init(const button_config_t* config) {
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
+        .intr_type = GPIO_INTR_ANYEDGE  // Interrupt on both press and release
     };
 
     esp_err_t ret = gpio_config(&io_conf);
@@ -174,6 +191,8 @@ esp_err_t button_init(const button_config_t* config) {
     }
 
     button_register_callback(default_button_handler, NULL);
+
+    ESP_LOGI(TAG, "Button initialized on GPIO %d (interrupt-based)", config->gpio_num);
 
     return ESP_OK;
 }
