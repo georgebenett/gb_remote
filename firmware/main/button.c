@@ -17,7 +17,7 @@
 #define TASK_STACK_SIZE 4096
 #define TASK_PRIORITY 5
 #define MAX_CALLBACKS 4
-
+#define WDT_RESET_INTERVAL_MS 4000
 typedef struct {
     button_callback_t callback;
     void* user_data;
@@ -96,6 +96,7 @@ static void button_monitor_task(void* pvParameters) {
     if (read_button_state()) {
         while (read_button_state()) {
             vTaskDelay(pdMS_TO_TICKS(50));
+            esp_task_wdt_reset();  // Keep watchdog happy while waiting
         }
         notify_callbacks(BUTTON_EVENT_RELEASED);
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -111,7 +112,8 @@ static void button_monitor_task(void* pvParameters) {
 
     while (1) {
         // Wait for interrupt or timeout (for long press detection while held)
-        TickType_t wait_time = button_pressed ? pdMS_TO_TICKS(LONG_PRESS_CHECK_MS) : portMAX_DELAY;
+        // Use WDT_RESET_INTERVAL_MS when idle to ensure watchdog gets reset periodically
+        TickType_t wait_time = button_pressed ? pdMS_TO_TICKS(LONG_PRESS_CHECK_MS) : pdMS_TO_TICKS(WDT_RESET_INTERVAL_MS);
         uint32_t notification = ulTaskNotifyTake(pdTRUE, wait_time);
 
         // Reset watchdog

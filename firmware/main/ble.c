@@ -50,7 +50,7 @@
 #define BLE_PAIRED_NVS_KEY_MAC      "server_mac"
 #define BLE_PAIRED_NVS_KEY_VALID    "mac_valid"
 
-#define RECONNECT_TIMEOUT_MS        15000   // 15 seconds to find stored server
+#define RECONNECT_TIMEOUT_MS        5000   // 5 seconds to find stored server
 #define RECONNECT_SCAN_INTERVAL_MS  1000    // Scan interval when looking for stored server
 
 // BLE Security Configuration
@@ -329,7 +329,7 @@ static void reconnect_handler_task(void *pvParameters)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         if (searching_for_paired && !is_connect) {
-            ESP_LOGW(GATTC_TAG, "Paired server not found after 15 seconds, scanning for any %s device...", device_name);
+            ESP_LOGW(GATTC_TAG, "Paired server not found after 5 seconds, scanning for any %s device...", device_name);
             searching_for_paired = false;
             // Stop current scan - will restart in SCAN_STOP_COMPLETE_EVT handler
             pending_scan_restart = true;
