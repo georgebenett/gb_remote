@@ -73,6 +73,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
 static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
 static void adc_send_task(void *pvParameters);
 static void log_rssi_task(void *pvParameters);
+static void ble_trim_load_from_nvs(void);
 
 /* One gatt-based profile one app_id and one gattc_if, this array will store the gattc_if returned by ESP_GATTS_REG_EVT */
 static struct gattc_profile_inst gl_profile_tab[PROFILE_NUM] = {
@@ -134,6 +135,14 @@ static float bms_cell_voltages[16] = {0};  // Array to store individual cell vol
 // Add these variables with the other static variables
 static float latest_temp_mos = 0.0f;
 static float latest_temp_motor = 0.0f;
+
+// BLE trim offset for fine-tuning throttle neutral position
+// Range: -20 to +20 (applied to 0-255 BLE value)
+#define NVS_NAMESPACE_BLE "ble_cfg"
+#define NVS_KEY_TRIM_OFFSET "trim_offset"
+#define BLE_TRIM_MIN -127
+#define BLE_TRIM_MAX 127
+static int8_t ble_trim_offset = 0;
 
 // Add these getter functions
 float get_latest_temp_mos(void)
@@ -379,7 +388,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
     case ESP_GATTC_DISCONNECT_EVT:
         ESP_LOGI(GATTC_TAG, "disconnect");
-        
+
         // Reset speed and battery values to 0 when disconnected
         latest_erpm = 0;
         latest_voltage = 0.0f;
@@ -387,23 +396,23 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         latest_current_in = 0.0f;
         latest_temp_mos = 0.0f;
         latest_temp_motor = 0.0f;
-        
+
         // Reset BMS battery values to 0
         bms_total_voltage = 0.0f;
         bms_current = 0.0f;
         bms_remaining_capacity = 0.0f;
         bms_nominal_capacity = 0.0f;
         bms_num_cells = 0;
-        
+
         // Clear cell voltages array
         memset(bms_cell_voltages, 0, sizeof(bms_cell_voltages));
-        
+
         ESP_LOGI(GATTC_TAG, "Speed and battery values reset to 0 due to disconnection");
-        
+
         // Trigger UI updates to show 0 values
         ui_update_speed(0);
         ui_update_skate_battery_percentage(0);
-        
+
         free_gattc_srv_db();
         esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
         break;
@@ -678,23 +687,23 @@ static void spp_uart_init(void)
         ESP_LOGE(GATTC_TAG, "Failed to install UART driver: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     //Set UART parameters
     ret = uart_param_config(UART_NUM_0, &uart_config);
     if (ret != ESP_OK) {
         ESP_LOGE(GATTC_TAG, "Failed to configure UART: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     //Set UART pins
     ret = uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (ret != ESP_OK) {
         ESP_LOGE(GATTC_TAG, "Failed to set UART pins: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     ESP_LOGI(GATTC_TAG, "UART initialized successfully for BLE data transmission");
-    
+
     // Don't create the UART task here - it conflicts with USB Serial JTAG
     // The UART is only used for BLE data transmission, not for user input
     // xTaskCreate(uart_task, "uTask", 2048, (void*)UART_NUM_0, 6, NULL);
@@ -738,49 +747,85 @@ void spp_client_demo_init(void)
 
     ble_client_appRegister();
     spp_uart_init();
+
+    // Load BLE trim offset from NVS
+    ble_trim_load_from_nvs();
+
     xTaskCreate(adc_send_task, "adc_send_task", 4096, NULL, 8, NULL);
     xTaskCreate(log_rssi_task, "log_rssi_task", 2048, NULL, 4, NULL);
 }
 
 static void adc_send_task(void *pvParameters) {
-    uint8_t data_buffer[2];  // Just 2 bytes for a 12-bit ADC value
+    uint8_t data_buffer[2];
+    const int32_t VESC_NEUTRAL = 128;
 
     while (1) {
         if (is_connect && db != NULL &&
             ((db+SPP_IDX_SPP_DATA_RECV_VAL)->properties &
              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
 
-            uint32_t adc_value;
-            
+            uint8_t adc_value;
+            bool throttle_inverted = false;
+
             // Check if calibration is in progress - send neutral value if so
             if (adc_is_calibrating()) {
-                adc_value = 127;  // Send neutral value (127) during calibration
+                adc_value = VESC_NEUTRAL;  // Send neutral value during calibration
             } else if (!adc_is_calibrated()) {
-                adc_value = 127;  // Send neutral value (127) if not calibrated
+                adc_value = VESC_NEUTRAL;  // Send neutral value if not calibrated
             } else {
-                adc_value = adc_get_latest_value();
+                // adc_get_latest_value() returns mapped 0-255 value
+                adc_value = (uint8_t)adc_get_latest_value();
             }
 
             // Load current configuration to check throttle inversion
             vesc_config_t config;
             esp_err_t err = vesc_config_load(&config);
-            
+
             // Apply throttle inversion if enabled
             if (err == ESP_OK && config.invert_throttle) {
-                // Apply throttle inversion by inverting the ADC value
-                // Since ADC is 12-bit (0-4095), we invert by subtracting from max value
-                adc_value = 4095 - adc_value;
+                adc_value = 255 - adc_value;
+                throttle_inverted = true;
             }
 
-            // Pack the ADC value into 2 bytes (little-endian)
-            data_buffer[0] = (uint8_t)(adc_value & 0xFF);         // Low byte
-            data_buffer[1] = (uint8_t)((adc_value >> 8) & 0xFF);  // High byte
+            // Apply BLE trim offset with range compensation
+            // This shifts the center point while maintaining full 0-255 range
+            uint8_t final_ble_value;
+            int8_t effective_trim = throttle_inverted ? -ble_trim_offset : ble_trim_offset;
+            int32_t new_center = VESC_NEUTRAL + effective_trim;
+
+            // Clamp new center to valid range
+            if (new_center < 0) new_center = 0;
+            if (new_center > 255) new_center = 255;
+
+            if (adc_value <= VESC_NEUTRAL) {
+                // Scale lower half: map 0-128 input to 0-new_center output
+                if (VESC_NEUTRAL > 0) {
+                    int32_t scaled = (int32_t)((float)adc_value * (float)new_center / (float)VESC_NEUTRAL + 0.5f);
+                    final_ble_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+                } else {
+                    final_ble_value = 0;
+                }
+            } else {
+                // Scale upper half: map 128-255 input to new_center-255 output
+                int32_t upper_output_range = 255 - new_center;
+                int32_t upper_input_range = 255 - VESC_NEUTRAL;
+                if (upper_input_range > 0) {
+                    int32_t scaled = new_center + (int32_t)((float)(adc_value - VESC_NEUTRAL) * (float)upper_output_range / (float)upper_input_range + 0.5f);
+                    final_ble_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+                } else {
+                    final_ble_value = (uint8_t)new_center;
+                }
+            }
+
+            // Pack the throttle value into 2 bytes (little-endian)
+            data_buffer[0] = final_ble_value;
+            data_buffer[1] = 0;
 
             esp_ble_gattc_write_char(
                 spp_gattc_if,
                 spp_conn_id,
                 (db+SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle,
-                sizeof(data_buffer),  // 2 bytes
+                sizeof(data_buffer),
                 data_buffer,
                 ESP_GATT_WRITE_TYPE_NO_RSP,
                 ESP_GATT_AUTH_REQ_NONE
@@ -866,6 +911,84 @@ int get_bms_battery_percentage(void) {
     if (percentage < 0.0f) percentage = 0.0f;
 
     return (int)percentage;
+}
+
+// ========== BLE TRIM OFFSET FUNCTIONS ==========
+
+// Load trim offset from NVS on init
+static void ble_trim_load_from_nvs(void) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE_BLE, NVS_READONLY, &nvs_handle);
+    if (err == ESP_OK) {
+        int8_t stored_offset = 0;
+        err = nvs_get_i8(nvs_handle, NVS_KEY_TRIM_OFFSET, &stored_offset);
+        if (err == ESP_OK) {
+            // Validate range
+            if (stored_offset >= BLE_TRIM_MIN && stored_offset <= BLE_TRIM_MAX) {
+                ble_trim_offset = stored_offset;
+                ESP_LOGI(GATTC_TAG, "Loaded BLE trim offset: %d", ble_trim_offset);
+            }
+        }
+        nvs_close(nvs_handle);
+    }
+}
+
+// Save trim offset to NVS
+static esp_err_t ble_trim_save_to_nvs(void) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE_BLE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Failed to open NVS for BLE trim: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = nvs_set_i8(nvs_handle, NVS_KEY_TRIM_OFFSET, ble_trim_offset);
+    if (err != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Failed to set BLE trim offset: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return err;
+    }
+
+    err = nvs_commit(nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Failed to commit BLE trim offset: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(GATTC_TAG, "Saved BLE trim offset: %d", ble_trim_offset);
+    }
+
+    nvs_close(nvs_handle);
+    return err;
+}
+
+// Get current trim offset
+int8_t ble_get_trim_offset(void) {
+    return ble_trim_offset;
+}
+
+// Increase trim offset by 1
+esp_err_t ble_increase_trim_offset(void) {
+    if (ble_trim_offset >= BLE_TRIM_MAX) {
+        ESP_LOGW(GATTC_TAG, "BLE trim offset already at maximum (%d)", BLE_TRIM_MAX);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ble_trim_offset++;
+    ESP_LOGI(GATTC_TAG, "BLE trim offset increased to: %d", ble_trim_offset);
+
+    return ble_trim_save_to_nvs();
+}
+
+// Decrease trim offset by 1
+esp_err_t ble_decrease_trim_offset(void) {
+    if (ble_trim_offset <= BLE_TRIM_MIN) {
+        ESP_LOGW(GATTC_TAG, "BLE trim offset already at minimum (%d)", BLE_TRIM_MIN);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ble_trim_offset--;
+    ESP_LOGI(GATTC_TAG, "BLE trim offset decreased to: %d", ble_trim_offset);
+
+    return ble_trim_save_to_nvs();
 }
 
 

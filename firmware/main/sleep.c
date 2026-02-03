@@ -148,20 +148,10 @@ void sleep_enter_deep_sleep(void) {
                 ESP_LOGE(TAG, "Failed to save trip distance on second attempt");
             }
         }
-        #if defined(CONFIG_IDF_TARGET_ESP32C3)
         // Configure wakeup
         ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << MAIN_BUTTON_GPIO,
                                                       ESP_GPIO_WAKEUP_GPIO_LOW));
-        #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-            // Make sure digital function is disabled
-        rtc_gpio_deinit(MAIN_BUTTON_GPIO);
-         // Configure as RTC input with pull-up
-        rtc_gpio_set_direction(MAIN_BUTTON_GPIO, RTC_GPIO_MODE_INPUT_ONLY);
-        rtc_gpio_pullup_en(MAIN_BUTTON_GPIO);
-        rtc_gpio_pulldown_dis(MAIN_BUTTON_GPIO);
-        // Set EXT0 wakeup (assuming wake on LOW when button pressed)
-        esp_sleep_enable_ext0_wakeup(MAIN_BUTTON_GPIO, 0);
-        #endif
+
 
         // Small delay to allow logs to be printed
         vTaskDelay(pdMS_TO_TICKS(2000));
@@ -173,20 +163,9 @@ void sleep_enter_deep_sleep(void) {
 
         // Continue with normal shutdown
         ui_save_trip_distance();
-        #if defined(CONFIG_IDF_TARGET_ESP32C3)
         // Configure wakeup
         ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(1ULL << MAIN_BUTTON_GPIO,
                                                       ESP_GPIO_WAKEUP_GPIO_LOW));
-        #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-            // Make sure digital function is disabled
-        rtc_gpio_deinit(MAIN_BUTTON_GPIO);
-         // Configure as RTC input with pull-up
-        rtc_gpio_set_direction(MAIN_BUTTON_GPIO, RTC_GPIO_MODE_INPUT_ONLY);
-        rtc_gpio_pullup_en(MAIN_BUTTON_GPIO);
-        rtc_gpio_pulldown_dis(MAIN_BUTTON_GPIO);
-        // Set EXT0 wakeup (assuming wake on LOW when button pressed)
-        esp_sleep_enable_ext0_wakeup(MAIN_BUTTON_GPIO, 0);
-        #endif
 
         vTaskDelay(pdMS_TO_TICKS(2000));
         esp_deep_sleep_start();
