@@ -1,7 +1,7 @@
 # GB Remote
 
 <div align="center">
-  <img src="https://github.com/georgebenett/gb_remote/blob/main/gb_remotes.jpg" width="50%" alt="GB Controller">
+  <img src="https://github.com/georgebenett/gb_remote/blob/main/gb_remotes.jpg" alt="GB Controller">
 </div>
 
 A firmware open-source hand controller for electric skateboards built with the ESP32S3. This project provides a complete wireless control solution with real-time telemetry monitoring, featuring a custom BLE protocol that communicates with VESC motor controllers and Jiabaida/Kaly BMS systems.
