@@ -114,7 +114,7 @@ static esp_ble_scan_params_t ble_scan_params = {
     .scan_duplicate         = BLE_SCAN_DUPLICATE_DISABLE
 };
 
-bool is_connect = false;
+static bool is_connect = false;
 static SemaphoreHandle_t is_connect_mutex = NULL;
 static const char device_name[] = DEVICE_NAME;
 static uint16_t spp_conn_id = 0;
@@ -329,8 +329,8 @@ static void reconnect_handler_task(void *pvParameters)
         // Wait for notification from timer callback
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        if (searching_for_paired && !is_connect) {
-            ESP_LOGW(GATTC_TAG, "Paired server not found after 5 seconds, scanning for any %s device...", device_name);
+        if (searching_for_paired && !ble_is_connected()) {
+            ESP_LOGW(GATTC_TAG, "Paired server not found after %d seconds, scanning for any %s device...", RECONNECT_TIMEOUT_MS / 1000, device_name);
             searching_for_paired = false;
             // Stop current scan - will restart in SCAN_STOP_COMPLETE_EVT handler
             pending_scan_restart = true;
@@ -351,7 +351,7 @@ static void start_reconnect_timer(void)
     if (reconnect_timer != NULL) {
         xTimerStart(reconnect_timer, 0);
         reconnect_start_time = esp_timer_get_time() / 1000;  // Convert to ms
-        ESP_LOGI(GATTC_TAG, "Started reconnect timer (15 seconds)");
+        ESP_LOGI(GATTC_TAG, "Started reconnect timer (%d seconds)", RECONNECT_TIMEOUT_MS / 1000);
     }
 }
 
@@ -563,7 +563,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
             pending_scan_restart = false;
             ESP_LOGI(GATTC_TAG, "Restarting scan for any device...");
             esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
-        } else if (is_connect == false) {
+        } else if (!ble_is_connected()) {
             ESP_LOGI(GATTC_TAG, "Connect to the remote device.");
             esp_ble_gattc_open(gl_profile_tab[PROFILE_APP_ID].gattc_if, scan_rst.scan_rst.bda, scan_rst.scan_rst.ble_addr_type, true);
         }
@@ -884,6 +884,12 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         ESP_LOGI(GATTC_TAG,"+MTU:%d", p_data->cfg_mtu.mtu);
         spp_mtu_size = p_data->cfg_mtu.mtu;
 
+        // Free existing db if any (prevent memory leak on MTU reconfig)
+        if (db != NULL) {
+            free(db);
+            db = NULL;
+        }
+
         db = (esp_gattc_db_elem_t *)malloc(count*sizeof(esp_gattc_db_elem_t));
         if(db == NULL){
             ESP_LOGE(GATTC_TAG,"%s:malloc db failed",__func__);
@@ -978,7 +984,7 @@ void spp_heart_beat_task(void * arg)
             // Reset watchdog after receiving command
             esp_task_wdt_reset();
             while(1){
-                if((is_connect == true) && (db != NULL) && ((db+SPP_IDX_SPP_HEARTBEAT_VAL)->properties & (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
+                if(ble_is_connected() && (db != NULL) && ((db+SPP_IDX_SPP_HEARTBEAT_VAL)->properties & (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
                     esp_ble_gattc_write_char( spp_gattc_if,
                                               spp_conn_id,
                                               (db+SPP_IDX_SPP_HEARTBEAT_VAL)->attribute_handle,
@@ -1070,7 +1076,7 @@ void uart_task(void *pvParameters)
             switch (event.type) {
             //Event of UART receiving data
             case UART_DATA:
-                if (event.size && (is_connect == true) && (db != NULL) && ((db+SPP_IDX_SPP_DATA_RECV_VAL)->properties & (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+                if (event.size && ble_is_connected() && (db != NULL) && ((db+SPP_IDX_SPP_DATA_RECV_VAL)->properties & (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
                     uint8_t * temp = NULL;
                     temp = (uint8_t *)malloc(sizeof(uint8_t)*event.size);
                     if(temp == NULL){
@@ -1193,7 +1199,6 @@ static void adc_send_task(void *pvParameters) {
     uint8_t data_buffer[3];  // 2 bytes for ADC value + 1 byte for aux output
 
     while (1) {
-        // Use ble_is_connected() for thread-safe access
         if (ble_is_connected() && db != NULL &&
             ((db+SPP_IDX_SPP_DATA_RECV_VAL)->properties &
              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
@@ -1331,7 +1336,7 @@ float get_bms_cell_voltage(uint8_t cell_index)
 
 static void log_rssi_task(void *pvParameters) {
     while (1) {
-        if (is_connect && spp_gattc_if != 0xff) {
+        if (ble_is_connected() && spp_gattc_if != 0xff) {
             esp_err_t ret = esp_ble_gap_read_rssi(scan_rst.scan_rst.bda);
             if (ret != ESP_OK) {
                 ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));

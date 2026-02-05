@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include "throttle.h"
 #include "hw_config.h"
 #include "power.h"
@@ -98,6 +99,13 @@ esp_err_t adc_battery_init(void) {
     return ESP_OK;
 }
 
+// Simple comparison function for qsort
+static int compare_int32(const void *a, const void *b) {
+    int32_t va = *(const int32_t *)a;
+    int32_t vb = *(const int32_t *)b;
+    return (va > vb) - (va < vb);
+}
+
 int32_t adc_read_battery_voltage(uint8_t channel) {
     if (!adc_is_initialized() || !adc_get_handle()) {
         ESP_LOGE(TAG, "ADC not properly initialized");
@@ -106,25 +114,47 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
 
     adc_oneshot_unit_handle_t adc1_handle = adc_get_handle();
 
-    // Take multiple readings and average
+    // Take multiple readings with outlier rejection
     const int NUM_SAMPLES = 10;
-    int32_t sum = 0;
+    const int MIN_VALID_SAMPLES = 6;  // Require at least 6/10 valid samples
+    const int TRIM_COUNT = 2;  // Remove 2 highest and 2 lowest values
+    int32_t samples[NUM_SAMPLES];
     int valid_samples = 0;
 
     for (int i = 0; i < NUM_SAMPLES; i++) {
         int adc_raw = 0;
         esp_err_t ret = adc_oneshot_read(adc1_handle, channel, &adc_raw);
 
-        if (ret == ESP_OK) {
-            sum += adc_raw;
+        if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
+            samples[valid_samples] = adc_raw;
             valid_samples++;
         }
 
-        // Small delay between samples
-        vTaskDelay(pdMS_TO_TICKS(1));
+        // Small delay between samples for ADC settling
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 
-    return valid_samples > 0 ? (sum / valid_samples) : -1;
+    // Require minimum valid samples
+    if (valid_samples < MIN_VALID_SAMPLES) {
+        ESP_LOGW(TAG, "Insufficient valid battery ADC samples: %d/%d", valid_samples, NUM_SAMPLES);
+        return -1;
+    }
+
+    // Sort samples for outlier rejection (trimmed mean)
+    qsort(samples, valid_samples, sizeof(int32_t), compare_int32);
+
+    // Calculate trimmed mean (exclude TRIM_COUNT from each end if we have enough samples)
+    int start_idx = (valid_samples > 2 * TRIM_COUNT) ? TRIM_COUNT : 0;
+    int end_idx = (valid_samples > 2 * TRIM_COUNT) ? valid_samples - TRIM_COUNT : valid_samples;
+    int32_t sum = 0;
+    int count = 0;
+
+    for (int i = start_idx; i < end_idx; i++) {
+        sum += samples[i];
+        count++;
+    }
+
+    return count > 0 ? (sum / count) : -1;
 }
 
 esp_err_t battery_init(void) {

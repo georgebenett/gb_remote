@@ -100,6 +100,8 @@ int32_t throttle_read_value(void)
 
     // Take multiple readings and average
     const int NUM_SAMPLES = 5;
+    const int MIN_VALID_SAMPLES = 3;  // Require at least 3/5 valid samples
+    int32_t samples[NUM_SAMPLES];
     int32_t sum = 0;
     int valid_samples = 0;
 
@@ -107,16 +109,38 @@ int32_t throttle_read_value(void)
         int adc_raw = 0;
         esp_err_t ret = adc_oneshot_read(adc1_handle, THROTTLE_PIN, &adc_raw);
 
-        if (ret == ESP_OK) {
+        if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
+            samples[valid_samples] = adc_raw;
             sum += adc_raw;
             valid_samples++;
         }
 
-        // Small delay between samples
-        vTaskDelay(pdMS_TO_TICKS(1));
+        // Small delay between samples for ADC settling
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 
-    return valid_samples > 0 ? (sum / valid_samples) : -1;
+    // Require minimum valid samples
+    if (valid_samples < MIN_VALID_SAMPLES) {
+        ESP_LOGW(TAG, "Insufficient valid ADC samples: %d/%d", valid_samples, NUM_SAMPLES);
+        return -1;
+    }
+
+    int32_t average = sum / valid_samples;
+
+    // Detect stuck ADC (all samples at extreme values)
+    bool all_at_min = true;
+    bool all_at_max = true;
+    for (int i = 0; i < valid_samples; i++) {
+        if (samples[i] > 10) all_at_min = false;
+        if (samples[i] < 4085) all_at_max = false;
+    }
+
+    if (all_at_min || all_at_max) {
+        ESP_LOGW(TAG, "ADC appears stuck at %s", all_at_min ? "minimum" : "maximum");
+        // Still return the value but log warning - calibration may handle this
+    }
+
+    return average;
 }
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
@@ -129,6 +153,8 @@ int32_t brake_read_value(void)
 
     // Take multiple readings and average
     const int NUM_SAMPLES = 5;
+    const int MIN_VALID_SAMPLES = 3;  // Require at least 3/5 valid samples
+    int32_t samples[NUM_SAMPLES];
     int32_t sum = 0;
     int valid_samples = 0;
 
@@ -136,16 +162,37 @@ int32_t brake_read_value(void)
         int adc_raw = 0;
         esp_err_t ret = adc_oneshot_read(adc1_handle, BREAK_PIN, &adc_raw);
 
-        if (ret == ESP_OK) {
+        if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
+            samples[valid_samples] = adc_raw;
             sum += adc_raw;
             valid_samples++;
         }
 
-        // Small delay between samples
-        vTaskDelay(pdMS_TO_TICKS(1));
+        // Small delay between samples for ADC settling
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 
-    return valid_samples > 0 ? (sum / valid_samples) : -1;
+    // Require minimum valid samples
+    if (valid_samples < MIN_VALID_SAMPLES) {
+        ESP_LOGW(TAG, "Insufficient valid brake ADC samples: %d/%d", valid_samples, NUM_SAMPLES);
+        return -1;
+    }
+
+    int32_t average = sum / valid_samples;
+
+    // Detect stuck ADC (all samples at extreme values)
+    bool all_at_min = true;
+    bool all_at_max = true;
+    for (int i = 0; i < valid_samples; i++) {
+        if (samples[i] > 10) all_at_min = false;
+        if (samples[i] < 4085) all_at_max = false;
+    }
+
+    if (all_at_min || all_at_max) {
+        ESP_LOGW(TAG, "Brake ADC appears stuck at %s", all_at_min ? "minimum" : "maximum");
+    }
+
+    return average;
 }
 #endif
 

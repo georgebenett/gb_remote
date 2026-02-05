@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 
-extern bool is_connect;
+// Thread-safe connection status check
 bool ble_is_connected(void);
 
 void spp_client_demo_init(void);
