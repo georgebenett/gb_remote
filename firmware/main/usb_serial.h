@@ -119,6 +119,3 @@ void usb_serial_send_stream_data(void);
 
 // Utility functions
 uint16_t calculate_crc16(const uint8_t* data, uint16_t length);
-
-// External variables and functions that will be called from USB handler
-extern bool is_connect;
