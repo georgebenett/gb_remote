@@ -441,7 +441,7 @@ static void handle_cmd_get_config(const binary_packet_t* packet) {
 #ifdef CONFIG_TARGET_LITE
     if (hand_controller_config.invert_throttle) flags |= 0x02;
 #endif
-    if (is_connect) flags |= 0x04;
+    if (ble_is_connected()) flags |= 0x04;
     if (throttle_is_calibrated()) flags |= 0x08;
     payload[idx++] = flags;
 
@@ -464,7 +464,7 @@ static void handle_cmd_get_config(const binary_packet_t* packet) {
 
     // Current speed (4 bytes, little-endian, signed)
     int32_t speed = 0;
-    if (is_connect) {
+    if (ble_is_connected()) {
         speed = vesc_config_get_speed(&hand_controller_config);
     }
     payload[idx++] = (speed >> 0) & 0xFF;
@@ -800,7 +800,7 @@ void usb_serial_send_stream_data(void) {
     payload[idx++] = (timestamp_ms >> 24) & 0xFF;
 
     uint8_t flags = 0;
-    if (is_connect) flags |= 0x01;
+    if (ble_is_connected()) flags |= 0x01;
     if (throttle_is_calibrated()) flags |= 0x02;
     payload[idx++] = flags;
 

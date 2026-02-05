@@ -409,7 +409,7 @@ static void speed_update_task(void *pvParameters) {
             force_config_reload = false;
         }
 
-        if (is_connect) {
+        if (ble_is_connected()) {
             int32_t speed = vesc_config_get_speed(&config);
             if (speed >= 0) {
                 ui_update_speed(speed);
@@ -487,7 +487,7 @@ static void battery_update_task(void *pvParameters) {
             ui_update_battery_voltage_display(battery_voltage);
         }
 
-        if (is_connect) {
+        if (ble_is_connected()) {
             float bms_voltage = get_bms_total_voltage();
             bool bms_connected = (bms_voltage > 0.1f);
 
@@ -512,10 +512,12 @@ static void battery_update_task(void *pvParameters) {
 }
 
 static void connection_update_task(void *pvParameters) {
-
+    // Register with task watchdog
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
     while (1) {
         ui_update_connection_icon();
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(CONNECTION_UPDATE_MS));
     }
 }
@@ -593,7 +595,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
                     case UI_CMD_UPDATE_CONNECTION_ICON:
                         if (on_home && objects.connection_icon != NULL) {
                             const void* icon_src = NULL;
-                            if (!is_connect) {
+                            if (!ble_is_connected()) {
                                 icon_src = &img_connection_0;
                             } else if (cmd.data.connection_quality >= 30) {
                                 icon_src = &img_100_connection;

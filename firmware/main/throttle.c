@@ -162,7 +162,8 @@ static void adc_task(void *pvParameters) {
         adc_raw = throttle_read_value();
 
 #ifdef CONFIG_TARGET_LITE
-        uint32_t adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : 0;
+        // On ADC error, use neutral value (not 0 which would be throttle)
+        uint32_t adc_value = (adc_raw >= 0) ? (uint32_t)adc_raw : VESC_NEUTRAL_VALUE;
 #endif
 
         if (adc_raw < 0) {
@@ -191,7 +192,7 @@ static void adc_task(void *pvParameters) {
         latest_adc_value = mapped_value;
 #endif
 
-        if(!is_connect){
+        if (!ble_is_connected()) {
             // Only monitor value changes and reset timer when BLE is not connected
             if (abs((int32_t)mapped_value - (int32_t)last_value) > CHANGE_THRESHOLD) {
                 power_reset_inactivity_timer();
@@ -264,6 +265,28 @@ void adc_deinit(void)
     adc_initialized = false;
 }
 
+static bool validate_calibration_values(uint32_t min_val, uint32_t max_val) {
+    // Check values are within valid ADC range (12-bit = 0-4095)
+    if (min_val > 4095 || max_val > 4095) {
+        ESP_LOGW(TAG, "Calibration values out of ADC range");
+        return false;
+    }
+
+    // Check min < max
+    if (min_val >= max_val) {
+        ESP_LOGW(TAG, "Calibration min >= max");
+        return false;
+    }
+
+    // Check range is sufficient (at least 150 units)
+    if ((max_val - min_val) < 150) {
+        ESP_LOGW(TAG, "Calibration range too small: %lu", (max_val - min_val));
+        return false;
+    }
+
+    return true;
+}
+
 static esp_err_t load_calibration_from_nvs(void) {
     nvs_handle_t nvs_handle;
     esp_err_t err;
@@ -283,33 +306,56 @@ static esp_err_t load_calibration_from_nvs(void) {
     }
 
     // Read throttle calibration values
-    err = nvs_get_u32(nvs_handle, NVS_KEY_MIN, &adc_input_min_value);
+    uint32_t temp_min, temp_max;
+    err = nvs_get_u32(nvs_handle, NVS_KEY_MIN, &temp_min);
     if (err != ESP_OK) {
         nvs_close(nvs_handle);
         return err;
     }
 
-    err = nvs_get_u32(nvs_handle, NVS_KEY_MAX, &adc_input_max_value);
+    err = nvs_get_u32(nvs_handle, NVS_KEY_MAX, &temp_max);
     if (err != ESP_OK) {
         nvs_close(nvs_handle);
         return err;
     }
+
+    // Validate throttle calibration
+    if (!validate_calibration_values(temp_min, temp_max)) {
+        ESP_LOGW(TAG, "Invalid throttle calibration in NVS, re-calibration needed");
+        nvs_close(nvs_handle);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    adc_input_min_value = temp_min;
+    adc_input_max_value = temp_max;
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-    // Read brake calibration values (if available, use defaults otherwise)
-    err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MIN, &brake_input_min_value);
+    // Read brake calibration values
+    uint32_t brake_temp_min, brake_temp_max;
+    err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MIN, &brake_temp_min);
     if (err != ESP_OK) {
-        brake_input_min_value = ADC_INITIAL_MIN_VALUE;
+        brake_temp_min = ADC_INITIAL_MIN_VALUE;
     }
 
-    err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MAX, &brake_input_max_value);
+    err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MAX, &brake_temp_max);
     if (err != ESP_OK) {
+        brake_temp_max = ADC_INITIAL_MAX_VALUE;
+    }
+
+    // Validate brake calibration
+    if (validate_calibration_values(brake_temp_min, brake_temp_max)) {
+        brake_input_min_value = brake_temp_min;
+        brake_input_max_value = brake_temp_max;
+    } else {
+        ESP_LOGW(TAG, "Invalid brake calibration in NVS, using defaults");
+        brake_input_min_value = ADC_INITIAL_MIN_VALUE;
         brake_input_max_value = ADC_INITIAL_MAX_VALUE;
     }
 #endif
 
     nvs_close(nvs_handle);
     calibration_done = true;
+    ESP_LOGI(TAG, "Loaded calibration: throttle %lu-%lu", adc_input_min_value, adc_input_max_value);
     return ESP_OK;
 }
 
@@ -500,6 +546,12 @@ bool throttle_should_use_neutral(void) {
 }
 
 uint8_t map_throttle_value(uint32_t adc_value) {
+    // Protection against invalid calibration
+    uint32_t range = adc_input_max_value - adc_input_min_value;
+    if (range == 0) {
+        return VESC_NEUTRAL_VALUE;  // Return neutral on invalid calibration
+    }
+
     // Constrain input value to the calibrated range
     if (adc_value < adc_input_min_value) {
         adc_value = adc_input_min_value;
@@ -511,14 +563,24 @@ uint8_t map_throttle_value(uint32_t adc_value) {
     // Perform the mapping
     uint8_t mapped = (uint8_t)((adc_value - adc_input_min_value) *
            (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) /
-           (adc_input_max_value - adc_input_min_value) +
-           ADC_OUTPUT_MIN_VALUE);
+           range + ADC_OUTPUT_MIN_VALUE);
+
+    // Apply dead zone around neutral (±3 units)
+    if (mapped >= (VESC_NEUTRAL_VALUE - 3) && mapped <= (VESC_NEUTRAL_VALUE + 3)) {
+        mapped = VESC_NEUTRAL_VALUE;
+    }
 
     return mapped;
 }
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 uint8_t map_brake_value(uint32_t adc_value) {
+    // Protection against invalid calibration
+    uint32_t range = brake_input_max_value - brake_input_min_value;
+    if (range == 0) {
+        return ADC_OUTPUT_MIN_VALUE;  // Return minimum brake on invalid calibration
+    }
+
     // Constrain input value to the calibrated range
     if (adc_value < brake_input_min_value) {
         adc_value = brake_input_min_value;
@@ -530,8 +592,7 @@ uint8_t map_brake_value(uint32_t adc_value) {
     // Perform the mapping (no offset for brake)
     uint8_t mapped = (uint8_t)((adc_value - brake_input_min_value) *
            (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) /
-           (brake_input_max_value - brake_input_min_value) +
-           ADC_OUTPUT_MIN_VALUE);
+           range + ADC_OUTPUT_MIN_VALUE);
 
     return mapped;
 }

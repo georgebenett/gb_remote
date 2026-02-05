@@ -38,6 +38,7 @@
 #include "ui_updater.h"
 #include "vesc_config.h"
 #include "ble.h"
+#include "battery.h"
 
 #define DEVICE_NAME                 "GS-THUMB"
 #define GATTC_TAG                   "GATTC_SPP_DEMO"
@@ -1192,32 +1193,39 @@ static void adc_send_task(void *pvParameters) {
     uint8_t data_buffer[3];  // 2 bytes for ADC value + 1 byte for aux output
 
     while (1) {
-        if (is_connect && db != NULL &&
+        // Use ble_is_connected() for thread-safe access
+        if (ble_is_connected() && db != NULL &&
             ((db+SPP_IDX_SPP_DATA_RECV_VAL)->properties &
              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))){
 
             uint32_t adc_value;
             bool throttle_inverted = false;
 
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-            adc_value = get_throttle_brake_ble_value();
-#elif defined(CONFIG_TARGET_LITE)
-            if (throttle_should_use_neutral()) {
+            // SAFETY: Block throttle on low battery - force neutral
+            if (battery_is_low_voltage()) {
                 adc_value = VESC_NEUTRAL_VALUE;
+                ESP_LOGW(GATTC_TAG, "Low battery - throttle blocked, sending neutral");
             } else {
-                adc_value = adc_get_latest_value();
-            }
-
-            vesc_config_t config;
-            esp_err_t err = vesc_config_load(&config);
-
-            if (err == ESP_OK) {
-                if (config.invert_throttle) {
-                    adc_value = 255 - adc_value;
-                    throttle_inverted = true;
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+                adc_value = get_throttle_brake_ble_value();
+#elif defined(CONFIG_TARGET_LITE)
+                if (throttle_should_use_neutral()) {
+                    adc_value = VESC_NEUTRAL_VALUE;
+                } else {
+                    adc_value = adc_get_latest_value();
                 }
-            }
+
+                vesc_config_t config;
+                esp_err_t err = vesc_config_load(&config);
+
+                if (err == ESP_OK) {
+                    if (config.invert_throttle) {
+                        adc_value = 255 - adc_value;
+                        throttle_inverted = true;
+                    }
+                }
 #endif
+            }
 
             uint8_t final_ble_value;
             int8_t effective_trim = throttle_inverted ? -ble_trim_offset : ble_trim_offset;

@@ -100,7 +100,7 @@ static void power_button_callback(button_event_t event, void* user_data) {
 
         case BUTTON_EVENT_DOUBLE_PRESS:
             // Toggle auxiliary output on double press (only if BLE connected)
-            if (is_connect) {
+            if (ble_is_connected()) {
                 ble_toggle_aux_output();
                 ui_update_aux_output_indicator();
                 viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
@@ -237,11 +237,19 @@ void power_shutdown(void) {
     uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
     lcd_fade_backlight(current_pwm, min_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
 
+    // Save trip distance with retry on failure
     esp_err_t err = ui_save_trip_distance();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save trip distance: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to save trip distance: %s, retrying...", esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(50));
+        err = ui_save_trip_distance();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Retry failed: %s", esp_err_to_name(err));
+        }
     }
-    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Allow sufficient time for NVS flash operations to complete
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     power_enter_sleep();
 }
