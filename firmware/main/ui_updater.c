@@ -397,6 +397,7 @@ static void speed_update_task(void *pvParameters) {
     const uint32_t CONFIG_RELOAD_INTERVAL = 50;
 
     while (1) {
+        esp_task_wdt_reset();  // Reset at start to ensure timely reset
         vTaskDelayUntil(&last_wake_time, frequency);
 
         config_reload_counter++;
@@ -416,7 +417,6 @@ static void speed_update_task(void *pvParameters) {
                 ui_update_speed_unit(config.speed_unit_mph);
             }
         }
-        esp_task_wdt_reset();
     }
 }
 
@@ -431,6 +431,8 @@ static void trip_distance_update_task(void *pvParameters) {
     const uint32_t CONFIG_RELOAD_INTERVAL = 10;
 
     while (1) {
+        esp_task_wdt_reset();  // Reset at start to ensure timely reset
+
         config_reload_counter++;
         if (config_reload_counter >= CONFIG_RELOAD_INTERVAL || force_config_reload) {
             esp_err_t err = vesc_config_load(&config);
@@ -443,7 +445,6 @@ static void trip_distance_update_task(void *pvParameters) {
 
         int32_t speed = vesc_config_get_speed(&config);
         ui_update_trip_distance(speed);
-        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(TRIP_UPDATE_MS));
     }
 }
@@ -457,6 +458,7 @@ static void battery_update_task(void *pvParameters) {
     const uint32_t RATE_LIMIT_MS = 5000;
 
     while (1) {
+        esp_task_wdt_reset();  // Reset at start to ensure timely reset
 
         int battery_percentage = battery_get_percentage();
         float battery_voltage = battery_get_voltage();
@@ -506,7 +508,6 @@ static void battery_update_task(void *pvParameters) {
                 }
             }
         }
-        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(BATTERY_UPDATE_MS));
     }
 }
@@ -515,10 +516,20 @@ static void connection_update_task(void *pvParameters) {
     // Register with task watchdog
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
+    // Split long delay into smaller chunks to avoid watchdog timeout
+    // CONNECTION_UPDATE_MS is 5000ms, watchdog timeout is typically 5s
+    const int CHUNK_MS = 1000;  // Reset watchdog every 1 second
+    const int CHUNKS_NEEDED = CONNECTION_UPDATE_MS / CHUNK_MS;
+
     while (1) {
-        ui_update_connection_icon();
         esp_task_wdt_reset();
-        vTaskDelay(pdMS_TO_TICKS(CONNECTION_UPDATE_MS));
+        ui_update_connection_icon();
+
+        // Delay in smaller chunks, resetting watchdog each time
+        for (int i = 0; i < CHUNKS_NEEDED; i++) {
+            vTaskDelay(pdMS_TO_TICKS(CHUNK_MS));
+            esp_task_wdt_reset();
+        }
     }
 }
 
