@@ -15,6 +15,11 @@
 #include "esp_task_wdt.h"
 
 static const char *TAG = "ADC";
+
+// Timing constants
+#define ADC_SAMPLE_SETTLING_MS      2       // Delay between ADC samples for settling
+#define CALIBRATION_STEP_DELAY_MS   100     // Delay between calibration steps
+
 static adc_oneshot_unit_handle_t adc1_handle;
 static adc_oneshot_unit_init_cfg_t init_config1;
 static adc_oneshot_chan_cfg_t config;
@@ -80,7 +85,7 @@ esp_err_t adc_init(void)
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     // Configure brake channel (dual_throttle only)
-    ret = adc_oneshot_config_channel(adc1_handle, BREAK_PIN, &config);
+    ret = adc_oneshot_config_channel(adc1_handle, BRAKE_PIN, &config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Brake ADC channel configuration failed");
         return ret;
@@ -116,7 +121,7 @@ int32_t throttle_read_value(void)
         }
 
         // Small delay between samples for ADC settling
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_SETTLING_MS));
     }
 
     // Require minimum valid samples
@@ -160,7 +165,7 @@ int32_t brake_read_value(void)
 
     for (int i = 0; i < NUM_SAMPLES; i++) {
         int adc_raw = 0;
-        esp_err_t ret = adc_oneshot_read(adc1_handle, BREAK_PIN, &adc_raw);
+        esp_err_t ret = adc_oneshot_read(adc1_handle, BRAKE_PIN, &adc_raw);
 
         if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
             samples[valid_samples] = adc_raw;
@@ -169,7 +174,7 @@ int32_t brake_read_value(void)
         }
 
         // Small delay between samples for ADC settling
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_SETTLING_MS));
     }
 
     // Require minimum valid samples
@@ -218,13 +223,13 @@ static void adc_task(void *pvParameters) {
             if (error_count >= MAX_ERRORS) {
                 ESP_LOGE(TAG, "Too many ADC errors, attempting re-initialization");
                 adc_deinit();
-                vTaskDelay(pdMS_TO_TICKS(100));
+                vTaskDelay(pdMS_TO_TICKS(CALIBRATION_STEP_DELAY_MS));
                 if (adc_init() == ESP_OK) {
                     error_count = 0;
                 }
             }
             latest_adc_value = VESC_NEUTRAL_VALUE;
-            vTaskDelay(pdMS_TO_TICKS(100));
+            vTaskDelay(pdMS_TO_TICKS(CALIBRATION_STEP_DELAY_MS));
             continue;
         }
         error_count = 0;  // Reset error count on successful read
@@ -266,7 +271,7 @@ void adc_start_task(void) {
         return;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(CALIBRATION_STEP_DELAY_MS));
 
 #if CALIBRATE_THROTTLE
     ESP_LOGI(TAG, "Force calibration flag set, performing calibration");

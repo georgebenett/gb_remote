@@ -1,5 +1,6 @@
 #include "lcd.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
 #include "esp_timer.h"
@@ -105,9 +106,16 @@ void lcd_init(void) {
     lv_init();
 
     buf1 = heap_caps_malloc(LV_HOR_RES_MAX * (LV_VER_RES_MAX/8) * sizeof(lv_color_t), MALLOC_CAP_DMA);
-    assert(buf1 != NULL);
+    if (buf1 == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate display buffer 1 - system cannot start");
+        esp_restart();
+    }
     buf2 = heap_caps_malloc(LV_HOR_RES_MAX * (LV_VER_RES_MAX/8) * sizeof(lv_color_t), MALLOC_CAP_DMA);
-    assert(buf2 != NULL);
+    if (buf2 == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate display buffer 2 - system cannot start");
+        free(buf1);
+        esp_restart();
+    }
 
     lv_disp_draw_buf_init(&draw_buf, buf1, buf2, LV_HOR_RES_MAX * (LV_VER_RES_MAX/8));
 

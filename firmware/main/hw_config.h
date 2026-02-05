@@ -5,7 +5,7 @@
 
 // ADC channel definitions
 #define THROTTLE_PIN ADC_CHANNEL_8
-#define BREAK_PIN ADC_CHANNEL_7
+#define BRAKE_PIN ADC_CHANNEL_7
 
 // Battery ADC channel
 #define BATTERY_VOLTAGE_PIN ADC_CHANNEL_0

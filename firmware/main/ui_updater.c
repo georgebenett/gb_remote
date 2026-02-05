@@ -3,6 +3,7 @@
 #include "throttle.h"
 #include "battery.h"
 #include "ble.h"
+#include "power.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -61,16 +62,21 @@ static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(10);
 
 static volatile bool force_config_reload = false;
 
-static uint8_t connection_quality = 0;
-static float total_trip_km = 0.0f;
+// Shared UI state (volatile ensures visibility across tasks)
+static volatile uint8_t connection_quality = 0;
+static volatile float total_trip_km = 0.0f;
 static uint32_t last_update_time = 0;
 
-extern volatile bool entering_power_off_mode;
+// Task update intervals
+#define SPEED_UPDATE_MS         50      // 20Hz for smooth speed display
+#define TRIP_UPDATE_MS          1000    // 1Hz for distance
+#define BATTERY_UPDATE_MS       1000    // 1Hz for battery
+#define CONNECTION_UPDATE_MS    3000    // 0.33Hz for connection icon
 
-#define SPEED_UPDATE_MS       50
-#define TRIP_UPDATE_MS       1000    // 1Hz for distance
-#define BATTERY_UPDATE_MS    1000    // 1Hz for battery
-#define CONNECTION_UPDATE_MS 5000    // 0.2Hz for connection
+// Timing constants
+#define TASK_STARTUP_DELAY_MS   100     // Staggered task startup delay
+#define MUTEX_RETRY_DELAY_MS    5       // Delay when mutex unavailable
+#define SPLASH_SCREEN_DELAY_MS  1000    // Post-splash delay
 
 static lv_obj_t* get_current_screen(void) {
     return lv_scr_act();
@@ -141,7 +147,7 @@ static bool ui_queue_send(ui_cmd_t *cmd) {
 }
 
 void ui_update_speed(int32_t value) {
-    if (entering_power_off_mode || !objects.speedlabel) return;
+    if (power_is_entering_off_mode() || !objects.speedlabel) return;
 
     static int32_t last_value = -1;
 
@@ -158,7 +164,7 @@ void ui_update_speed(int32_t value) {
 }
 
 void ui_update_battery_percentage(int percentage) {
-    if (entering_power_off_mode) return;
+    if (power_is_entering_off_mode()) return;
     if (objects.controller_battery_text == NULL || objects.controller_battery == NULL) return;
 
     int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
@@ -175,7 +181,7 @@ void ui_update_battery_percentage(int percentage) {
 }
 
 void ui_update_battery_voltage_display(float voltage) {
-    if (entering_power_off_mode) return;
+    if (power_is_entering_off_mode()) return;
     if (objects.display_voltage == NULL) return;
 
     float battery_voltage = battery_get_voltage();
@@ -188,7 +194,7 @@ void ui_update_battery_voltage_display(float voltage) {
 }
 
 void ui_update_skate_battery_percentage(int percentage) {
-    if (entering_power_off_mode) return;
+    if (power_is_entering_off_mode()) return;
     if (objects.skate_battery_text == NULL) return;
 
     ui_cmd_t cmd = {
@@ -199,7 +205,7 @@ void ui_update_skate_battery_percentage(int percentage) {
 }
 
 void ui_update_skate_battery_voltage_display(float voltage) {
-    if (entering_power_off_mode) return;
+    if (power_is_entering_off_mode()) return;
     if (objects.skate_battery_text == NULL) return;
 
     ui_cmd_t cmd = {
@@ -218,15 +224,13 @@ void ui_update_connection_quality(int rssi) {
         connection_quality = 0;
     } else {
         connection_quality = ((rssi + 100) * 100) / 70;
-
         if (connection_quality > 100) connection_quality = 100;
-
     }
     ui_update_connection_icon();
 }
 
 void ui_update_connection_icon(void) {
-    if (entering_power_off_mode) return;
+    if (power_is_entering_off_mode()) return;
     if (objects.connection_icon == NULL) return;
 
     ui_cmd_t cmd = {
@@ -237,7 +241,7 @@ void ui_update_connection_icon(void) {
 }
 
 void ui_update_trip_distance(int32_t speed_kmh) {
-    if (entering_power_off_mode) return;
+    if (power_is_entering_off_mode()) return;
     if (objects.odometer == NULL) return;
 
     uint32_t current_time = esp_timer_get_time() / 1000;
@@ -280,6 +284,7 @@ void ui_reset_trip_distance(void) {
 esp_err_t ui_save_trip_distance(void) {
     nvs_handle_t nvs_handle;
     esp_err_t err;
+    float trip_km_copy = total_trip_km;
 
     err = nvs_open(TRIP_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
     if (err != ESP_OK) {
@@ -287,7 +292,7 @@ esp_err_t ui_save_trip_distance(void) {
         return err;
     }
 
-    err = nvs_set_blob(nvs_handle, NVS_KEY_TRIP_KM, &total_trip_km, sizeof(float));
+    err = nvs_set_blob(nvs_handle, NVS_KEY_TRIP_KM, &trip_km_copy, sizeof(float));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error saving trip distance: %s", esp_err_to_name(err));
         nvs_close(nvs_handle);
@@ -298,7 +303,7 @@ esp_err_t ui_save_trip_distance(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error committing NVS: %s", esp_err_to_name(err));
     } else {
-        ESP_LOGI(TAG, "Trip distance saved: %.2f km", total_trip_km);
+        ESP_LOGI(TAG, "Trip distance saved: %.2f km", trip_km_copy);
     }
 
     nvs_close(nvs_handle);
@@ -320,8 +325,9 @@ esp_err_t ui_load_trip_distance(void) {
         return err;
     }
 
+    float loaded_trip_km = 0.0f;
     size_t required_size = sizeof(float);
-    err = nvs_get_blob(nvs_handle, NVS_KEY_TRIP_KM, &total_trip_km, &required_size);
+    err = nvs_get_blob(nvs_handle, NVS_KEY_TRIP_KM, &loaded_trip_km, &required_size);
     if (err != ESP_OK) {
         if (err == ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGI(TAG, "No trip data found, starting from 0");
@@ -331,7 +337,8 @@ esp_err_t ui_load_trip_distance(void) {
             ESP_LOGE(TAG, "Error loading trip distance: %s", esp_err_to_name(err));
         }
     } else {
-        ESP_LOGI(TAG, "Trip distance loaded: %.2f km", total_trip_km);
+        ESP_LOGI(TAG, "Trip distance loaded: %.2f km", loaded_trip_km);
+        total_trip_km = loaded_trip_km;
     }
 
     nvs_close(nvs_handle);
@@ -375,7 +382,7 @@ void ui_check_mutex_health(void) {
 }
 
 void ui_update_speed_unit(bool is_mph) {
-    if (entering_power_off_mode || !objects.static_speed) return;
+    if (power_is_entering_off_mode() || !objects.static_speed) return;
 
     ui_cmd_t cmd = {
         .type = UI_CMD_UPDATE_SPEED_UNIT,
@@ -397,7 +404,6 @@ static void speed_update_task(void *pvParameters) {
     const uint32_t CONFIG_RELOAD_INTERVAL = 50;
 
     while (1) {
-        esp_task_wdt_reset();  // Reset at start to ensure timely reset
         vTaskDelayUntil(&last_wake_time, frequency);
 
         config_reload_counter++;
@@ -417,6 +423,7 @@ static void speed_update_task(void *pvParameters) {
                 ui_update_speed_unit(config.speed_unit_mph);
             }
         }
+        esp_task_wdt_reset();
     }
 }
 
@@ -431,8 +438,6 @@ static void trip_distance_update_task(void *pvParameters) {
     const uint32_t CONFIG_RELOAD_INTERVAL = 10;
 
     while (1) {
-        esp_task_wdt_reset();  // Reset at start to ensure timely reset
-
         config_reload_counter++;
         if (config_reload_counter >= CONFIG_RELOAD_INTERVAL || force_config_reload) {
             esp_err_t err = vesc_config_load(&config);
@@ -445,6 +450,7 @@ static void trip_distance_update_task(void *pvParameters) {
 
         int32_t speed = vesc_config_get_speed(&config);
         ui_update_trip_distance(speed);
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(TRIP_UPDATE_MS));
     }
 }
@@ -458,8 +464,6 @@ static void battery_update_task(void *pvParameters) {
     const uint32_t RATE_LIMIT_MS = 5000;
 
     while (1) {
-        esp_task_wdt_reset();  // Reset at start to ensure timely reset
-
         int battery_percentage = battery_get_percentage();
         float battery_voltage = battery_get_voltage();
 
@@ -508,28 +512,18 @@ static void battery_update_task(void *pvParameters) {
                 }
             }
         }
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(BATTERY_UPDATE_MS));
     }
 }
 
 static void connection_update_task(void *pvParameters) {
-    // Register with task watchdog
-    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
-
-    // Split long delay into smaller chunks to avoid watchdog timeout
-    // CONNECTION_UPDATE_MS is 5000ms, watchdog timeout is typically 5s
-    const int CHUNK_MS = 1000;  // Reset watchdog every 1 second
-    const int CHUNKS_NEEDED = CONNECTION_UPDATE_MS / CHUNK_MS;
+    // Not registered with watchdog - this is a non-critical UI task
+    // and its 5s update interval would conflict with watchdog timeout
 
     while (1) {
-        esp_task_wdt_reset();
         ui_update_connection_icon();
-
-        // Delay in smaller chunks, resetting watchdog each time
-        for (int i = 0; i < CHUNKS_NEEDED; i++) {
-            vTaskDelay(pdMS_TO_TICKS(CHUNK_MS));
-            esp_task_wdt_reset();
-        }
+        vTaskDelay(pdMS_TO_TICKS(CONNECTION_UPDATE_MS));
     }
 }
 
@@ -652,25 +646,25 @@ static void ui_cmd_processor_task(void *pvParameters) {
                 if (xQueueSendToFront(ui_cmd_queue, &cmd, 0) != pdTRUE) {
                     ESP_LOGW(TAG, "Failed to re-queue UI command, update dropped");
                 }
-                vTaskDelay(pdMS_TO_TICKS(5));
+                vTaskDelay(pdMS_TO_TICKS(MUTEX_RETRY_DELAY_MS));
             }
         }
     }
 }
 
 void ui_start_update_tasks(void) {
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
 
     // Start the UI command processor task first (highest priority for UI responsiveness)
     xTaskCreate(ui_cmd_processor_task, "ui_cmd_proc", 3072, NULL, 5, NULL);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
 
     xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4, NULL);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
     xTaskCreate(trip_distance_update_task, "trip_update", 4096, NULL, 3, NULL);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
     xTaskCreate(battery_update_task, "battery_update", 4096, NULL, 2, NULL);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
     xTaskCreate(connection_update_task, "conn_update", 4096, NULL, 2, NULL);
 }
 
@@ -710,5 +704,5 @@ void ui_show_splash_screen(void) {
 
     lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);
     lv_timer_set_repeat_count(splash_timer, 1);
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(SPLASH_SCREEN_DELAY_MS));
 }

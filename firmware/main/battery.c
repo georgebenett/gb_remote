@@ -24,6 +24,14 @@ static float latest_battery_voltage = 0.0f;
 static bool low_voltage_alerted = false;
 static bool low_voltage_shutdown_triggered = false;
 
+// Timing constants
+#define ADC_SAMPLE_SETTLING_MS      2       // Delay between ADC samples
+#define TASK_STARTUP_DELAY_MS       100     // Delay for task initialization
+#define BATTERY_MONITOR_INTERVAL_MS 500     // Battery monitoring poll rate
+#define LOW_BATTERY_ALERT_DELAY_MS  500     // Haptic feedback delay
+#define LOW_BATTERY_WARNING_MS      2000    // Show warning before shutdown
+#define POWER_OFF_SETTLE_MS         100     // Delay after power pin toggle
+
 // Battery state of charge lookup table
 typedef struct {
     float voltage;
@@ -131,7 +139,7 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
         }
 
         // Small delay between samples for ADC settling
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_SETTLING_MS));
     }
 
     // Require minimum valid samples
@@ -216,7 +224,7 @@ void battery_start_monitoring(void) {
 
 float battery_read_voltage(void) {
     gpio_set_level(BATTERY_PROBE_PIN, 1);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
 
     int32_t adc_value = adc_read_battery_voltage(BATTERY_VOLTAGE_PIN);
 
@@ -305,7 +313,7 @@ static void battery_monitoring_task(void *pvParameters) {
 
         // Reset watchdog before delay
         esp_task_wdt_reset();
-        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(500));
+        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(BATTERY_MONITOR_INTERVAL_MS));
     }
 
     vTaskDelete(NULL);
@@ -337,7 +345,7 @@ static void battery_low_voltage_shutdown(void) {
 
     // Alert user with haptic feedback
     viber_play_pattern(VIBER_PATTERN_ALERT);
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_ALERT_DELAY_MS));
 
     // Show warning on shutdown screen if possible
     if (take_lvgl_mutex()) {
@@ -349,14 +357,14 @@ static void battery_low_voltage_shutdown(void) {
     }
 
     // Give user a moment to see the warning
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_WARNING_MS));
 
     // Turn off power hold pin to prevent over-discharge
     ESP_LOGI(TAG, "Turning off power hold pin to prevent battery over-discharge");
     gpio_set_level(POWER_HOLD_GPIO, 0);
 
     // Small delay to ensure power is cut
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(POWER_OFF_SETTLE_MS));
 
     // Force deep sleep as final safety measure
     esp_deep_sleep_start();

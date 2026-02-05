@@ -1,3 +1,40 @@
+/**
+ * @file main.c
+ * @brief Main entry point for the GB Remote firmware
+ *
+ * ERROR HANDLING STRATEGY:
+ * ========================
+ * This codebase uses a tiered error handling approach:
+ *
+ * 1. CRITICAL ERRORS (ESP_ERROR_CHECK / esp_restart):
+ *    - NVS flash initialization failure
+ *    - ADC initialization failure (throttle input is safety-critical)
+ *    - Display buffer allocation failure
+ *    - Button initialization failure (power control)
+ *    - BLE stack initialization failure
+ *    These errors prevent safe operation and require immediate abort/restart.
+ *
+ * 2. NON-CRITICAL ERRORS (log warning, continue with degraded functionality):
+ *    - VESC config load failure -> use defaults
+ *    - Viber/haptic init failure -> disable haptic feedback
+ *    - NVS read failures for settings -> use defaults
+ *    - UI update failures -> skip update, try again next cycle
+ *    These errors allow continued operation with reduced features.
+ *
+ * 3. TRANSIENT ERRORS (retry or ignore):
+ *    - ADC read failures -> retry with averaging
+ *    - BLE write failures -> log and continue
+ *    - Mutex timeout -> retry or skip update
+ *    These errors are expected occasionally and handled gracefully.
+ *
+ * THREAD SAFETY:
+ * ==============
+ * - Shared state uses volatile for visibility across tasks
+ * - LVGL operations protected with dedicated mutex
+ * - UI updates use command queue for thread-safe cross-task communication
+ * - On ESP32, 32-bit aligned reads/writes are atomic at hardware level
+ */
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"

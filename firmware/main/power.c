@@ -18,13 +18,25 @@
 
 #define TAG "POWER"
 
+// Delay constants
+#define SHUTDOWN_FEEDBACK_DELAY_MS   100
+#define BUTTON_DEBOUNCE_DELAY_MS     50
+#define BUTTON_POLL_INTERVAL_MS      10
+#define NVS_RETRY_DELAY_MS           50
+#define NVS_FLUSH_DELAY_MS           200
+
 static TickType_t last_activity_time;
 static TickType_t last_reset_time = 0;
 
 static lv_anim_t arc_anim;
 static bool arc_animation_active = false;
 
-volatile bool entering_power_off_mode = false;
+// Shared flag for power-off state (volatile ensures visibility across tasks)
+static volatile bool entering_power_off_mode = false;
+
+bool power_is_entering_off_mode(void) {
+    return entering_power_off_mode;
+}
 
 static bool button_released_since_boot = false;
 
@@ -44,7 +56,7 @@ static void set_bar_value(void * obj, int32_t v)
         ESP_LOGI(TAG, "Bar filled - Shutting down");
         viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
         entering_power_off_mode = true;
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_FEEDBACK_DELAY_MS));
         power_shutdown();
     }
 }
@@ -124,7 +136,7 @@ static bool power_check_wake_from_sleep(void) {
         };
         gpio_config(&button_conf);
 
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(BUTTON_DEBOUNCE_DELAY_MS));
 
         bool button_pressed = (gpio_get_level(MAIN_BUTTON_GPIO) == 0);
 
@@ -135,7 +147,7 @@ static bool power_check_wake_from_sleep(void) {
             const TickType_t long_press_ticks = pdMS_TO_TICKS(BUTTON_LONG_PRESS_TIME_MS);
 
             while ((xTaskGetTickCount() - start_time) < long_press_ticks) {
-                vTaskDelay(pdMS_TO_TICKS(10));
+                vTaskDelay(pdMS_TO_TICKS(BUTTON_POLL_INTERVAL_MS));
                 button_pressed = (gpio_get_level(MAIN_BUTTON_GPIO) == 0);
 
                 if (!button_pressed) {
@@ -241,7 +253,7 @@ void power_shutdown(void) {
     esp_err_t err = ui_save_trip_distance();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save trip distance: %s, retrying...", esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(NVS_RETRY_DELAY_MS));
         err = ui_save_trip_distance();
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Retry failed: %s", esp_err_to_name(err));
@@ -249,7 +261,7 @@ void power_shutdown(void) {
     }
 
     // Allow sufficient time for NVS flash operations to complete
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(NVS_FLUSH_DELAY_MS));
 
     power_enter_sleep();
 }

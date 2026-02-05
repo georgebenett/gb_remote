@@ -8,7 +8,7 @@
 #define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000)  // 5 minutes
 //#define INACTIVITY_TIMEOUT_MS INT32_MAX
 
-extern volatile bool entering_power_off_mode;
+bool power_is_entering_off_mode(void);
 
 void power_init(void);
 void power_reset_inactivity_timer(void);

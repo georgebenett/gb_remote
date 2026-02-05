@@ -54,6 +54,10 @@
 #define RECONNECT_TIMEOUT_MS        5000   // 5 seconds to find stored server
 #define RECONNECT_SCAN_INTERVAL_MS  1000    // Scan interval when looking for stored server
 
+// Task timing constants
+#define ADC_SEND_INTERVAL_MS        75      // Throttle data send rate
+#define RSSI_READ_INTERVAL_MS       1000    // RSSI polling rate
+
 // BLE Security Configuration
 #define BLE_PASSKEY                 483265  // Fixed passkey for pairing (must match server)
 
@@ -1100,7 +1104,6 @@ void uart_task(void *pvParameters)
             }
         }
     }
-    vTaskDelete(NULL);
 }
 
 static void spp_uart_init(void)
@@ -1277,7 +1280,7 @@ static void adc_send_task(void *pvParameters) {
 
         // Reset watchdog before delay
         esp_task_wdt_reset();
-        vTaskDelay(pdMS_TO_TICKS(75));
+        vTaskDelay(pdMS_TO_TICKS(ADC_SEND_INTERVAL_MS));
     }
 }
 
@@ -1342,7 +1345,7 @@ static void log_rssi_task(void *pvParameters) {
                 ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
     }
 }
 
