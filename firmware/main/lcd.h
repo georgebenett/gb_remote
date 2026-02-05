@@ -28,4 +28,6 @@ void lcd_enable_update(void);
 void lcd_disable_update(void);
 void lcd_set_backlight(uint8_t brightness);  // Set backlight brightness (0-255, where 255 is full brightness)
 void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms);
+uint8_t lcd_load_saved_brightness(void);     // Load backlight brightness from NVS (returns default if not found)
+void lcd_fade_to_saved_brightness(void);     // Fade backlight to saved/default brightness
 

@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_task_wdt.h"
+#include "viber.h"
 
 #define TAG "UI_UPDATER"
 #define TRIP_NVS_NAMESPACE "trip_data"
@@ -670,11 +671,8 @@ void ui_create_aux_output_indicator(void) {
         return;
     }
 
-    if (take_lvgl_mutex()) {
-        // Start hidden (opacity 0) - visibility will be updated by ui_update_aux_output_indicator
-        lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
-        give_lvgl_mutex();
-    }
+    // Set initial visibility based on saved state
+    ui_update_aux_output_indicator();
 }
 
 void ui_update_aux_output_indicator(void) {
@@ -687,4 +685,17 @@ void ui_update_aux_output_indicator(void) {
         .data.aux_state = aux_state
     };
     ui_queue_send(&cmd);
+}
+
+static void splash_timer_cb(lv_timer_t *timer) {
+    lv_disp_load_scr(objects.home_screen);
+}
+
+void ui_show_splash_screen(void) {
+    viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
+    lv_disp_load_scr(objects.splash_screen);
+
+    lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);
+    lv_timer_set_repeat_count(splash_timer, 1);
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }

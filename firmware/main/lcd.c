@@ -13,6 +13,10 @@
 #include "ui_updater.h"
 #include "battery.h"
 #include "esp_task_wdt.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+
+static const char *TAG = "LCD";
 
 // Backlight LEDC configuration
 #define LEDC_TIMER              LEDC_TIMER_0
@@ -249,5 +253,31 @@ void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms) {
             vTaskDelay(pdMS_TO_TICKS(step_delay_ms));
         }
     }
+}
+
+uint8_t lcd_load_saved_brightness(void) {
+    uint8_t brightness = LCD_BACKLIGHT_DEFAULT;
+    nvs_handle_t nvs_handle;
+
+    if (nvs_open("lcd_cfg", NVS_READONLY, &nvs_handle) == ESP_OK) {
+        uint8_t saved_brightness;
+        if (nvs_get_u8(nvs_handle, "backlight", &saved_brightness) == ESP_OK) {
+            brightness = saved_brightness;
+            ESP_LOGI(TAG, "Loaded saved backlight brightness: %d%%", saved_brightness);
+        }
+        nvs_close(nvs_handle);
+    }
+
+    return brightness;
+}
+
+void lcd_fade_to_saved_brightness(void) {
+    uint8_t target_brightness = lcd_load_saved_brightness();
+
+    // Map percentage (1-100) to PWM duty (0-255)
+    uint8_t target_pwm = (target_brightness * 255) / 100;
+    uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
+
+    lcd_fade_backlight(min_pwm, target_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
 }
 

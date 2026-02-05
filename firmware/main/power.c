@@ -28,6 +28,10 @@ volatile bool entering_power_off_mode = false;
 
 static bool button_released_since_boot = false;
 
+// Forward declarations
+static bool power_check_wake_from_sleep(void);
+static void power_sleep_immediate(void);
+
 static void set_bar_value(void * obj, int32_t v)
 {
     if (entering_power_off_mode) {
@@ -105,7 +109,7 @@ static void power_button_callback(button_event_t event, void* user_data) {
     }
 }
 
-bool power_check_wake_from_sleep(void) {
+static bool power_check_wake_from_sleep(void) {
     esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
 
     if (wakeup_cause == ESP_SLEEP_WAKEUP_GPIO) {
@@ -153,6 +157,13 @@ bool power_check_wake_from_sleep(void) {
 }
 
 void power_init(void) {
+    // Check wake reason first - go back to sleep if button wasn't held long enough
+    if (!power_check_wake_from_sleep()) {
+        power_sleep_immediate();
+        // Never returns
+    }
+
+    // Button held long enough, proceed with power-on
     gpio_config_t POWER_HOLD_GPIO_conf = {
         .pin_bit_mask = (1ULL << POWER_HOLD_GPIO),
         .mode = GPIO_MODE_OUTPUT,
@@ -235,7 +246,7 @@ void power_shutdown(void) {
     power_enter_sleep();
 }
 
-void power_sleep_immediate(void) {
+static void power_sleep_immediate(void) {
     ESP_LOGI(TAG, "Going to sleep immediately (wake-up check failed)");
     power_enter_sleep();
 }

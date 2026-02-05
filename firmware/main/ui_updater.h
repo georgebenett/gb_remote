@@ -45,4 +45,7 @@ void ui_update_speed_unit(bool is_mph);
 void ui_create_aux_output_indicator(void);
 void ui_update_aux_output_indicator(void);
 
+// Splash screen
+void ui_show_splash_screen(void);
+
 #endif // UI_UPDATER_H
