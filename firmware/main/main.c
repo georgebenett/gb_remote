@@ -112,7 +112,7 @@ static void initialize_ui(void)
     esp_err_t err = vesc_config_load(&config);
     if (err == ESP_OK) {
         ui_update_speed_unit(config.speed_unit_mph);
-        ESP_LOGI(TAG, "Speed unit set to: %s", config.speed_unit_mph ? "mi/h" : "km/h");
+        ESP_LOGI(TAG, "Speed unit set to: %s", config.speed_unit_mph ? "mph" : "km/h");
     } else {
         ESP_LOGW(TAG, "Failed to load speed unit config, using default km/h");
         ui_update_speed_unit(false);

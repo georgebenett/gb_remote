@@ -553,7 +553,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
 
                     case UI_CMD_UPDATE_SPEED_UNIT:
                         if (on_home && objects.static_speed != NULL) {
-                            lv_label_set_text(objects.static_speed, cmd.data.speed_unit_mph ? "mi/h" : "km/h");
+                            lv_label_set_text(objects.static_speed, cmd.data.speed_unit_mph ? "mph" : "km/h");
                         }
                         break;
 

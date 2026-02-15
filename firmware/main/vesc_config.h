@@ -29,7 +29,7 @@ typedef struct {
     uint16_t gear_ratio_x1000;  // Gear ratio * 1000 (from VESC via BLE)
     uint16_t wheel_diameter_mm; // Wheel diameter in mm (from VESC via BLE)
     // User preferences (persisted to NVS)
-    bool speed_unit_mph;        // Speed unit: false = km/h, true = mi/h
+    bool speed_unit_mph;        // Speed unit: false = km/h, true = mph
 #ifdef CONFIG_TARGET_LITE
     bool invert_throttle;       // Whether to invert throttle direction
 #endif
