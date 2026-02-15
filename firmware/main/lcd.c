@@ -27,6 +27,7 @@ static const char *TAG = "LCD";
 #define LEDC_FREQUENCY          5000  // 5kHz frequency
 
 // Static variables
+static uint8_t current_backlight_pwm = 0;  // Track current backlight PWM duty (0-255)
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static lv_color_t *buf1 = NULL;
 static lv_color_t *buf2 = NULL;
@@ -233,6 +234,11 @@ void lcd_start_tasks(void) {
 void lcd_set_backlight(uint8_t brightness) {
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, brightness));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+    current_backlight_pwm = brightness;
+}
+
+uint8_t lcd_get_backlight(void) {
+    return current_backlight_pwm;
 }
 
 void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms) {
@@ -261,6 +267,8 @@ void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms) {
             vTaskDelay(pdMS_TO_TICKS(step_delay_ms));
         }
     }
+
+    current_backlight_pwm = end;
 }
 
 uint8_t lcd_load_saved_brightness(void) {
