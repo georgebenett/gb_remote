@@ -11,20 +11,22 @@
 #include "hw_config.h"
 #include "target_config.h"
 
-#define CALIBRATE_THROTTLE 0
 
-#define ADC_SAMPLING_TICKS 30
-
+// Timing constants
+#define ADC_SAMPLE_MS                   2       // Delay between ADC samples for settling
+#define CALIBRATION_STEP_DELAY_MS       100     // Delay between calibration steps
+#define CALIBRATE_THROTTLE              0
+#define ADC_SAMPLING_TICKS              30
 // Initial values that will be updated by calibration
-#define ADC_INITIAL_MAX_VALUE 4095  // 12-bit ADC max
-#define ADC_INITIAL_MIN_VALUE 0
+#define ADC_INITIAL_MAX_VALUE           4095  // 12-bit ADC max
+#define ADC_INITIAL_MIN_VALUE           0
 
-#define ADC_OUTPUT_MAX_VALUE 255
-#define ADC_OUTPUT_MIN_VALUE 0
+#define ADC_OUTPUT_MAX_VALUE            255
+#define ADC_OUTPUT_MIN_VALUE            0
 
 // Calibration settings
-#define ADC_CALIBRATION_SAMPLES 600  // 600 samples over 6 seconds = 1 sample every 10ms
-#define ADC_CALIBRATION_DELAY_MS 10  // 10ms between samples for more accurate timing
+#define ADC_CALIBRATION_SAMPLES         600  // 600 samples over 6 seconds = 1 sample every 10ms
+#define ADC_CALIBRATION_DELAY_MS        10  // 10ms between samples for more accurate timing
 
 #define NVS_NAMESPACE "adc_cal"
 #define NVS_KEY_MIN "min_val"

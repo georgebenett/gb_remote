@@ -105,13 +105,14 @@ void usb_serial_init(void)
     esp_err_t err = vesc_config_load(&hand_controller_config);
     if (err != ESP_OK) {
         // Initialize with default values if loading fails
+        //TODO: fix this default behaviour
         hand_controller_config.motor_poles = 14;
         hand_controller_config.gear_ratio_x1000 = 2200;  // 2.2 gear ratio
         hand_controller_config.wheel_diameter_mm = 115;
         hand_controller_config.speed_unit_mph = false; // Default to km/h
     }
 
-    ESP_LOGI(TAG, "Binary Protocol v1.0 - Packet-based communication ready");
+    ESP_LOGI(TAG, "usb communication ready");
     ESP_LOGI(TAG, "Max payload size: %d bytes", PACKET_MAX_PAYLOAD_SIZE);
 }
 

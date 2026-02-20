@@ -11,13 +11,8 @@
 #include "hw_config.h"
 #include "esp_task_wdt.h"
 
-#define TAG "BUTTON"
-#define DEBOUNCE_TIME_MS 15
-#define LONG_PRESS_CHECK_MS 50
-#define TASK_STACK_SIZE 4096
-#define TASK_PRIORITY 5
-#define MAX_CALLBACKS 4
-#define WDT_RESET_INTERVAL_MS 4000
+static const char *TAG = "BUTTON";
+
 typedef struct {
     button_callback_t callback;
     void* user_data;

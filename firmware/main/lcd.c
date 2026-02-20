@@ -17,16 +17,8 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 
-static const char *TAG = "LCD";
-
-// Backlight LEDC configuration
-#define LEDC_TIMER              LEDC_TIMER_0
-#define LEDC_MODE               LEDC_LOW_SPEED_MODE
-#define LEDC_CHANNEL            LEDC_CHANNEL_0
-#define LEDC_DUTY_RES           LEDC_TIMER_8_BIT  // 8-bit resolution (0-255)
-#define LEDC_FREQUENCY          5000  // 5kHz frequency
-
 // Static variables
+#define TAG "LCD"
 static uint8_t current_backlight_pwm = 0;  // Track current backlight PWM duty (0-255)
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static lv_color_t *buf1 = NULL;

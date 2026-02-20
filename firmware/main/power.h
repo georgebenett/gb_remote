@@ -4,9 +4,14 @@
 #include <stdbool.h>
 #include "driver/gpio.h"
 
-#define RESET_DEBOUNCE_TIME_MS 2000
-#define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000)  // 5 minutes
-//#define INACTIVITY_TIMEOUT_MS INT32_MAX
+#define RESET_DEBOUNCE_TIME_MS          2000
+#define INACTIVITY_TIMEOUT_MS           (5 * 60 * 1000)  // 5 minutes
+
+#define SHUTDOWN_FEEDBACK_DELAY_MS      100
+#define BUTTON_DEBOUNCE_DELAY_MS        50
+#define BUTTON_POLL_INTERVAL_MS         10
+#define NVS_RETRY_DELAY_MS              50
+#define NVS_FLUSH_DELAY_MS              200
 
 bool power_is_entering_off_mode(void);
 

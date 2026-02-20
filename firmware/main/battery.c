@@ -18,19 +18,11 @@
 #include "esp_sleep.h"
 #include "esp_task_wdt.h"
 
-static const char *TAG = "BATTERY";
+#define TAG "BATTERY"
 static bool battery_initialized = false;
 static float latest_battery_voltage = 0.0f;
 static bool low_voltage_alerted = false;
 static bool low_voltage_shutdown_triggered = false;
-
-// Timing constants
-#define ADC_SAMPLE_SETTLING_MS      2       // Delay between ADC samples
-#define TASK_STARTUP_DELAY_MS       100     // Delay for task initialization
-#define BATTERY_MONITOR_INTERVAL_MS 500     // Battery monitoring poll rate
-#define LOW_BATTERY_ALERT_DELAY_MS  500     // Haptic feedback delay
-#define LOW_BATTERY_WARNING_MS      2000    // Show warning before shutdown
-#define POWER_OFF_SETTLE_MS         100     // Delay after power pin toggle
 
 // Battery state of charge lookup table
 typedef struct {
@@ -139,7 +131,7 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
         }
 
         // Small delay between samples for ADC settling
-        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_SETTLING_MS));
+        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
     }
 
     // Require minimum valid samples

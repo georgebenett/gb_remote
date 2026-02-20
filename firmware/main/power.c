@@ -18,13 +18,6 @@
 
 #define TAG "POWER"
 
-// Delay constants
-#define SHUTDOWN_FEEDBACK_DELAY_MS   100
-#define BUTTON_DEBOUNCE_DELAY_MS     50
-#define BUTTON_POLL_INTERVAL_MS      10
-#define NVS_RETRY_DELAY_MS           50
-#define NVS_FLUSH_DELAY_MS           200
-
 static TickType_t last_activity_time;
 static TickType_t last_reset_time = 0;
 

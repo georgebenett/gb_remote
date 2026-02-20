@@ -4,7 +4,8 @@
 #include "esp_log.h"
 #include "ble.h"
 #include <math.h>
-static const char *TAG = "VESC_CONFIG";
+
+#define TAG "VESC_CONFIG"
 
 // Current motor config from VESC (volatile, updated via BLE)
 static vesc_motor_config_t current_motor_config = {

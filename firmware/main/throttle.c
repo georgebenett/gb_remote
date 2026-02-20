@@ -14,11 +14,7 @@
 #include "vesc_config.h"
 #include "esp_task_wdt.h"
 
-static const char *TAG = "ADC";
-
-// Timing constants
-#define ADC_SAMPLE_SETTLING_MS      2       // Delay between ADC samples for settling
-#define CALIBRATION_STEP_DELAY_MS   100     // Delay between calibration steps
+#define TAG "ADC"
 
 static adc_oneshot_unit_handle_t adc1_handle;
 static adc_oneshot_unit_init_cfg_t init_config1;
@@ -121,7 +117,7 @@ int32_t throttle_read_value(void)
         }
 
         // Small delay between samples for ADC settling
-        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_SETTLING_MS));
+        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
     }
 
     // Require minimum valid samples
@@ -174,7 +170,7 @@ int32_t brake_read_value(void)
         }
 
         // Small delay between samples for ADC settling
-        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_SETTLING_MS));
+        vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
     }
 
     // Require minimum valid samples

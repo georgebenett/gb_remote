@@ -19,11 +19,10 @@
 #include "viber.h"
 
 #define TAG "UI_UPDATER"
+
 #define TRIP_NVS_NAMESPACE "trip_data"
 #define NVS_KEY_TRIP_KM "trip_km"
 
-// UI Command Queue for thread-safe UI updates
-#define UI_CMD_QUEUE_SIZE 32
 
 typedef enum {
     UI_CMD_UPDATE_SPEED,
@@ -66,17 +65,6 @@ static volatile bool force_config_reload = false;
 static volatile uint8_t connection_quality = 0;
 static volatile float total_trip_km = 0.0f;
 static uint32_t last_update_time = 0;
-
-// Task update intervals
-#define SPEED_UPDATE_MS         50      // 20Hz for smooth speed display
-#define TRIP_UPDATE_MS          1000    // 1Hz for distance
-#define BATTERY_UPDATE_MS       1000    // 1Hz for battery
-#define CONNECTION_UPDATE_MS    3000    // 0.33Hz for connection icon
-
-// Timing constants
-#define TASK_STARTUP_DELAY_MS   100     // Staggered task startup delay
-#define MUTEX_RETRY_DELAY_MS    5       // Delay when mutex unavailable
-#define SPLASH_SCREEN_DELAY_MS  1000    // Post-splash delay
 
 static lv_obj_t* get_current_screen(void) {
     return lv_scr_act();

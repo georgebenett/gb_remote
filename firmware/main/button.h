@@ -5,9 +5,16 @@
 #include "driver/gpio.h"
 #include "esp_err.h"
 
+#define DEBOUNCE_TIME_MS                15
+#define LONG_PRESS_CHECK_MS             50
+#define TASK_STACK_SIZE                 4096
+#define TASK_PRIORITY                   5
+#define MAX_CALLBACKS                   4
+#define WDT_RESET_INTERVAL_MS           4000
+
 // Button timing definitions
-#define BUTTON_LONG_PRESS_TIME_MS 500
-#define BUTTON_DOUBLE_PRESS_TIME_MS 300
+#define BUTTON_LONG_PRESS_TIME_MS       500
+#define BUTTON_DOUBLE_PRESS_TIME_MS     300
 
 // Button states
 typedef enum {

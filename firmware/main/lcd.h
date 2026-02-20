@@ -9,16 +9,21 @@
 #include "target_config.h"
 
 // Display configuration - now from target_config.h
-#define LV_HOR_RES_MAX LCD_HOR_RES_MAX
-#define LV_VER_RES_MAX LCD_VER_RES_MAX
+#define LV_HOR_RES_MAX                  LCD_HOR_RES_MAX
+#define LV_VER_RES_MAX                  LCD_VER_RES_MAX
 
 //Display Backlight values
-#define LCD_BACKLIGHT_MIN 0
-#define LCD_BACKLIGHT_DEFAULT 50
-#define LCD_BACKLIGHT_MAX 100
-#define LCD_BACKLIGHT_FADE_DURATION_MS 1000  // Default fade duration in milliseconds
+#define LCD_BACKLIGHT_MIN               0
+#define LCD_BACKLIGHT_DEFAULT           50
+#define LCD_BACKLIGHT_MAX               100
+#define LCD_BACKLIGHT_FADE_DURATION_MS  1000  // Default fade duration in milliseconds
 
-
+// Backlight LEDC configuration
+#define LEDC_TIMER                      LEDC_TIMER_0
+#define LEDC_MODE                       LEDC_LOW_SPEED_MODE
+#define LEDC_CHANNEL                    LEDC_CHANNEL_0
+#define LEDC_DUTY_RES                   LEDC_TIMER_8_BIT  // 8-bit resolution (0-255)
+#define LEDC_FREQUENCY                  5000  // 5kHz frequency
 
 // Function declarations
 void lcd_init(void);

@@ -1542,10 +1542,10 @@
       },
       "transform": {
         "translate": {
-          "x": -250.85238095238094,
-          "y": -245.3690476190477
+          "x": -86,
+          "y": -160
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1562,8 +1562,8 @@
       },
       "transform": {
         "translate": {
-          "x": -21,
-          "y": -348
+          "x": -86,
+          "y": -160
         },
         "scale": 1.5
       },
@@ -1576,14 +1576,18 @@
     },
     "[eezproject.eez-project]:/userPages/2[flow-state]": {
       "selection": {
-        "0": {}
+        "0": {
+          "5": {
+            "$selected": true
+          }
+        }
       },
       "transform": {
         "translate": {
-          "x": -276,
-          "y": -336
+          "x": -86,
+          "y": -160
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1600,10 +1604,10 @@
       },
       "transform": {
         "translate": {
-          "x": -276,
-          "y": -336
+          "x": -86,
+          "y": -160
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1621,10 +1625,10 @@
       },
       "transform": {
         "translate": {
-          "x": -144,
-          "y": -230.3125
+          "x": -86,
+          "y": -160
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1907,6 +1911,6 @@
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,
-  "flowZoom": 1.5,
+  "flowZoom": 1,
   "implementationLanguage": "C"
 }

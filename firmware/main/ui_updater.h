@@ -7,7 +7,21 @@
 #include "esp_err.h"
 #include "ui.h"
 #include "screens.h"
-void ui_updater_init(void);
+
+
+// Task update intervals
+#define SPEED_UPDATE_MS         50      // 20Hz for smooth speed display
+#define TRIP_UPDATE_MS          1000    // 1Hz for distance
+#define BATTERY_UPDATE_MS       1000    // 1Hz for battery
+#define CONNECTION_UPDATE_MS    3000    // 0.33Hz for connection icon
+
+// Timing constants
+#define TASK_STARTUP_DELAY_MS   100     // Staggered task startup delay
+#define MUTEX_RETRY_DELAY_MS    5       // Delay when mutex unavailable
+#define SPLASH_SCREEN_DELAY_MS  1000    // Post-splash delay
+
+// UI Command Queue for thread-safe UI updates
+#define UI_CMD_QUEUE_SIZE 32
 
 extern const lv_img_dsc_t img_battery_charging;
 extern const lv_img_dsc_t img_battery;
@@ -16,6 +30,7 @@ extern const lv_img_dsc_t img_33_connection;
 extern const lv_img_dsc_t img_66_connection;
 extern const lv_img_dsc_t img_100_connection;
 
+void ui_updater_init(void);
 void ui_update_speed(int32_t value);
 void ui_update_battery_percentage(int percentage);
 void ui_update_motor_current(float current);
