@@ -4,6 +4,12 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+// Predefined pattern durations (in ms)
+#define VERY_SHORT_DURATION             30
+#define SHORT_DURATION                  160
+#define LONG_DURATION                   300
+#define PAUSE_DURATION                  100
+
 // Vibration patterns
 typedef enum {
     VIBER_PATTERN_VERY_SHORT,

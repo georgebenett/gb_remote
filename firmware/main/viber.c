@@ -7,12 +7,6 @@
 
 #define TAG "VIBER"
 
-// Predefined pattern durations (in ms)
-#define VERY_SHORT_DURATION 30
-#define SHORT_DURATION 160
-#define LONG_DURATION  300
-#define PAUSE_DURATION 100
-
 static bool viber_initialized = false;
 
 // Task parameters for vibration execution
