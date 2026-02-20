@@ -57,6 +57,7 @@ typedef enum {
     RSP_BLE_TRIM               = 0x85,  // BLE trim offset data
     RSP_COREDUMP_INFO          = 0x86,  // Coredump info (exists flag, size)
     RSP_COREDUMP_CHUNK         = 0x87,  // Coredump data chunk
+    RSP_CALIBRATION_PROGRESS   = 0x88,  // Real-time calibration progress update
     RSP_STREAM_DATA            = 0x90,  // Real-time streaming data
 } packet_command_t;
 
@@ -66,13 +67,18 @@ typedef enum {
     ERR_UNKNOWN_CMD            = 0x01,  // Unknown command
     ERR_INVALID_PAYLOAD        = 0x02,  // Invalid payload length or data
     ERR_CRC_MISMATCH           = 0x03,  // CRC check failed
-    ERR_CALIBRATION_FAILED     = 0x04,  // Calibration failed
+    ERR_CALIBRATION_FAILED     = 0x04,  // Calibration failed (generic, legacy)
     ERR_SAVE_FAILED            = 0x05,  // Failed to save to NVS
     ERR_NOT_CALIBRATED         = 0x06,  // Device not calibrated
     ERR_OUT_OF_RANGE           = 0x07,  // Parameter out of range
     ERR_NOT_SUPPORTED          = 0x08,  // Command not supported on this target
     ERR_NO_COREDUMP            = 0x09,  // No coredump available
     ERR_READ_FAILED            = 0x0A,  // Failed to read data
+    // Calibration-specific failure reasons
+    ERR_CAL_THROTTLE_RANGE     = 0x0B,  // Throttle range too small (< 150 ADC units)
+    ERR_CAL_THROTTLE_NO_READINGS = 0x0C,  // No valid throttle readings
+    ERR_CAL_BRAKE_RANGE        = 0x0D,  // Brake range too small (dual throttle)
+    ERR_CAL_BRAKE_NO_READINGS  = 0x0E,  // No valid brake readings (dual throttle)
 } error_code_t;
 
 // Packet state machine

@@ -35,12 +35,31 @@
 #define NVS_KEY_BRAKE_MAX "brake_max_val"
 #define NVS_KEY_CALIBRATED "cal_done"
 
+// Progress callback invoked periodically during calibration.
+// Parameters: sample index, total samples, throttle current/min/max, brake current/min/max.
+// Brake values are only meaningful for CONFIG_TARGET_DUAL_THROTTLE builds.
+typedef void (*calibration_progress_cb_t)(uint16_t sample, uint16_t total,
+                                           uint32_t throttle_current,
+                                           uint32_t throttle_min, uint32_t throttle_max,
+                                           uint32_t brake_current,
+                                           uint32_t brake_min, uint32_t brake_max);
+
+// Calibration result: success or specific failure reason
+typedef enum {
+    CAL_OK = 0,
+    CAL_FAIL_THROTTLE_RANGE,    // Throttle range < 150 ADC units
+    CAL_FAIL_THROTTLE_NO_READINGS,
+    CAL_FAIL_BRAKE_RANGE,       // Brake range < 150 (dual throttle)
+    CAL_FAIL_BRAKE_NO_READINGS,
+    CAL_FAIL_SAVE,              // NVS save failed after calibration passed
+} calibration_result_t;
+
 esp_err_t adc_init(void);
 int32_t throttle_read_value(void);
 void adc_start_task(void);
 uint32_t adc_get_latest_value(void);
 uint8_t map_throttle_value(uint32_t adc_value);
-bool throttle_calibrate(void);  // Returns true if calibration succeeded, false if failed
+calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb);
 bool throttle_is_calibrated(void);
 void adc_deinit(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);

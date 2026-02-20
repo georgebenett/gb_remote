@@ -278,11 +278,11 @@ void adc_start_task(void) {
         nvs_commit(nvs_handle);
         nvs_close(nvs_handle);
     }
-    throttle_calibrate();
+    throttle_calibrate(NULL);
 #else
     // Only calibrate if no valid calibration exists
     if (load_calibration_from_nvs() != ESP_OK) {
-        throttle_calibrate();
+        throttle_calibrate(NULL);
     }
 #endif
 
@@ -458,7 +458,7 @@ static esp_err_t save_calibration_to_nvs(void) {
     return err;
 }
 
-bool throttle_calibrate(void) {
+calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
     ESP_LOGI(TAG, "Starting ADC calibration...");
 
     calibration_in_progress = true;
@@ -468,10 +468,14 @@ bool throttle_calibrate(void) {
 
     uint32_t throttle_min = UINT32_MAX;
     uint32_t throttle_max = 0;
+    uint32_t throttle_current = 0;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     uint32_t brake_min = UINT32_MAX;
     uint32_t brake_max = 0;
+    uint32_t brake_current = 0;
 #endif
+
+#define CAL_PROGRESS_INTERVAL 30  // Send progress update every N samples (~300ms)
 
     // Take multiple samples to find the actual range
     for (int i = 0; i < ADC_CALIBRATION_SAMPLES; i++) {
@@ -480,21 +484,39 @@ bool throttle_calibrate(void) {
         int32_t brake_value = brake_read_value();
 
         if (throttle_value != -1) {  // Valid reading
-            if (throttle_value < throttle_min) throttle_min = throttle_value;
-            if (throttle_value > throttle_max) throttle_max = throttle_value;
+            throttle_current = (uint32_t)throttle_value;
+            if (throttle_min == UINT32_MAX || throttle_value < (int32_t)throttle_min) throttle_min = (uint32_t)throttle_value;
+            if (throttle_value > (int32_t)throttle_max) throttle_max = (uint32_t)throttle_value;
         }
 
         if (brake_value != -1) {  // Valid reading
-            if (brake_value < brake_min) brake_min = brake_value;
-            if (brake_value > brake_max) brake_max = brake_value;
+            brake_current = (uint32_t)brake_value;
+            if (brake_min == UINT32_MAX || brake_value < (int32_t)brake_min) brake_min = (uint32_t)brake_value;
+            if (brake_value > (int32_t)brake_max) brake_max = (uint32_t)brake_value;
         }
 #elif defined(CONFIG_TARGET_LITE)
         int32_t value = throttle_read_value();
         if (value != -1) {  // Valid reading
-            if (value < throttle_min) throttle_min = value;
-            if (value > throttle_max) throttle_max = value;
+            throttle_current = (uint32_t)value;
+            if (throttle_min == UINT32_MAX || value < (int32_t)throttle_min) throttle_min = (uint32_t)value;
+            if (value > (int32_t)throttle_max) throttle_max = (uint32_t)value;
         }
 #endif
+
+        // Fire progress callback every CAL_PROGRESS_INTERVAL samples (and on the last sample)
+        if (progress_cb && ((i % CAL_PROGRESS_INTERVAL == 0) || (i == ADC_CALIBRATION_SAMPLES - 1))) {
+            uint32_t t_min_report = (throttle_min == UINT32_MAX) ? 0 : throttle_min;
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+            uint32_t b_min_report = (brake_min == UINT32_MAX) ? 0 : brake_min;
+            progress_cb((uint16_t)i, (uint16_t)ADC_CALIBRATION_SAMPLES,
+                        throttle_current, t_min_report, throttle_max,
+                        brake_current, b_min_report, brake_max);
+#else
+            progress_cb((uint16_t)i, (uint16_t)ADC_CALIBRATION_SAMPLES,
+                        throttle_current, t_min_report, throttle_max,
+                        0, 0, 0);
+#endif
+        }
 
         // Use a longer delay to ensure 6 seconds total
         vTaskDelay(pdMS_TO_TICKS(ADC_CALIBRATION_DELAY_MS));
@@ -558,19 +580,36 @@ bool throttle_calibrate(void) {
     if (calibration_passed) {
         calibration_done = true;
         // Save calibration to NVS
-        if (save_calibration_to_nvs() == ESP_OK) {
-            ESP_LOGI(TAG, "Calibration saved to NVS");
-        } else {
+        if (save_calibration_to_nvs() != ESP_OK) {
             ESP_LOGE(TAG, "Failed to save calibration to NVS");
+            calibration_done = had_previous_calibration;
+            return CAL_FAIL_SAVE;
         }
-    } else {
-        // Restore previous calibration state - don't lose working calibration on failed attempt
-        calibration_done = had_previous_calibration;
-        ESP_LOGW(TAG, "Calibration failed - %s",
-                 had_previous_calibration ? "previous calibration active" : "no calibration");
+        ESP_LOGI(TAG, "Calibration saved to NVS");
+        return CAL_OK;
     }
 
-    return calibration_passed;
+    // Restore previous calibration state - don't lose working calibration on failed attempt
+    calibration_done = had_previous_calibration;
+    ESP_LOGW(TAG, "Calibration failed - %s",
+             had_previous_calibration ? "previous calibration active" : "no calibration");
+
+    // Return specific failure reason (throttle checked first, then brake)
+    if (!throttle_valid) {
+        return CAL_FAIL_THROTTLE_NO_READINGS;
+    }
+    if (!throttle_range_ok) {
+        return CAL_FAIL_THROTTLE_RANGE;
+    }
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    if (!brake_valid) {
+        return CAL_FAIL_BRAKE_NO_READINGS;
+    }
+    if (!brake_range_ok) {
+        return CAL_FAIL_BRAKE_RANGE;
+    }
+#endif
+    return CAL_FAIL_THROTTLE_RANGE;  // Fallback (should not reach)
 }
 
 bool throttle_is_calibrated(void) {

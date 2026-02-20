@@ -516,12 +516,74 @@ static void handle_cmd_reset_odometer(const binary_packet_t* packet) {
     usb_serial_send_ack(CMD_RESET_ODOMETER, ERR_OK);
 }
 
+// Progress callback: sends RSP_CALIBRATION_PROGRESS with current ADC readings and range
+static void calibration_progress_handler(uint16_t sample, uint16_t total,
+                                          uint32_t throttle_current,
+                                          uint32_t throttle_min, uint32_t throttle_max,
+                                          uint32_t brake_current,
+                                          uint32_t brake_min, uint32_t brake_max) {
+    uint8_t payload[29];
+    uint16_t idx = 0;
+
+    uint8_t percent = (uint8_t)((sample * 100) / (total > 0 ? total : 1));
+
+    payload[idx++] = sample & 0xFF;
+    payload[idx++] = (sample >> 8) & 0xFF;
+    payload[idx++] = total & 0xFF;
+    payload[idx++] = (total >> 8) & 0xFF;
+    payload[idx++] = percent;
+
+    payload[idx++] = (throttle_current >> 0) & 0xFF;
+    payload[idx++] = (throttle_current >> 8) & 0xFF;
+    payload[idx++] = (throttle_current >> 16) & 0xFF;
+    payload[idx++] = (throttle_current >> 24) & 0xFF;
+
+    payload[idx++] = (throttle_min >> 0) & 0xFF;
+    payload[idx++] = (throttle_min >> 8) & 0xFF;
+    payload[idx++] = (throttle_min >> 16) & 0xFF;
+    payload[idx++] = (throttle_min >> 24) & 0xFF;
+
+    payload[idx++] = (throttle_max >> 0) & 0xFF;
+    payload[idx++] = (throttle_max >> 8) & 0xFF;
+    payload[idx++] = (throttle_max >> 16) & 0xFF;
+    payload[idx++] = (throttle_max >> 24) & 0xFF;
+
+    payload[idx++] = (brake_current >> 0) & 0xFF;
+    payload[idx++] = (brake_current >> 8) & 0xFF;
+    payload[idx++] = (brake_current >> 16) & 0xFF;
+    payload[idx++] = (brake_current >> 24) & 0xFF;
+
+    payload[idx++] = (brake_min >> 0) & 0xFF;
+    payload[idx++] = (brake_min >> 8) & 0xFF;
+    payload[idx++] = (brake_min >> 16) & 0xFF;
+    payload[idx++] = (brake_min >> 24) & 0xFF;
+
+    payload[idx++] = (brake_max >> 0) & 0xFF;
+    payload[idx++] = (brake_max >> 8) & 0xFF;
+    payload[idx++] = (brake_max >> 16) & 0xFF;
+    payload[idx++] = (brake_max >> 24) & 0xFF;
+
+    usb_serial_send_response(RSP_CALIBRATION_PROGRESS, payload, idx);
+}
+
+static error_code_t calibration_result_to_error(calibration_result_t result) {
+    switch (result) {
+        case CAL_OK: return ERR_OK;
+        case CAL_FAIL_THROTTLE_RANGE: return ERR_CAL_THROTTLE_RANGE;
+        case CAL_FAIL_THROTTLE_NO_READINGS: return ERR_CAL_THROTTLE_NO_READINGS;
+        case CAL_FAIL_BRAKE_RANGE: return ERR_CAL_BRAKE_RANGE;
+        case CAL_FAIL_BRAKE_NO_READINGS: return ERR_CAL_BRAKE_NO_READINGS;
+        case CAL_FAIL_SAVE: return ERR_SAVE_FAILED;
+        default: return ERR_CALIBRATION_FAILED;
+    }
+}
+
 static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
     ESP_LOGI(TAG, "Starting throttle calibration...");
 
-    bool calibration_succeeded = throttle_calibrate();
+    calibration_result_t result = throttle_calibrate(calibration_progress_handler);
 
-    if (calibration_succeeded) {
+    if (result == CAL_OK) {
         // Build calibration response
         uint8_t payload[32];
         uint16_t idx = 0;
@@ -558,7 +620,7 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
 
         usb_serial_send_response(RSP_CALIBRATION, payload, idx);
     } else {
-        usb_serial_send_ack(CMD_CALIBRATE_THROTTLE, ERR_CALIBRATION_FAILED);
+        usb_serial_send_ack(CMD_CALIBRATE_THROTTLE, calibration_result_to_error(result));
     }
 }
 
