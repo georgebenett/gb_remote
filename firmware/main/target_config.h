@@ -1,7 +1,8 @@
 #pragma once
 
 // Target configuration header
-// This file provides hardware target-specific configuration based on Kconfig settings
+// This file provides hardware target-specific configuration based on Kconfig
+// settings
 
 #include "sdkconfig.h"
 
@@ -19,4 +20,3 @@
 #else
 #define TARGET_NAME "unknown"
 #endif
-
