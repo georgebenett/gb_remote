@@ -1,25 +1,25 @@
 #include "usb_serial.h"
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <inttypes.h>
-#include <assert.h>
-#include "esp_log.h"
+#include "ble.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
-#include "esp_vfs_usb_serial_jtag.h"
-#include "esp_vfs_dev.h"
-#include "fcntl.h"
-#include "ble.h"
-#include "vesc_config.h"
-#include "ui_updater.h"
-#include "throttle.h"
-#include "version.h"
-#include "target_config.h"
-#include "lcd.h"
-#include "nvs_flash.h"
-#include "nvs.h"
+#include "esp_log.h"
 #include "esp_partition.h"
+#include "esp_vfs_dev.h"
+#include "esp_vfs_usb_serial_jtag.h"
+#include "fcntl.h"
+#include "lcd.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+#include "target_config.h"
+#include "throttle.h"
+#include "ui_updater.h"
+#include "version.h"
+#include "vesc_config.h"
+#include <assert.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define TAG "USB_SERIAL"
 
@@ -35,523 +35,473 @@ static uint16_t rx_payload_index = 0;
 static uint16_t rx_crc_calculated = 0;
 
 // Streaming configuration
-static stream_config_t stream_config = {
-    .enabled = false,
-    .rate_hz = 10,  // Default 10Hz
-    .last_send_ms = 0
-};
+static stream_config_t stream_config = {.enabled = false,
+                                        .rate_hz = 10, // Default 10Hz
+                                        .last_send_ms = 0};
 
 // Configuration storage using vesc_config_t structure
 static vesc_config_t hand_controller_config;
 
 // Forward declarations - binary protocol handlers
 static void usb_serial_task(void *pvParameters);
-static void handle_cmd_ping(const binary_packet_t* packet);
-static void handle_cmd_get_firmware_version(const binary_packet_t* packet);
-static void handle_cmd_get_config(const binary_packet_t* packet);
-static void handle_cmd_get_calibration(const binary_packet_t* packet);
-static void handle_cmd_calibrate_throttle(const binary_packet_t* packet);
-static void handle_cmd_reset_odometer(const binary_packet_t* packet);
-static void handle_cmd_set_speed_unit(const binary_packet_t* packet);
-static void handle_cmd_set_backlight(const binary_packet_t* packet);
-static void handle_cmd_invert_throttle(const binary_packet_t* packet);
-static void handle_cmd_start_streaming(const binary_packet_t* packet);
-static void handle_cmd_stop_streaming(const binary_packet_t* packet);
-static void handle_cmd_set_stream_rate(const binary_packet_t* packet);
-static void handle_cmd_increase_ble_trim(const binary_packet_t* packet);
-static void handle_cmd_decrease_ble_trim(const binary_packet_t* packet);
-static void handle_cmd_get_ble_trim(const binary_packet_t* packet);
-static void handle_cmd_check_coredump(const binary_packet_t* packet);
-static void handle_cmd_get_coredump(const binary_packet_t* packet);
+static void handle_cmd_ping(const binary_packet_t *packet);
+static void handle_cmd_get_firmware_version(const binary_packet_t *packet);
+static void handle_cmd_get_config(const binary_packet_t *packet);
+static void handle_cmd_get_calibration(const binary_packet_t *packet);
+static void handle_cmd_calibrate_throttle(const binary_packet_t *packet);
+static void handle_cmd_reset_odometer(const binary_packet_t *packet);
+static void handle_cmd_set_speed_unit(const binary_packet_t *packet);
+static void handle_cmd_set_backlight(const binary_packet_t *packet);
+static void handle_cmd_invert_throttle(const binary_packet_t *packet);
+static void handle_cmd_start_streaming(const binary_packet_t *packet);
+static void handle_cmd_stop_streaming(const binary_packet_t *packet);
+static void handle_cmd_set_stream_rate(const binary_packet_t *packet);
+static void handle_cmd_increase_ble_trim(const binary_packet_t *packet);
+static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet);
+static void handle_cmd_get_ble_trim(const binary_packet_t *packet);
+static void handle_cmd_check_coredump(const binary_packet_t *packet);
+static void handle_cmd_get_coredump(const binary_packet_t *packet);
 
 // CRC-16-CCITT calculation (polynomial: 0x1021)
-uint16_t calculate_crc16(const uint8_t* data, uint16_t length) {
-    uint16_t crc = 0xFFFF;
-    for (uint16_t i = 0; i < length; i++) {
-        crc ^= (uint16_t)data[i] << 8;
-        for (uint8_t bit = 0; bit < 8; bit++) {
-            if (crc & 0x8000) {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc = crc << 1;
-            }
-        }
+uint16_t calculate_crc16(const uint8_t *data, uint16_t length) {
+  uint16_t crc = 0xFFFF;
+  for (uint16_t i = 0; i < length; i++) {
+    crc ^= (uint16_t)data[i] << 8;
+    for (uint8_t bit = 0; bit < 8; bit++) {
+      if (crc & 0x8000) {
+        crc = (crc << 1) ^ 0x1021;
+      } else {
+        crc = crc << 1;
+      }
     }
-    return crc;
+  }
+  return crc;
 }
 
-void usb_serial_init(void)
-{
-    ESP_LOGI(TAG, "Initializing USB Serial Handler");
-    ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
-    ESP_LOGI(TAG, "USB CDC Enabled: %d", USB_CDC_ENABLED);
+void usb_serial_init(void) {
+  ESP_LOGI(TAG, "Initializing USB Serial Handler");
+  ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
+  ESP_LOGI(TAG, "USB CDC Enabled: %d", USB_CDC_ENABLED);
 
-    if (!USB_CDC_ENABLED) {
-        ESP_LOGW(TAG, "USB CDC not enabled for this target");
-        return;
-    }
+  if (!USB_CDC_ENABLED) {
+    ESP_LOGW(TAG, "USB CDC not enabled for this target");
+    return;
+  }
 
-    // Add target-specific initialization delay
-    vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
+  // Add target-specific initialization delay
+  vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
 
-    usb_serial_init_esp32s3();
+  usb_serial_init_esp32s3();
 
-    // Initialize packet state machine
-    rx_state = STATE_WAIT_START;
-    rx_payload_index = 0;
-    memset(&rx_packet, 0, sizeof(rx_packet));
+  // Initialize packet state machine
+  rx_state = STATE_WAIT_START;
+  rx_payload_index = 0;
+  memset(&rx_packet, 0, sizeof(rx_packet));
 
-    // Load configuration from NVS
-    esp_err_t err = vesc_config_load(&hand_controller_config);
-    if (err != ESP_OK) {
-        // Initialize with default values if loading fails
-        //TODO: fix this default behaviour
-        hand_controller_config.motor_poles = 14;
-        hand_controller_config.gear_ratio_x1000 = 2200;  // 2.2 gear ratio
-        hand_controller_config.wheel_diameter_mm = 115;
-        hand_controller_config.speed_unit_mph = false; // Default to km/h
-    }
+  // Load configuration from NVS
+  esp_err_t err = vesc_config_load(&hand_controller_config);
+  if (err != ESP_OK) {
+    // Initialize with default values if loading fails
+    // TODO: fix this default behaviour
+    hand_controller_config.motor_poles = 14;
+    hand_controller_config.gear_ratio_x1000 = 2200; // 2.2 gear ratio
+    hand_controller_config.wheel_diameter_mm = 115;
+    hand_controller_config.speed_unit_mph = false; // Default to km/h
+  }
 
-    ESP_LOGI(TAG, "usb communication ready");
-    ESP_LOGI(TAG, "Max payload size: %d bytes", PACKET_MAX_PAYLOAD_SIZE);
+  ESP_LOGI(TAG, "usb communication ready");
+  ESP_LOGI(TAG, "Max payload size: %d bytes", PACKET_MAX_PAYLOAD_SIZE);
 }
 
-void usb_serial_start_task(void)
-{
-    if (!USB_CDC_ENABLED) {
-        ESP_LOGW(TAG, "USB CDC not enabled, skipping task creation");
-        return;
-    }
+void usb_serial_start_task(void) {
+  if (!USB_CDC_ENABLED) {
+    ESP_LOGW(TAG, "USB CDC not enabled, skipping task creation");
+    return;
+  }
 
-    if (usb_task_handle == NULL) {
-        xTaskCreate(usb_serial_task, "usb_serial_task", 4096, NULL, 5, &usb_task_handle);
-    }
+  if (usb_task_handle == NULL) {
+    xTaskCreate(usb_serial_task, "usb_serial_task", 4096, NULL, 5,
+                &usb_task_handle);
+  }
 }
 
-void usb_serial_init_esp32s3(void)
-{
-    ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-S3");
+void usb_serial_init_esp32s3(void) {
+  ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-S3");
 
-    /* Disable buffering on stdin */
-    setvbuf(stdin, NULL, _IONBF, 0);
+  /* Disable buffering on stdin */
+  setvbuf(stdin, NULL, _IONBF, 0);
 
-    /* Binary mode - no line ending conversion */
-    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
-    usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
+  /* Binary mode - no line ending conversion */
+  usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
+  usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
 
-    /* Enable non-blocking mode on stdin and stdout */
-    fcntl(fileno(stdout), F_SETFL, O_NONBLOCK);
-    fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
+  /* Enable non-blocking mode on stdin and stdout */
+  fcntl(fileno(stdout), F_SETFL, O_NONBLOCK);
+  fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
 
-    usb_serial_jtag_driver_config_t usb_serial_jtag_config;
-    usb_serial_jtag_config.rx_buffer_size = USB_CDC_BUFFER_SIZE;
-    usb_serial_jtag_config.tx_buffer_size = USB_CDC_BUFFER_SIZE;
+  usb_serial_jtag_driver_config_t usb_serial_jtag_config;
+  usb_serial_jtag_config.rx_buffer_size = USB_CDC_BUFFER_SIZE;
+  usb_serial_jtag_config.tx_buffer_size = USB_CDC_BUFFER_SIZE;
 
-    esp_err_t ret = ESP_OK;
-    /* Install USB-SERIAL-JTAG driver for interrupt-driven reads and writes */
-    ret = usb_serial_jtag_driver_install(&usb_serial_jtag_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to install USB serial driver: %s", esp_err_to_name(ret));
-        return;
-    }
+  esp_err_t ret = ESP_OK;
+  /* Install USB-SERIAL-JTAG driver for interrupt-driven reads and writes */
+  ret = usb_serial_jtag_driver_install(&usb_serial_jtag_config);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to install USB serial driver: %s",
+             esp_err_to_name(ret));
+    return;
+  }
 
-    /* Tell vfs to use usb-serial-jtag driver */
-    usb_serial_jtag_vfs_use_driver();
+  /* Tell vfs to use usb-serial-jtag driver */
+  usb_serial_jtag_vfs_use_driver();
 
-    ESP_LOGI(TAG, "USB Serial JTAG (Binary Mode) initialized successfully");
+  ESP_LOGI(TAG, "USB Serial JTAG (Binary Mode) initialized successfully");
 }
 
-static void usb_serial_task(void *pvParameters)
-{
-    ESP_LOGI(TAG, "USB Serial task started");
+static void usb_serial_task(void *pvParameters) {
+  ESP_LOGI(TAG, "USB Serial task started");
 
-    uint8_t temp_crc_buffer[PACKET_MAX_PAYLOAD_SIZE + 4]; // CMD + LEN(2) + PAYLOAD
+  uint8_t
+      temp_crc_buffer[PACKET_MAX_PAYLOAD_SIZE + 4]; // CMD + LEN(2) + PAYLOAD
 
-    for (;;) {
-        // Handle streaming if enabled
-        if (stream_config.enabled) {
-            uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            uint32_t interval_ms = 1000 / stream_config.rate_hz;
-            if ((now_ms - stream_config.last_send_ms) >= interval_ms) {
-                usb_serial_send_stream_data();
-                stream_config.last_send_ms = now_ms;
-            }
-        }
-
-        // Process incoming bytes
-        int byte = fgetc(stdin);
-        if (byte == EOF || byte == 0xFF) {
-            vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
-            continue;
-        }
-
-        uint8_t data = (uint8_t)byte;
-
-        switch (rx_state) {
-            case STATE_WAIT_START:
-                if (data == PACKET_START_BYTE) {
-                    rx_state = STATE_WAIT_CMD;
-                    rx_payload_index = 0;
-                    memset(&rx_packet, 0, sizeof(rx_packet));
-                }
-                break;
-
-            case STATE_WAIT_CMD:
-                rx_packet.cmd_id = data;
-                rx_state = STATE_WAIT_LEN_LSB;
-                break;
-
-            case STATE_WAIT_LEN_LSB:
-                rx_packet.payload_length = data;
-                rx_state = STATE_WAIT_LEN_MSB;
-                break;
-
-            case STATE_WAIT_LEN_MSB:
-                rx_packet.payload_length |= ((uint16_t)data << 8);
-
-                // Validate payload length
-                if (rx_packet.payload_length > PACKET_MAX_PAYLOAD_SIZE) {
-                    ESP_LOGW(TAG, "Invalid payload length: %d", rx_packet.payload_length);
-                    rx_state = STATE_WAIT_START;
-                } else if (rx_packet.payload_length == 0) {
-                    // No payload, go directly to CRC
-                    rx_state = STATE_WAIT_CRC_LSB;
-                } else {
-                    rx_state = STATE_WAIT_PAYLOAD;
-                    rx_payload_index = 0;
-                }
-                break;
-
-            case STATE_WAIT_PAYLOAD:
-                rx_packet.payload[rx_payload_index++] = data;
-                if (rx_payload_index >= rx_packet.payload_length) {
-                    rx_state = STATE_WAIT_CRC_LSB;
-                }
-                break;
-
-            case STATE_WAIT_CRC_LSB:
-                rx_packet.crc = data;
-                rx_state = STATE_WAIT_CRC_MSB;
-                break;
-
-            case STATE_WAIT_CRC_MSB:
-                rx_packet.crc |= ((uint16_t)data << 8);
-
-                // Calculate CRC over [CMD][LEN_LSB][LEN_MSB][PAYLOAD]
-                temp_crc_buffer[0] = rx_packet.cmd_id;
-                temp_crc_buffer[1] = rx_packet.payload_length & 0xFF;
-                temp_crc_buffer[2] = (rx_packet.payload_length >> 8) & 0xFF;
-                memcpy(&temp_crc_buffer[3], rx_packet.payload, rx_packet.payload_length);
-
-                rx_crc_calculated = calculate_crc16(temp_crc_buffer, 3 + rx_packet.payload_length);
-
-                if (rx_crc_calculated == rx_packet.crc) {
-                    // Valid packet received, process it
-                    ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d",
-                             rx_packet.cmd_id, rx_packet.payload_length);
-                    usb_serial_process_packet(&rx_packet);
-                } else {
-                    ESP_LOGW(TAG, "CRC mismatch: expected 0x%04X, got 0x%04X",
-                             rx_crc_calculated, rx_packet.crc);
-                    usb_serial_send_ack(rx_packet.cmd_id, ERR_CRC_MISMATCH);
-                }
-
-                rx_state = STATE_WAIT_START;
-                break;
-
-            default:
-                rx_state = STATE_WAIT_START;
-                break;
-        }
-
-        vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
+  for (;;) {
+    // Handle streaming if enabled
+    if (stream_config.enabled) {
+      uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+      uint32_t interval_ms = 1000 / stream_config.rate_hz;
+      if ((now_ms - stream_config.last_send_ms) >= interval_ms) {
+        usb_serial_send_stream_data();
+        stream_config.last_send_ms = now_ms;
+      }
     }
+
+    // Process incoming bytes
+    int byte = fgetc(stdin);
+    if (byte == EOF || byte == 0xFF) {
+      vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
+      continue;
+    }
+
+    uint8_t data = (uint8_t)byte;
+
+    switch (rx_state) {
+    case STATE_WAIT_START:
+      if (data == PACKET_START_BYTE) {
+        rx_state = STATE_WAIT_CMD;
+        rx_payload_index = 0;
+        memset(&rx_packet, 0, sizeof(rx_packet));
+      }
+      break;
+
+    case STATE_WAIT_CMD:
+      rx_packet.cmd_id = data;
+      rx_state = STATE_WAIT_LEN_LSB;
+      break;
+
+    case STATE_WAIT_LEN_LSB:
+      rx_packet.payload_length = data;
+      rx_state = STATE_WAIT_LEN_MSB;
+      break;
+
+    case STATE_WAIT_LEN_MSB:
+      rx_packet.payload_length |= ((uint16_t)data << 8);
+
+      // Validate payload length
+      if (rx_packet.payload_length > PACKET_MAX_PAYLOAD_SIZE) {
+        ESP_LOGW(TAG, "Invalid payload length: %d", rx_packet.payload_length);
+        rx_state = STATE_WAIT_START;
+      } else if (rx_packet.payload_length == 0) {
+        // No payload, go directly to CRC
+        rx_state = STATE_WAIT_CRC_LSB;
+      } else {
+        rx_state = STATE_WAIT_PAYLOAD;
+        rx_payload_index = 0;
+      }
+      break;
+
+    case STATE_WAIT_PAYLOAD:
+      rx_packet.payload[rx_payload_index++] = data;
+      if (rx_payload_index >= rx_packet.payload_length) {
+        rx_state = STATE_WAIT_CRC_LSB;
+      }
+      break;
+
+    case STATE_WAIT_CRC_LSB:
+      rx_packet.crc = data;
+      rx_state = STATE_WAIT_CRC_MSB;
+      break;
+
+    case STATE_WAIT_CRC_MSB:
+      rx_packet.crc |= ((uint16_t)data << 8);
+
+      // Calculate CRC over [CMD][LEN_LSB][LEN_MSB][PAYLOAD]
+      temp_crc_buffer[0] = rx_packet.cmd_id;
+      temp_crc_buffer[1] = rx_packet.payload_length & 0xFF;
+      temp_crc_buffer[2] = (rx_packet.payload_length >> 8) & 0xFF;
+      memcpy(&temp_crc_buffer[3], rx_packet.payload, rx_packet.payload_length);
+
+      rx_crc_calculated =
+          calculate_crc16(temp_crc_buffer, 3 + rx_packet.payload_length);
+
+      if (rx_crc_calculated == rx_packet.crc) {
+        // Valid packet received, process it
+        ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d", rx_packet.cmd_id,
+                 rx_packet.payload_length);
+        usb_serial_process_packet(&rx_packet);
+      } else {
+        ESP_LOGW(TAG, "CRC mismatch: expected 0x%04X, got 0x%04X",
+                 rx_crc_calculated, rx_packet.crc);
+        usb_serial_send_ack(rx_packet.cmd_id, ERR_CRC_MISMATCH);
+      }
+
+      rx_state = STATE_WAIT_START;
+      break;
+
+    default:
+      rx_state = STATE_WAIT_START;
+      break;
+    }
+
+    vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
+  }
 }
 
 // Send a binary response packet
-void usb_serial_send_response(uint8_t cmd_id, const uint8_t* payload, uint16_t length) {
-    if (length > PACKET_MAX_PAYLOAD_SIZE) {
-        ESP_LOGE(TAG, "Payload too large: %d bytes", length);
-        return;
-    }
+void usb_serial_send_response(uint8_t cmd_id, const uint8_t *payload,
+                              uint16_t length) {
+  if (length > PACKET_MAX_PAYLOAD_SIZE) {
+    ESP_LOGE(TAG, "Payload too large: %d bytes", length);
+    return;
+  }
 
-    // Build packet: [START][CMD][LEN_LSB][LEN_MSB][PAYLOAD][CRC_LSB][CRC_MSB]
-    uint8_t packet[PACKET_MAX_PAYLOAD_SIZE + 10];
-    uint16_t idx = 0;
+  // Build packet: [START][CMD][LEN_LSB][LEN_MSB][PAYLOAD][CRC_LSB][CRC_MSB]
+  uint8_t packet[PACKET_MAX_PAYLOAD_SIZE + 10];
+  uint16_t idx = 0;
 
-    packet[idx++] = PACKET_START_BYTE;
-    packet[idx++] = cmd_id;
-    packet[idx++] = length & 0xFF;
-    packet[idx++] = (length >> 8) & 0xFF;
+  packet[idx++] = PACKET_START_BYTE;
+  packet[idx++] = cmd_id;
+  packet[idx++] = length & 0xFF;
+  packet[idx++] = (length >> 8) & 0xFF;
 
-    if (length > 0 && payload != NULL) {
-        memcpy(&packet[idx], payload, length);
-        idx += length;
-    }
+  if (length > 0 && payload != NULL) {
+    memcpy(&packet[idx], payload, length);
+    idx += length;
+  }
 
-    // Calculate CRC over [CMD][LEN][PAYLOAD]
-    uint16_t crc = calculate_crc16(&packet[1], 3 + length);
-    packet[idx++] = crc & 0xFF;
-    packet[idx++] = (crc >> 8) & 0xFF;
+  // Calculate CRC over [CMD][LEN][PAYLOAD]
+  uint16_t crc = calculate_crc16(&packet[1], 3 + length);
+  packet[idx++] = crc & 0xFF;
+  packet[idx++] = (crc >> 8) & 0xFF;
 
-    // Send packet
-    usb_serial_jtag_write_bytes((const char*)packet, idx, pdMS_TO_TICKS(100));
+  // Send packet
+  usb_serial_jtag_write_bytes((const char *)packet, idx, pdMS_TO_TICKS(100));
 
-    ESP_LOGD(TAG, "Sent response: CMD=0x%02X, LEN=%d, CRC=0x%04X", cmd_id, length, crc);
+  ESP_LOGD(TAG, "Sent response: CMD=0x%02X, LEN=%d, CRC=0x%04X", cmd_id, length,
+           crc);
 }
 
 // Send ACK/NACK response
 void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code) {
-    uint8_t payload[2];
-    payload[0] = original_cmd;
-    payload[1] = (uint8_t)error_code;
-    usb_serial_send_response(RSP_ACK, payload, 2);
+  uint8_t payload[2];
+  payload[0] = original_cmd;
+  payload[1] = (uint8_t)error_code;
+  usb_serial_send_response(RSP_ACK, payload, 2);
 }
 
 // Send error response with message
-void usb_serial_send_error(error_code_t error_code, const char* message) {
-    uint8_t payload[256];
-    payload[0] = (uint8_t)error_code;
+void usb_serial_send_error(error_code_t error_code, const char *message) {
+  uint8_t payload[256];
+  payload[0] = (uint8_t)error_code;
 
-    uint16_t msg_len = 0;
-    if (message != NULL) {
-        msg_len = strlen(message);
-        if (msg_len > 255) msg_len = 255;
-        memcpy(&payload[1], message, msg_len);
-    }
+  uint16_t msg_len = 0;
+  if (message != NULL) {
+    msg_len = strlen(message);
+    if (msg_len > 255)
+      msg_len = 255;
+    memcpy(&payload[1], message, msg_len);
+  }
 
-    usb_serial_send_response(RSP_ERROR, payload, 1 + msg_len);
+  usb_serial_send_response(RSP_ERROR, payload, 1 + msg_len);
 }
 
 // Process received binary packet
-void usb_serial_process_packet(const binary_packet_t* packet) {
-    switch (packet->cmd_id) {
-        case CMD_PING:
-            handle_cmd_ping(packet);
-            break;
-        case CMD_GET_FIRMWARE_VERSION:
-            handle_cmd_get_firmware_version(packet);
-            break;
-        case CMD_GET_CONFIG:
-            handle_cmd_get_config(packet);
-            break;
-        case CMD_GET_CALIBRATION:
-            handle_cmd_get_calibration(packet);
-            break;
-        case CMD_CALIBRATE_THROTTLE:
-            handle_cmd_calibrate_throttle(packet);
-            break;
-        case CMD_RESET_ODOMETER:
-            handle_cmd_reset_odometer(packet);
-            break;
-        case CMD_SET_SPEED_UNIT:
-            handle_cmd_set_speed_unit(packet);
-            break;
-        case CMD_SET_BACKLIGHT:
-            handle_cmd_set_backlight(packet);
-            break;
-        case CMD_INVERT_THROTTLE:
-            handle_cmd_invert_throttle(packet);
-            break;
-        case CMD_START_STREAMING:
-            handle_cmd_start_streaming(packet);
-            break;
-        case CMD_STOP_STREAMING:
-            handle_cmd_stop_streaming(packet);
-            break;
-        case CMD_SET_STREAM_RATE:
-            handle_cmd_set_stream_rate(packet);
-            break;
-        case CMD_INCREASE_BLE_TRIM:
-            handle_cmd_increase_ble_trim(packet);
-            break;
-        case CMD_DECREASE_BLE_TRIM:
-            handle_cmd_decrease_ble_trim(packet);
-            break;
-        case CMD_GET_BLE_TRIM:
-            handle_cmd_get_ble_trim(packet);
-            break;
-        case CMD_CHECK_COREDUMP:
-            handle_cmd_check_coredump(packet);
-            break;
-        case CMD_GET_COREDUMP:
-            handle_cmd_get_coredump(packet);
-            break;
-        default:
-            ESP_LOGW(TAG, "Unknown command: 0x%02X", packet->cmd_id);
-            usb_serial_send_ack(packet->cmd_id, ERR_UNKNOWN_CMD);
-            break;
-    }
+void usb_serial_process_packet(const binary_packet_t *packet) {
+  switch (packet->cmd_id) {
+  case CMD_PING:
+    handle_cmd_ping(packet);
+    break;
+  case CMD_GET_FIRMWARE_VERSION:
+    handle_cmd_get_firmware_version(packet);
+    break;
+  case CMD_GET_CONFIG:
+    handle_cmd_get_config(packet);
+    break;
+  case CMD_GET_CALIBRATION:
+    handle_cmd_get_calibration(packet);
+    break;
+  case CMD_CALIBRATE_THROTTLE:
+    handle_cmd_calibrate_throttle(packet);
+    break;
+  case CMD_RESET_ODOMETER:
+    handle_cmd_reset_odometer(packet);
+    break;
+  case CMD_SET_SPEED_UNIT:
+    handle_cmd_set_speed_unit(packet);
+    break;
+  case CMD_SET_BACKLIGHT:
+    handle_cmd_set_backlight(packet);
+    break;
+  case CMD_INVERT_THROTTLE:
+    handle_cmd_invert_throttle(packet);
+    break;
+  case CMD_START_STREAMING:
+    handle_cmd_start_streaming(packet);
+    break;
+  case CMD_STOP_STREAMING:
+    handle_cmd_stop_streaming(packet);
+    break;
+  case CMD_SET_STREAM_RATE:
+    handle_cmd_set_stream_rate(packet);
+    break;
+  case CMD_INCREASE_BLE_TRIM:
+    handle_cmd_increase_ble_trim(packet);
+    break;
+  case CMD_DECREASE_BLE_TRIM:
+    handle_cmd_decrease_ble_trim(packet);
+    break;
+  case CMD_GET_BLE_TRIM:
+    handle_cmd_get_ble_trim(packet);
+    break;
+  case CMD_CHECK_COREDUMP:
+    handle_cmd_check_coredump(packet);
+    break;
+  case CMD_GET_COREDUMP:
+    handle_cmd_get_coredump(packet);
+    break;
+  default:
+    ESP_LOGW(TAG, "Unknown command: 0x%02X", packet->cmd_id);
+    usb_serial_send_ack(packet->cmd_id, ERR_UNKNOWN_CMD);
+    break;
+  }
 }
 
 // ========== BINARY PROTOCOL COMMAND HANDLERS ==========
 
-static void handle_cmd_ping(const binary_packet_t* packet) {
-    // Simple ping response - just ACK
-    usb_serial_send_ack(CMD_PING, ERR_OK);
+static void handle_cmd_ping(const binary_packet_t *packet) {
+  // Simple ping response - just ACK
+  usb_serial_send_ack(CMD_PING, ERR_OK);
 }
 
-static void handle_cmd_get_firmware_version(const binary_packet_t* packet) {
-    uint8_t payload[256];
-    uint16_t idx = 0;
+static void handle_cmd_get_firmware_version(const binary_packet_t *packet) {
+  uint8_t payload[256];
+  uint16_t idx = 0;
 
-    // Parse version string to get individual components
-    uint8_t major = 0, minor = 0, patch = 0;
-    sscanf(FW_VERSION, "%hhu.%hhu.%hhu", &major, &minor, &patch);
-    payload[idx++] = major;
-    payload[idx++] = minor;
-    payload[idx++] = patch;
+  // Parse version string to get individual components
+  uint8_t major = 0, minor = 0, patch = 0;
+  sscanf(FW_VERSION, "%hhu.%hhu.%hhu", &major, &minor, &patch);
+  payload[idx++] = major;
+  payload[idx++] = minor;
+  payload[idx++] = patch;
 
-    // Build date string
-    char build_str[64];
-    snprintf(build_str, sizeof(build_str), "%s %s", BUILD_DATE, BUILD_TIME);
-    uint8_t build_len = strlen(build_str);
-    payload[idx++] = build_len;
-    memcpy(&payload[idx], build_str, build_len);
-    idx += build_len;
+  // Build date string
+  char build_str[64];
+  snprintf(build_str, sizeof(build_str), "%s %s", BUILD_DATE, BUILD_TIME);
+  uint8_t build_len = strlen(build_str);
+  payload[idx++] = build_len;
+  memcpy(&payload[idx], build_str, build_len);
+  idx += build_len;
 
-    // Model name
-    uint8_t model_len = strlen(TARGET_NAME);
-    payload[idx++] = model_len;
-    memcpy(&payload[idx], TARGET_NAME, model_len);
-    idx += model_len;
+  // Model name
+  uint8_t model_len = strlen(TARGET_NAME);
+  payload[idx++] = model_len;
+  memcpy(&payload[idx], TARGET_NAME, model_len);
+  idx += model_len;
 
-    // IDF version
-    const char* idf_ver = esp_get_idf_version();
-    uint8_t idf_len = strlen(idf_ver);
-    payload[idx++] = idf_len;
-    memcpy(&payload[idx], idf_ver, idf_len);
-    idx += idf_len;
+  // IDF version
+  const char *idf_ver = esp_get_idf_version();
+  uint8_t idf_len = strlen(idf_ver);
+  payload[idx++] = idf_len;
+  memcpy(&payload[idx], idf_ver, idf_len);
+  idx += idf_len;
 
-    usb_serial_send_response(RSP_FIRMWARE_VERSION, payload, idx);
+  usb_serial_send_response(RSP_FIRMWARE_VERSION, payload, idx);
 }
 
-static void handle_cmd_get_config(const binary_packet_t* packet) {
-    // Reload configuration to ensure we have the latest settings
-    esp_err_t err = vesc_config_load(&hand_controller_config);
-    if (err != ESP_OK) {
-        usb_serial_send_ack(CMD_GET_CONFIG, ERR_SAVE_FAILED);
-        return;
-    }
+static void handle_cmd_get_config(const binary_packet_t *packet) {
+  // Reload configuration to ensure we have the latest settings
+  esp_err_t err = vesc_config_load(&hand_controller_config);
+  if (err != ESP_OK) {
+    usb_serial_send_ack(CMD_GET_CONFIG, ERR_SAVE_FAILED);
+    return;
+  }
 
-    uint8_t payload[256];
-    uint16_t idx = 0;
+  uint8_t payload[256];
+  uint16_t idx = 0;
 
-    uint8_t flags = 0;
-    if (hand_controller_config.speed_unit_mph) flags |= 0x01;
+  uint8_t flags = 0;
+  if (hand_controller_config.speed_unit_mph)
+    flags |= 0x01;
 #ifdef CONFIG_TARGET_LITE
-    if (hand_controller_config.invert_throttle) flags |= 0x02;
+  if (hand_controller_config.invert_throttle)
+    flags |= 0x02;
 #endif
-    if (ble_is_connected()) flags |= 0x04;
-    if (throttle_is_calibrated()) flags |= 0x08;
-    payload[idx++] = flags;
+  if (ble_is_connected())
+    flags |= 0x04;
+  if (throttle_is_calibrated())
+    flags |= 0x08;
+  payload[idx++] = flags;
 
-    // Get backlight brightness
-    nvs_handle_t nvs_handle;
-    uint8_t brightness = LCD_BACKLIGHT_DEFAULT;
-    err = nvs_open(NVS_NAMESPACE_LCD, NVS_READONLY, &nvs_handle);
-    if (err == ESP_OK) {
-        nvs_get_u8(nvs_handle, NVS_KEY_BACKLIGHT, &brightness);
-        nvs_close(nvs_handle);
-    }
-    payload[idx++] = brightness;
+  // Get backlight brightness
+  nvs_handle_t nvs_handle;
+  uint8_t brightness = LCD_BACKLIGHT_DEFAULT;
+  err = nvs_open(NVS_NAMESPACE_LCD, NVS_READONLY, &nvs_handle);
+  if (err == ESP_OK) {
+    nvs_get_u8(nvs_handle, NVS_KEY_BACKLIGHT, &brightness);
+    nvs_close(nvs_handle);
+  }
+  payload[idx++] = brightness;
 
-    // Motor configuration (2 bytes each, little-endian)
-    payload[idx++] = hand_controller_config.motor_poles;
-    payload[idx++] = (hand_controller_config.gear_ratio_x1000 >> 0) & 0xFF;
-    payload[idx++] = (hand_controller_config.gear_ratio_x1000 >> 8) & 0xFF;
-    payload[idx++] = (hand_controller_config.wheel_diameter_mm >> 0) & 0xFF;
-    payload[idx++] = (hand_controller_config.wheel_diameter_mm >> 8) & 0xFF;
+  // Motor configuration (2 bytes each, little-endian)
+  payload[idx++] = hand_controller_config.motor_poles;
+  payload[idx++] = (hand_controller_config.gear_ratio_x1000 >> 0) & 0xFF;
+  payload[idx++] = (hand_controller_config.gear_ratio_x1000 >> 8) & 0xFF;
+  payload[idx++] = (hand_controller_config.wheel_diameter_mm >> 0) & 0xFF;
+  payload[idx++] = (hand_controller_config.wheel_diameter_mm >> 8) & 0xFF;
 
-    // Current speed (4 bytes, little-endian, signed)
-    int32_t speed = 0;
-    if (ble_is_connected()) {
-        speed = vesc_config_get_speed(&hand_controller_config);
-    }
-    payload[idx++] = (speed >> 0) & 0xFF;
-    payload[idx++] = (speed >> 8) & 0xFF;
-    payload[idx++] = (speed >> 16) & 0xFF;
-    payload[idx++] = (speed >> 24) & 0xFF;
+  // Current speed (4 bytes, little-endian, signed)
+  int32_t speed = 0;
+  if (ble_is_connected()) {
+    speed = vesc_config_get_speed(&hand_controller_config);
+  }
+  payload[idx++] = (speed >> 0) & 0xFF;
+  payload[idx++] = (speed >> 8) & 0xFF;
+  payload[idx++] = (speed >> 16) & 0xFF;
+  payload[idx++] = (speed >> 24) & 0xFF;
 
-    // BLE trim offset (1 byte, signed)
-    int8_t trim_offset = ble_get_trim_offset();
-    payload[idx++] = (uint8_t)trim_offset;  // Cast to uint8_t for transmission (will be interpreted as int8_t on receive)
+  // BLE trim offset (1 byte, signed)
+  int8_t trim_offset = ble_get_trim_offset();
+  payload[idx++] =
+      (uint8_t)trim_offset; // Cast to uint8_t for transmission (will be
+                            // interpreted as int8_t on receive)
 
-    // Throttle calibration (4 bytes each, little-endian)
-    if (throttle_is_calibrated()) {
-        uint32_t min_val, max_val;
-        throttle_get_calibration_values(&min_val, &max_val);
+  // Throttle calibration (4 bytes each, little-endian)
+  if (throttle_is_calibrated()) {
+    uint32_t min_val, max_val;
+    throttle_get_calibration_values(&min_val, &max_val);
 
-        payload[idx++] = (min_val >> 0) & 0xFF;
-        payload[idx++] = (min_val >> 8) & 0xFF;
-        payload[idx++] = (min_val >> 16) & 0xFF;
-        payload[idx++] = (min_val >> 24) & 0xFF;
+    payload[idx++] = (min_val >> 0) & 0xFF;
+    payload[idx++] = (min_val >> 8) & 0xFF;
+    payload[idx++] = (min_val >> 16) & 0xFF;
+    payload[idx++] = (min_val >> 24) & 0xFF;
 
-        payload[idx++] = (max_val >> 0) & 0xFF;
-        payload[idx++] = (max_val >> 8) & 0xFF;
-        payload[idx++] = (max_val >> 16) & 0xFF;
-        payload[idx++] = (max_val >> 24) & 0xFF;
+    payload[idx++] = (max_val >> 0) & 0xFF;
+    payload[idx++] = (max_val >> 8) & 0xFF;
+    payload[idx++] = (max_val >> 16) & 0xFF;
+    payload[idx++] = (max_val >> 24) & 0xFF;
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-        uint32_t brake_min, brake_max;
-        brake_get_calibration_values(&brake_min, &brake_max);
-
-        payload[idx++] = (brake_min >> 0) & 0xFF;
-        payload[idx++] = (brake_min >> 8) & 0xFF;
-        payload[idx++] = (brake_min >> 16) & 0xFF;
-        payload[idx++] = (brake_min >> 24) & 0xFF;
-
-        payload[idx++] = (brake_max >> 0) & 0xFF;
-        payload[idx++] = (brake_max >> 8) & 0xFF;
-        payload[idx++] = (brake_max >> 16) & 0xFF;
-        payload[idx++] = (brake_max >> 24) & 0xFF;
-#endif
-    }
-
-    usb_serial_send_response(RSP_CONFIG, payload, idx);
-}
-
-static void handle_cmd_reset_odometer(const binary_packet_t* packet) {
-    ui_reset_trip_distance();
-    usb_serial_send_ack(CMD_RESET_ODOMETER, ERR_OK);
-}
-
-// Progress callback: sends RSP_CALIBRATION_PROGRESS with current ADC readings and range
-static void calibration_progress_handler(uint16_t sample, uint16_t total,
-                                          uint32_t throttle_current,
-                                          uint32_t throttle_min, uint32_t throttle_max,
-                                          uint32_t brake_current,
-                                          uint32_t brake_min, uint32_t brake_max) {
-    uint8_t payload[29];
-    uint16_t idx = 0;
-
-    uint8_t percent = (uint8_t)((sample * 100) / (total > 0 ? total : 1));
-
-    payload[idx++] = sample & 0xFF;
-    payload[idx++] = (sample >> 8) & 0xFF;
-    payload[idx++] = total & 0xFF;
-    payload[idx++] = (total >> 8) & 0xFF;
-    payload[idx++] = percent;
-
-    payload[idx++] = (throttle_current >> 0) & 0xFF;
-    payload[idx++] = (throttle_current >> 8) & 0xFF;
-    payload[idx++] = (throttle_current >> 16) & 0xFF;
-    payload[idx++] = (throttle_current >> 24) & 0xFF;
-
-    payload[idx++] = (throttle_min >> 0) & 0xFF;
-    payload[idx++] = (throttle_min >> 8) & 0xFF;
-    payload[idx++] = (throttle_min >> 16) & 0xFF;
-    payload[idx++] = (throttle_min >> 24) & 0xFF;
-
-    payload[idx++] = (throttle_max >> 0) & 0xFF;
-    payload[idx++] = (throttle_max >> 8) & 0xFF;
-    payload[idx++] = (throttle_max >> 16) & 0xFF;
-    payload[idx++] = (throttle_max >> 24) & 0xFF;
-
-    payload[idx++] = (brake_current >> 0) & 0xFF;
-    payload[idx++] = (brake_current >> 8) & 0xFF;
-    payload[idx++] = (brake_current >> 16) & 0xFF;
-    payload[idx++] = (brake_current >> 24) & 0xFF;
+    uint32_t brake_min, brake_max;
+    brake_get_calibration_values(&brake_min, &brake_max);
 
     payload[idx++] = (brake_min >> 0) & 0xFF;
     payload[idx++] = (brake_min >> 8) & 0xFF;
@@ -562,81 +512,99 @@ static void calibration_progress_handler(uint16_t sample, uint16_t total,
     payload[idx++] = (brake_max >> 8) & 0xFF;
     payload[idx++] = (brake_max >> 16) & 0xFF;
     payload[idx++] = (brake_max >> 24) & 0xFF;
+#endif
+  }
 
-    usb_serial_send_response(RSP_CALIBRATION_PROGRESS, payload, idx);
+  usb_serial_send_response(RSP_CONFIG, payload, idx);
+}
+
+static void handle_cmd_reset_odometer(const binary_packet_t *packet) {
+  ui_reset_trip_distance();
+  usb_serial_send_ack(CMD_RESET_ODOMETER, ERR_OK);
+}
+
+// Progress callback: sends RSP_CALIBRATION_PROGRESS with current ADC readings
+// and range
+static void
+calibration_progress_handler(uint16_t sample, uint16_t total,
+                             uint32_t throttle_current, uint32_t throttle_min,
+                             uint32_t throttle_max, uint32_t brake_current,
+                             uint32_t brake_min, uint32_t brake_max) {
+  uint8_t payload[29];
+  uint16_t idx = 0;
+
+  uint8_t percent = (uint8_t)((sample * 100) / (total > 0 ? total : 1));
+
+  payload[idx++] = sample & 0xFF;
+  payload[idx++] = (sample >> 8) & 0xFF;
+  payload[idx++] = total & 0xFF;
+  payload[idx++] = (total >> 8) & 0xFF;
+  payload[idx++] = percent;
+
+  payload[idx++] = (throttle_current >> 0) & 0xFF;
+  payload[idx++] = (throttle_current >> 8) & 0xFF;
+  payload[idx++] = (throttle_current >> 16) & 0xFF;
+  payload[idx++] = (throttle_current >> 24) & 0xFF;
+
+  payload[idx++] = (throttle_min >> 0) & 0xFF;
+  payload[idx++] = (throttle_min >> 8) & 0xFF;
+  payload[idx++] = (throttle_min >> 16) & 0xFF;
+  payload[idx++] = (throttle_min >> 24) & 0xFF;
+
+  payload[idx++] = (throttle_max >> 0) & 0xFF;
+  payload[idx++] = (throttle_max >> 8) & 0xFF;
+  payload[idx++] = (throttle_max >> 16) & 0xFF;
+  payload[idx++] = (throttle_max >> 24) & 0xFF;
+
+  payload[idx++] = (brake_current >> 0) & 0xFF;
+  payload[idx++] = (brake_current >> 8) & 0xFF;
+  payload[idx++] = (brake_current >> 16) & 0xFF;
+  payload[idx++] = (brake_current >> 24) & 0xFF;
+
+  payload[idx++] = (brake_min >> 0) & 0xFF;
+  payload[idx++] = (brake_min >> 8) & 0xFF;
+  payload[idx++] = (brake_min >> 16) & 0xFF;
+  payload[idx++] = (brake_min >> 24) & 0xFF;
+
+  payload[idx++] = (brake_max >> 0) & 0xFF;
+  payload[idx++] = (brake_max >> 8) & 0xFF;
+  payload[idx++] = (brake_max >> 16) & 0xFF;
+  payload[idx++] = (brake_max >> 24) & 0xFF;
+
+  usb_serial_send_response(RSP_CALIBRATION_PROGRESS, payload, idx);
 }
 
 static error_code_t calibration_result_to_error(calibration_result_t result) {
-    switch (result) {
-        case CAL_OK: return ERR_OK;
-        case CAL_FAIL_THROTTLE_RANGE: return ERR_CAL_THROTTLE_RANGE;
-        case CAL_FAIL_THROTTLE_NO_READINGS: return ERR_CAL_THROTTLE_NO_READINGS;
-        case CAL_FAIL_BRAKE_RANGE: return ERR_CAL_BRAKE_RANGE;
-        case CAL_FAIL_BRAKE_NO_READINGS: return ERR_CAL_BRAKE_NO_READINGS;
-        case CAL_FAIL_SAVE: return ERR_SAVE_FAILED;
-        default: return ERR_CALIBRATION_FAILED;
-    }
+  switch (result) {
+  case CAL_OK:
+    return ERR_OK;
+  case CAL_FAIL_THROTTLE_RANGE:
+    return ERR_CAL_THROTTLE_RANGE;
+  case CAL_FAIL_THROTTLE_NO_READINGS:
+    return ERR_CAL_THROTTLE_NO_READINGS;
+  case CAL_FAIL_BRAKE_RANGE:
+    return ERR_CAL_BRAKE_RANGE;
+  case CAL_FAIL_BRAKE_NO_READINGS:
+    return ERR_CAL_BRAKE_NO_READINGS;
+  case CAL_FAIL_SAVE:
+    return ERR_SAVE_FAILED;
+  default:
+    return ERR_CALIBRATION_FAILED;
+  }
 }
 
-static void handle_cmd_calibrate_throttle(const binary_packet_t* packet) {
-    ESP_LOGI(TAG, "Starting throttle calibration...");
+static void handle_cmd_calibrate_throttle(const binary_packet_t *packet) {
+  ESP_LOGI(TAG, "Starting throttle calibration...");
 
-    calibration_result_t result = throttle_calibrate(calibration_progress_handler);
+  calibration_result_t result =
+      throttle_calibrate(calibration_progress_handler);
 
-    if (result == CAL_OK) {
-        // Build calibration response
-        uint8_t payload[32];
-        uint16_t idx = 0;
-
-        payload[idx++] = 1; // Success flag
-
-        uint32_t throttle_min, throttle_max;
-        throttle_get_calibration_values(&throttle_min, &throttle_max);
-
-        payload[idx++] = (throttle_min >> 0) & 0xFF;
-        payload[idx++] = (throttle_min >> 8) & 0xFF;
-        payload[idx++] = (throttle_min >> 16) & 0xFF;
-        payload[idx++] = (throttle_min >> 24) & 0xFF;
-
-        payload[idx++] = (throttle_max >> 0) & 0xFF;
-        payload[idx++] = (throttle_max >> 8) & 0xFF;
-        payload[idx++] = (throttle_max >> 16) & 0xFF;
-        payload[idx++] = (throttle_max >> 24) & 0xFF;
-
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-        uint32_t brake_min, brake_max;
-        brake_get_calibration_values(&brake_min, &brake_max);
-
-        payload[idx++] = (brake_min >> 0) & 0xFF;
-        payload[idx++] = (brake_min >> 8) & 0xFF;
-        payload[idx++] = (brake_min >> 16) & 0xFF;
-        payload[idx++] = (brake_min >> 24) & 0xFF;
-
-        payload[idx++] = (brake_max >> 0) & 0xFF;
-        payload[idx++] = (brake_max >> 8) & 0xFF;
-        payload[idx++] = (brake_max >> 16) & 0xFF;
-        payload[idx++] = (brake_max >> 24) & 0xFF;
-#endif
-
-        usb_serial_send_response(RSP_CALIBRATION, payload, idx);
-    } else {
-        usb_serial_send_ack(CMD_CALIBRATE_THROTTLE, calibration_result_to_error(result));
-    }
-}
-
-static void handle_cmd_get_calibration(const binary_packet_t* packet) {
-    bool is_calibrated = throttle_is_calibrated();
-
-    if (!is_calibrated) {
-        usb_serial_send_ack(CMD_GET_CALIBRATION, ERR_NOT_CALIBRATED);
-        return;
-    }
-
+  if (result == CAL_OK) {
     // Build calibration response
-    uint8_t payload[64];
+    uint8_t payload[32];
     uint16_t idx = 0;
 
-    payload[idx++] = 1; // Calibrated flag
+    payload[idx++] = 1; // Success flag
 
     uint32_t throttle_min, throttle_max;
     throttle_get_calibration_values(&throttle_min, &throttle_max);
@@ -664,510 +632,602 @@ static void handle_cmd_get_calibration(const binary_packet_t* packet) {
     payload[idx++] = (brake_max >> 8) & 0xFF;
     payload[idx++] = (brake_max >> 16) & 0xFF;
     payload[idx++] = (brake_max >> 24) & 0xFF;
-
-    // Current BLE value
-    int32_t ble_val = get_throttle_brake_ble_value();
-    payload[idx++] = (ble_val >> 0) & 0xFF;
-    payload[idx++] = (ble_val >> 8) & 0xFF;
-    payload[idx++] = (ble_val >> 16) & 0xFF;
-    payload[idx++] = (ble_val >> 24) & 0xFF;
-#else
-    // Current ADC value
-    uint32_t adc_val = adc_get_latest_value();
-    payload[idx++] = (adc_val >> 0) & 0xFF;
-    payload[idx++] = (adc_val >> 8) & 0xFF;
-    payload[idx++] = (adc_val >> 16) & 0xFF;
-    payload[idx++] = (adc_val >> 24) & 0xFF;
 #endif
 
     usb_serial_send_response(RSP_CALIBRATION, payload, idx);
+  } else {
+    usb_serial_send_ack(CMD_CALIBRATE_THROTTLE,
+                        calibration_result_to_error(result));
+  }
 }
 
-static void handle_cmd_set_speed_unit(const binary_packet_t* packet) {
-    // Payload: [0=kmh, 1=mph]
-    if (packet->payload_length != 1) {
-        usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_INVALID_PAYLOAD);
-        return;
-    }
+static void handle_cmd_get_calibration(const binary_packet_t *packet) {
+  bool is_calibrated = throttle_is_calibrated();
 
-    uint8_t unit = packet->payload[0];
-    if (unit > 1) {
-        usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_OUT_OF_RANGE);
-        return;
-    }
+  if (!is_calibrated) {
+    usb_serial_send_ack(CMD_GET_CALIBRATION, ERR_NOT_CALIBRATED);
+    return;
+  }
 
-    hand_controller_config.speed_unit_mph = (unit == 1);
-    esp_err_t err = vesc_config_save(&hand_controller_config);
-    ui_update_speed_unit(hand_controller_config.speed_unit_mph);
-    ui_force_config_reload();
+  // Build calibration response
+  uint8_t payload[64];
+  uint16_t idx = 0;
 
-    if (err == ESP_OK) {
-        usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_OK);
-    } else {
-        usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_SAVE_FAILED);
-    }
-}
+  payload[idx++] = 1; // Calibrated flag
 
-static void handle_cmd_set_backlight(const binary_packet_t* packet) {
-    // Payload: [brightness 0-100]
-    if (packet->payload_length != 1) {
-        usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_INVALID_PAYLOAD);
-        return;
-    }
+  uint32_t throttle_min, throttle_max;
+  throttle_get_calibration_values(&throttle_min, &throttle_max);
 
-    uint8_t brightness = packet->payload[0];
-    if (brightness > LCD_BACKLIGHT_MAX) {
-        usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_OUT_OF_RANGE);
-        return;
-    }
+  payload[idx++] = (throttle_min >> 0) & 0xFF;
+  payload[idx++] = (throttle_min >> 8) & 0xFF;
+  payload[idx++] = (throttle_min >> 16) & 0xFF;
+  payload[idx++] = (throttle_min >> 24) & 0xFF;
 
-    // Map percentage (0-100) to PWM duty (0-255) and fade to new value
-    uint8_t pwm_value = (brightness * 255) / 100;
-    lcd_fade_backlight(lcd_get_backlight(), pwm_value, LCD_BACKLIGHT_FADE_DURATION_MS);
+  payload[idx++] = (throttle_max >> 0) & 0xFF;
+  payload[idx++] = (throttle_max >> 8) & 0xFF;
+  payload[idx++] = (throttle_max >> 16) & 0xFF;
+  payload[idx++] = (throttle_max >> 24) & 0xFF;
 
-    // Save to NVS
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE_LCD, NVS_READWRITE, &nvs_handle);
-    if (err == ESP_OK) {
-        err = nvs_set_u8(nvs_handle, NVS_KEY_BACKLIGHT, brightness);
-        if (err == ESP_OK) {
-            err = nvs_commit(nvs_handle);
-        }
-        nvs_close(nvs_handle);
-    }
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+  uint32_t brake_min, brake_max;
+  brake_get_calibration_values(&brake_min, &brake_max);
 
-    if (err == ESP_OK) {
-        usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_OK);
-    } else {
-        usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_SAVE_FAILED);
-    }
-}
+  payload[idx++] = (brake_min >> 0) & 0xFF;
+  payload[idx++] = (brake_min >> 8) & 0xFF;
+  payload[idx++] = (brake_min >> 16) & 0xFF;
+  payload[idx++] = (brake_min >> 24) & 0xFF;
 
-static void handle_cmd_invert_throttle(const binary_packet_t* packet) {
-#ifdef CONFIG_TARGET_LITE
-    hand_controller_config.invert_throttle = !hand_controller_config.invert_throttle;
-    esp_err_t err = vesc_config_save(&hand_controller_config);
-    ui_force_config_reload();
+  payload[idx++] = (brake_max >> 0) & 0xFF;
+  payload[idx++] = (brake_max >> 8) & 0xFF;
+  payload[idx++] = (brake_max >> 16) & 0xFF;
+  payload[idx++] = (brake_max >> 24) & 0xFF;
 
-    if (err == ESP_OK) {
-        usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_OK);
-    } else {
-        usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_SAVE_FAILED);
-    }
+  // Current BLE value
+  int32_t ble_val = get_throttle_brake_ble_value();
+  payload[idx++] = (ble_val >> 0) & 0xFF;
+  payload[idx++] = (ble_val >> 8) & 0xFF;
+  payload[idx++] = (ble_val >> 16) & 0xFF;
+  payload[idx++] = (ble_val >> 24) & 0xFF;
 #else
-    usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_NOT_SUPPORTED);
+  // Current ADC value
+  uint32_t adc_val = adc_get_latest_value();
+  payload[idx++] = (adc_val >> 0) & 0xFF;
+  payload[idx++] = (adc_val >> 8) & 0xFF;
+  payload[idx++] = (adc_val >> 16) & 0xFF;
+  payload[idx++] = (adc_val >> 24) & 0xFF;
+#endif
+
+  usb_serial_send_response(RSP_CALIBRATION, payload, idx);
+}
+
+static void handle_cmd_set_speed_unit(const binary_packet_t *packet) {
+  // Payload: [0=kmh, 1=mph]
+  if (packet->payload_length != 1) {
+    usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_INVALID_PAYLOAD);
+    return;
+  }
+
+  uint8_t unit = packet->payload[0];
+  if (unit > 1) {
+    usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_OUT_OF_RANGE);
+    return;
+  }
+
+  hand_controller_config.speed_unit_mph = (unit == 1);
+  esp_err_t err = vesc_config_save(&hand_controller_config);
+  ui_update_speed_unit(hand_controller_config.speed_unit_mph);
+  ui_force_config_reload();
+
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_SAVE_FAILED);
+  }
+}
+
+static void handle_cmd_set_backlight(const binary_packet_t *packet) {
+  // Payload: [brightness 0-100]
+  if (packet->payload_length != 1) {
+    usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_INVALID_PAYLOAD);
+    return;
+  }
+
+  uint8_t brightness = packet->payload[0];
+  if (brightness > LCD_BACKLIGHT_MAX) {
+    usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_OUT_OF_RANGE);
+    return;
+  }
+
+  // Map percentage (0-100) to PWM duty (0-255) and fade to new value
+  uint8_t pwm_value = (brightness * 255) / 100;
+  lcd_fade_backlight(lcd_get_backlight(), pwm_value,
+                     LCD_BACKLIGHT_FADE_DURATION_MS);
+
+  // Save to NVS
+  nvs_handle_t nvs_handle;
+  esp_err_t err = nvs_open(NVS_NAMESPACE_LCD, NVS_READWRITE, &nvs_handle);
+  if (err == ESP_OK) {
+    err = nvs_set_u8(nvs_handle, NVS_KEY_BACKLIGHT, brightness);
+    if (err == ESP_OK) {
+      err = nvs_commit(nvs_handle);
+    }
+    nvs_close(nvs_handle);
+  }
+
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_SAVE_FAILED);
+  }
+}
+
+static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
+#ifdef CONFIG_TARGET_LITE
+  hand_controller_config.invert_throttle =
+      !hand_controller_config.invert_throttle;
+  esp_err_t err = vesc_config_save(&hand_controller_config);
+  ui_force_config_reload();
+
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_SAVE_FAILED);
+  }
+#else
+  usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_NOT_SUPPORTED);
 #endif
 }
 
 // ========== STREAMING FUNCTIONS ==========
 
 // Apply trim offset with range compensation to maintain full 0-255 span
-static uint8_t apply_trim_with_compensation(uint8_t adc_value, int8_t trim_offset) {
-    int32_t new_center = VESC_NEUTRAL_VALUE + trim_offset;
+static uint8_t apply_trim_with_compensation(uint8_t adc_value,
+                                            int8_t trim_offset) {
+  int32_t new_center = VESC_NEUTRAL_VALUE + trim_offset;
 
-    // Clamp new center to valid range
-    if (new_center < 0) new_center = 0;
-    if (new_center > 255) new_center = 255;
+  // Clamp new center to valid range
+  if (new_center < 0)
+    new_center = 0;
+  if (new_center > 255)
+    new_center = 255;
 
-    uint8_t final_value;
+  uint8_t final_value;
 
-    if (adc_value <= VESC_NEUTRAL_VALUE) {
-        // Scale lower half (0-128) to map to 0 to new_center, preserving proportion
-        if (VESC_NEUTRAL_VALUE > 0) {
-            int32_t scaled = (int32_t)((float)adc_value * (float)new_center / (float)VESC_NEUTRAL_VALUE + 0.5f);
-            final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
-        } else {
-            final_value = 0;
-        }
+  if (adc_value <= VESC_NEUTRAL_VALUE) {
+    // Scale lower half (0-128) to map to 0 to new_center, preserving proportion
+    if (VESC_NEUTRAL_VALUE > 0) {
+      int32_t scaled = (int32_t)((float)adc_value * (float)new_center /
+                                     (float)VESC_NEUTRAL_VALUE +
+                                 0.5f);
+      final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
     } else {
-        // Scale upper half (129-255) to map from new_center to 255, preserving proportion
-        int32_t upper_output_range = 255 - new_center;
-        int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
-        if (upper_input_range > 0) {
-            int32_t scaled = new_center + (int32_t)((float)(adc_value - VESC_NEUTRAL_VALUE) * (float)upper_output_range / (float)upper_input_range + 0.5f);
-            final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
-        } else {
-            final_value = (uint8_t)new_center;
-        }
+      final_value = 0;
     }
+  } else {
+    // Scale upper half (129-255) to map from new_center to 255, preserving
+    // proportion
+    int32_t upper_output_range = 255 - new_center;
+    int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
+    if (upper_input_range > 0) {
+      int32_t scaled =
+          new_center +
+          (int32_t)((float)(adc_value - VESC_NEUTRAL_VALUE) *
+                        (float)upper_output_range / (float)upper_input_range +
+                    0.5f);
+      final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+    } else {
+      final_value = (uint8_t)new_center;
+    }
+  }
 
-    return final_value;
+  return final_value;
 }
 
-static void handle_cmd_start_streaming(const binary_packet_t* packet) {
-    uint16_t rate_hz = 10; // Default 10Hz
+static void handle_cmd_start_streaming(const binary_packet_t *packet) {
+  uint16_t rate_hz = 10; // Default 10Hz
 
-    if (packet->payload_length >= 2) {
-        // Payload: [rate_hz_lsb][rate_hz_msb]
-        rate_hz = packet->payload[0] | (packet->payload[1] << 8);
-    }
+  if (packet->payload_length >= 2) {
+    // Payload: [rate_hz_lsb][rate_hz_msb]
+    rate_hz = packet->payload[0] | (packet->payload[1] << 8);
+  }
 
-    // Validate rate (1Hz - 100Hz)
-    if (rate_hz < 1) rate_hz = 1;
-    if (rate_hz > 100) rate_hz = 100;
+  // Validate rate (1Hz - 100Hz)
+  if (rate_hz < 1)
+    rate_hz = 1;
+  if (rate_hz > 100)
+    rate_hz = 100;
 
-    usb_serial_start_streaming(rate_hz);
+  usb_serial_start_streaming(rate_hz);
 
-    ESP_LOGI(TAG, "Streaming started at %d Hz", rate_hz);
-    usb_serial_send_ack(CMD_START_STREAMING, ERR_OK);
+  ESP_LOGI(TAG, "Streaming started at %d Hz", rate_hz);
+  usb_serial_send_ack(CMD_START_STREAMING, ERR_OK);
 }
 
-static void handle_cmd_stop_streaming(const binary_packet_t* packet) {
-    usb_serial_stop_streaming();
-    ESP_LOGI(TAG, "Streaming stopped");
-    usb_serial_send_ack(CMD_STOP_STREAMING, ERR_OK);
+static void handle_cmd_stop_streaming(const binary_packet_t *packet) {
+  usb_serial_stop_streaming();
+  ESP_LOGI(TAG, "Streaming stopped");
+  usb_serial_send_ack(CMD_STOP_STREAMING, ERR_OK);
 }
 
-static void handle_cmd_set_stream_rate(const binary_packet_t* packet) {
-    if (packet->payload_length != 2) {
-        usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_INVALID_PAYLOAD);
-        return;
-    }
+static void handle_cmd_set_stream_rate(const binary_packet_t *packet) {
+  if (packet->payload_length != 2) {
+    usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_INVALID_PAYLOAD);
+    return;
+  }
 
-    uint16_t rate_hz = packet->payload[0] | (packet->payload[1] << 8);
+  uint16_t rate_hz = packet->payload[0] | (packet->payload[1] << 8);
 
-    // Validate rate (1Hz - 100Hz)
-    if (rate_hz < 1 || rate_hz > 100) {
-        usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_OUT_OF_RANGE);
-        return;
-    }
+  // Validate rate (1Hz - 100Hz)
+  if (rate_hz < 1 || rate_hz > 100) {
+    usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_OUT_OF_RANGE);
+    return;
+  }
 
-    stream_config.rate_hz = rate_hz;
+  stream_config.rate_hz = rate_hz;
 
-    ESP_LOGI(TAG, "Streaming rate changed to %d Hz", rate_hz);
-    usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_OK);
+  ESP_LOGI(TAG, "Streaming rate changed to %d Hz", rate_hz);
+  usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_OK);
 }
 
 void usb_serial_start_streaming(uint16_t rate_hz) {
-    stream_config.enabled = true;
-    stream_config.rate_hz = rate_hz;
-    stream_config.last_send_ms = 0;
+  stream_config.enabled = true;
+  stream_config.rate_hz = rate_hz;
+  stream_config.last_send_ms = 0;
 }
 
-void usb_serial_stop_streaming(void) {
-    stream_config.enabled = false;
-}
+void usb_serial_stop_streaming(void) { stream_config.enabled = false; }
 
 void usb_serial_send_stream_data(void) {
-    if (!stream_config.enabled) {
-        return;
-    }
+  if (!stream_config.enabled) {
+    return;
+  }
 
-    uint8_t payload[32];
-    uint16_t idx = 0;
+  uint8_t payload[32];
+  uint16_t idx = 0;
 
-    uint32_t timestamp_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    payload[idx++] = (timestamp_ms >> 0) & 0xFF;
-    payload[idx++] = (timestamp_ms >> 8) & 0xFF;
-    payload[idx++] = (timestamp_ms >> 16) & 0xFF;
-    payload[idx++] = (timestamp_ms >> 24) & 0xFF;
+  uint32_t timestamp_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+  payload[idx++] = (timestamp_ms >> 0) & 0xFF;
+  payload[idx++] = (timestamp_ms >> 8) & 0xFF;
+  payload[idx++] = (timestamp_ms >> 16) & 0xFF;
+  payload[idx++] = (timestamp_ms >> 24) & 0xFF;
 
-    uint8_t flags = 0;
-    if (ble_is_connected()) flags |= 0x01;
-    if (throttle_is_calibrated()) flags |= 0x02;
-    payload[idx++] = flags;
+  uint8_t flags = 0;
+  if (ble_is_connected())
+    flags |= 0x01;
+  if (throttle_is_calibrated())
+    flags |= 0x02;
+  payload[idx++] = flags;
 
-    // Throttle raw value (4 bytes, signed)
-    int32_t throttle_raw = throttle_read_value();
-    if (throttle_raw < 0) throttle_raw = 0;  // Clamp negative values to 0
-    uint32_t throttle_raw_uint = (uint32_t)throttle_raw;
-    payload[idx++] = (throttle_raw_uint >> 0) & 0xFF;
-    payload[idx++] = (throttle_raw_uint >> 8) & 0xFF;
-    payload[idx++] = (throttle_raw_uint >> 16) & 0xFF;
-    payload[idx++] = (throttle_raw_uint >> 24) & 0xFF;
+  // Throttle raw value (4 bytes, signed)
+  int32_t throttle_raw = throttle_read_value();
+  if (throttle_raw < 0)
+    throttle_raw = 0; // Clamp negative values to 0
+  uint32_t throttle_raw_uint = (uint32_t)throttle_raw;
+  payload[idx++] = (throttle_raw_uint >> 0) & 0xFF;
+  payload[idx++] = (throttle_raw_uint >> 8) & 0xFF;
+  payload[idx++] = (throttle_raw_uint >> 16) & 0xFF;
+  payload[idx++] = (throttle_raw_uint >> 24) & 0xFF;
 
-    // Brake raw value (4 bytes, signed)
-    uint32_t brake_raw_uint = 0;
+  // Brake raw value (4 bytes, signed)
+  uint32_t brake_raw_uint = 0;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-    int32_t brake_raw = brake_read_value();
-    if (brake_raw < 0) brake_raw = 0;  // Clamp negative values to 0
-    brake_raw_uint = (uint32_t)brake_raw;
+  int32_t brake_raw = brake_read_value();
+  if (brake_raw < 0)
+    brake_raw = 0; // Clamp negative values to 0
+  brake_raw_uint = (uint32_t)brake_raw;
 #endif
-    payload[idx++] = (brake_raw_uint >> 0) & 0xFF;
-    payload[idx++] = (brake_raw_uint >> 8) & 0xFF;
-    payload[idx++] = (brake_raw_uint >> 16) & 0xFF;
-    payload[idx++] = (brake_raw_uint >> 24) & 0xFF;
+  payload[idx++] = (brake_raw_uint >> 0) & 0xFF;
+  payload[idx++] = (brake_raw_uint >> 8) & 0xFF;
+  payload[idx++] = (brake_raw_uint >> 16) & 0xFF;
+  payload[idx++] = (brake_raw_uint >> 24) & 0xFF;
 
-    // Throttle/brake combination value sent to BLE (1 byte, 0-255)
-    uint8_t throttle_brake_ble = 0;
+  // Throttle/brake combination value sent to BLE (1 byte, 0-255)
+  uint8_t throttle_brake_ble = 0;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-    throttle_brake_ble = get_throttle_brake_ble_value();
-    // Apply trim offset with range compensation to match what's actually sent via BLE
-    throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
+  throttle_brake_ble = get_throttle_brake_ble_value();
+  // Apply trim offset with range compensation to match what's actually sent via
+  // BLE
+  throttle_brake_ble =
+      apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
 #elif defined(CONFIG_TARGET_LITE)
-    bool throttle_inverted = false;
-    uint32_t adc_value = adc_get_latest_value();
-    if (throttle_should_use_neutral()) {
-        throttle_brake_ble = VESC_NEUTRAL_VALUE;
-    } else {
-        throttle_brake_ble = (uint8_t)adc_value;
+  bool throttle_inverted = false;
+  uint32_t adc_value = adc_get_latest_value();
+  if (throttle_should_use_neutral()) {
+    throttle_brake_ble = VESC_NEUTRAL_VALUE;
+  } else {
+    throttle_brake_ble = (uint8_t)adc_value;
 
-        // Apply throttle inversion if configured
-        vesc_config_t config;
-        esp_err_t err = vesc_config_load(&config);
-        if (err == ESP_OK && config.invert_throttle) {
-            throttle_brake_ble = 255 - throttle_brake_ble;
-            throttle_inverted = true;
-        }
+    // Apply throttle inversion if configured
+    vesc_config_t config;
+    esp_err_t err = vesc_config_load(&config);
+    if (err == ESP_OK && config.invert_throttle) {
+      throttle_brake_ble = 255 - throttle_brake_ble;
+      throttle_inverted = true;
     }
+  }
 
-    // Apply trim offset with range compensation to match what's actually sent via BLE (for lite mode)
-    // If throttle is inverted, we need to invert the trim offset direction to compensate
-    int8_t effective_trim = throttle_inverted ? -ble_get_trim_offset() : ble_get_trim_offset();
-    throttle_brake_ble = apply_trim_with_compensation(throttle_brake_ble, effective_trim);
+  // Apply trim offset with range compensation to match what's actually sent via
+  // BLE (for lite mode) If throttle is inverted, we need to invert the trim
+  // offset direction to compensate
+  int8_t effective_trim =
+      throttle_inverted ? -ble_get_trim_offset() : ble_get_trim_offset();
+  throttle_brake_ble =
+      apply_trim_with_compensation(throttle_brake_ble, effective_trim);
 #endif
 
-    payload[idx++] = throttle_brake_ble;
+  payload[idx++] = throttle_brake_ble;
 
-    usb_serial_send_response(RSP_STREAM_DATA, payload, idx);
+  usb_serial_send_response(RSP_STREAM_DATA, payload, idx);
 }
 
-static void handle_cmd_increase_ble_trim(const binary_packet_t* packet) {
-    esp_err_t err = ble_increase_trim_offset();
-    if (err == ESP_OK) {
-        usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OK);
-    } else if (err == ESP_ERR_INVALID_ARG) {
-        usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OUT_OF_RANGE);
-    } else {
-        usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_SAVE_FAILED);
-    }
+static void handle_cmd_increase_ble_trim(const binary_packet_t *packet) {
+  esp_err_t err = ble_increase_trim_offset();
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OK);
+  } else if (err == ESP_ERR_INVALID_ARG) {
+    usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OUT_OF_RANGE);
+  } else {
+    usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_SAVE_FAILED);
+  }
 }
 
-static void handle_cmd_decrease_ble_trim(const binary_packet_t* packet) {
-    esp_err_t err = ble_decrease_trim_offset();
-    if (err == ESP_OK) {
-        usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OK);
-    } else if (err == ESP_ERR_INVALID_ARG) {
-        usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OUT_OF_RANGE);
-    } else {
-        usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_SAVE_FAILED);
-    }
+static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet) {
+  esp_err_t err = ble_decrease_trim_offset();
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OK);
+  } else if (err == ESP_ERR_INVALID_ARG) {
+    usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OUT_OF_RANGE);
+  } else {
+    usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_SAVE_FAILED);
+  }
 }
 
-static void handle_cmd_get_ble_trim(const binary_packet_t* packet) {
-    int8_t trim_offset = ble_get_trim_offset();
-    uint8_t payload[1];
-    payload[0] = (uint8_t)trim_offset;  // Cast to uint8_t for transmission (interpret as int8_t on receive)
-    usb_serial_send_response(RSP_BLE_TRIM, payload, 1);
+static void handle_cmd_get_ble_trim(const binary_packet_t *packet) {
+  int8_t trim_offset = ble_get_trim_offset();
+  uint8_t payload[1];
+  payload[0] = (uint8_t)trim_offset; // Cast to uint8_t for transmission
+                                     // (interpret as int8_t on receive)
+  usb_serial_send_response(RSP_BLE_TRIM, payload, 1);
 }
 
 // ========== COREDUMP FUNCTIONS ==========
 
-static void handle_cmd_check_coredump(const binary_packet_t* packet) {
-    // Find the coredump partition
-    const esp_partition_t* coredump_partition = esp_partition_find_first(
-        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
+static void handle_cmd_check_coredump(const binary_packet_t *packet) {
+  // Find the coredump partition
+  const esp_partition_t *coredump_partition = esp_partition_find_first(
+      ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
 
-    if (coredump_partition == NULL) {
-        ESP_LOGW(TAG, "Coredump partition not found");
-        usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_NO_COREDUMP);
-        return;
+  if (coredump_partition == NULL) {
+    ESP_LOGW(TAG, "Coredump partition not found");
+    usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_NO_COREDUMP);
+    return;
+  }
+
+  // Check partition directly - ESP-IDF stores coredumps with a header structure
+  // Read a larger buffer to check for coredump data (header + ELF data)
+  // ESP-IDF coredump header is typically 16-32 bytes, then ELF data starts
+  uint8_t check_buffer[256];
+  esp_err_t err = esp_partition_read(coredump_partition, 0, check_buffer,
+                                     sizeof(check_buffer));
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to read coredump partition: %s",
+             esp_err_to_name(err));
+    usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_READ_FAILED);
+    return;
+  }
+
+  // Check if partition is all 0xFF (erased) - definitely no coredump
+  bool is_empty = true;
+  for (int i = 0; i < sizeof(check_buffer); i++) {
+    if (check_buffer[i] != 0xFF) {
+      is_empty = false;
+      break;
     }
+  }
 
-    // Check partition directly - ESP-IDF stores coredumps with a header structure
-    // Read a larger buffer to check for coredump data (header + ELF data)
-    // ESP-IDF coredump header is typically 16-32 bytes, then ELF data starts
-    uint8_t check_buffer[256];
-    esp_err_t err = esp_partition_read(coredump_partition, 0, check_buffer, sizeof(check_buffer));
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read coredump partition: %s", esp_err_to_name(err));
-        usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_READ_FAILED);
-        return;
-    }
+  bool has_valid_coredump = false;
+  uint32_t actual_coredump_size = 0;
 
-    // Check if partition is all 0xFF (erased) - definitely no coredump
-    bool is_empty = true;
-    for (int i = 0; i < sizeof(check_buffer); i++) {
-        if (check_buffer[i] != 0xFF) {
-            is_empty = false;
+  if (is_empty) {
+    has_valid_coredump = false;
+  } else {
+    // Partition has data - find where the actual coredump data ends
+    // Search backwards from the end to find where a large block of 0xFF starts
+    // This is more accurate than finding the last non-0xFF byte (which might
+    // include padding)
+    uint32_t data_end = 0;
+    uint8_t end_check_buffer[512];
+    const uint32_t min_empty_block = 256; // Require at least 256 consecutive
+                                          // 0xFF bytes to consider it padding
+
+    // Start from the end and work backwards in chunks
+    bool found_data_end = false;
+    uint32_t consecutive_ff = 0;
+
+    for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
+         offset >= 0 && !found_data_end; offset -= sizeof(end_check_buffer)) {
+
+      if (offset < 0)
+        offset = 0;
+      uint32_t read_size =
+          (coredump_partition->size - offset < sizeof(end_check_buffer))
+              ? (coredump_partition->size - offset)
+              : sizeof(end_check_buffer);
+
+      esp_err_t end_err = esp_partition_read(coredump_partition, offset,
+                                             end_check_buffer, read_size);
+      if (end_err != ESP_OK)
+        break;
+
+      // Check backwards through this chunk
+      for (int32_t i = read_size - 1; i >= 0; i--) {
+        if (end_check_buffer[i] == 0xFF) {
+          consecutive_ff++;
+        } else {
+          // Found non-0xFF byte - if we had a large block of 0xFF before this,
+          // that was padding, so the data ends before the padding
+          if (consecutive_ff >= min_empty_block) {
+            // The data ends at the start of the padding block
+            data_end = offset + i + 1 + consecutive_ff - min_empty_block;
+            found_data_end = true;
             break;
+          }
+          consecutive_ff = 0;
         }
+      }
     }
 
-    bool has_valid_coredump = false;
-    uint32_t actual_coredump_size = 0;
+    // If we didn't find a clear end (no large padding block), use the last
+    // non-0xFF byte but round down to nearest 1KB boundary to be conservative
+    if (!found_data_end) {
+      // Find last non-0xFF byte
+      for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
+           offset >= 0; offset -= sizeof(end_check_buffer)) {
 
-    if (is_empty) {
-        has_valid_coredump = false;
-    } else {
-        // Partition has data - find where the actual coredump data ends
-        // Search backwards from the end to find where a large block of 0xFF starts
-        // This is more accurate than finding the last non-0xFF byte (which might include padding)
-        uint32_t data_end = 0;
-        uint8_t end_check_buffer[512];
-        const uint32_t min_empty_block = 256;  // Require at least 256 consecutive 0xFF bytes to consider it padding
+        if (offset < 0)
+          offset = 0;
+        uint32_t read_size =
+            (coredump_partition->size - offset < sizeof(end_check_buffer))
+                ? (coredump_partition->size - offset)
+                : sizeof(end_check_buffer);
 
-        // Start from the end and work backwards in chunks
-        bool found_data_end = false;
-        uint32_t consecutive_ff = 0;
+        esp_err_t end_err = esp_partition_read(coredump_partition, offset,
+                                               end_check_buffer, read_size);
+        if (end_err != ESP_OK)
+          break;
 
-        for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
-             offset >= 0 && !found_data_end;
-             offset -= sizeof(end_check_buffer)) {
-
-            if (offset < 0) offset = 0;
-            uint32_t read_size = (coredump_partition->size - offset < sizeof(end_check_buffer)) ?
-                                 (coredump_partition->size - offset) : sizeof(end_check_buffer);
-
-            esp_err_t end_err = esp_partition_read(coredump_partition, offset, end_check_buffer, read_size);
-            if (end_err != ESP_OK) break;
-
-            // Check backwards through this chunk
-            for (int32_t i = read_size - 1; i >= 0; i--) {
-                if (end_check_buffer[i] == 0xFF) {
-                    consecutive_ff++;
-                } else {
-                    // Found non-0xFF byte - if we had a large block of 0xFF before this,
-                    // that was padding, so the data ends before the padding
-                    if (consecutive_ff >= min_empty_block) {
-                        // The data ends at the start of the padding block
-                        data_end = offset + i + 1 + consecutive_ff - min_empty_block;
-                        found_data_end = true;
-                        break;
-                    }
-                    consecutive_ff = 0;
-                }
-            }
+        for (int32_t i = read_size - 1; i >= 0; i--) {
+          if (end_check_buffer[i] != 0xFF) {
+            data_end = offset + i + 1;
+            // Round down to nearest 1KB (1024-byte) boundary to be conservative
+            // This accounts for any padding or metadata
+            data_end = (data_end / 1024) * 1024;
+            found_data_end = true;
+            break;
+          }
         }
-
-        // If we didn't find a clear end (no large padding block), use the last non-0xFF byte
-        // but round down to nearest 1KB boundary to be conservative
-        if (!found_data_end) {
-            // Find last non-0xFF byte
-            for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
-                 offset >= 0;
-                 offset -= sizeof(end_check_buffer)) {
-
-                if (offset < 0) offset = 0;
-                uint32_t read_size = (coredump_partition->size - offset < sizeof(end_check_buffer)) ?
-                                     (coredump_partition->size - offset) : sizeof(end_check_buffer);
-
-                esp_err_t end_err = esp_partition_read(coredump_partition, offset, end_check_buffer, read_size);
-                if (end_err != ESP_OK) break;
-
-                for (int32_t i = read_size - 1; i >= 0; i--) {
-                    if (end_check_buffer[i] != 0xFF) {
-                        data_end = offset + i + 1;
-                        // Round down to nearest 1KB (1024-byte) boundary to be conservative
-                        // This accounts for any padding or metadata
-                        data_end = (data_end / 1024) * 1024;
-                        found_data_end = true;
-                        break;
-                    }
-                }
-                if (found_data_end) break;
-            }
-        }
-
-        // If still not found, use partition size but round down
-        if (!found_data_end) {
-            data_end = coredump_partition->size;
-            data_end = (data_end / 1024) * 1024;  // Round down to 1KB boundary
-        }
-
-        // Additional safety: if calculated size is very close to partition size,
-        // subtract 4KB to account for potential padding/metadata
-        if (data_end > coredump_partition->size - 4096) {
-            data_end = coredump_partition->size - 4096;
-            data_end = (data_end / 1024) * 1024;  // Round down to 1KB boundary
-        }
-
-        actual_coredump_size = data_end;
-        // Check for ELF magic at various offsets in the header area
-        bool found_elf = false;
-        for (int offset = 0; offset < sizeof(check_buffer) - 4; offset++) {
-            if (check_buffer[offset] == 0x7F &&
-                check_buffer[offset + 1] == 'E' &&
-                check_buffer[offset + 2] == 'L' &&
-                check_buffer[offset + 3] == 'F') {
-                found_elf = true;
-                break;
-            }
-        }
-
-        if (found_elf || actual_coredump_size > 0) {
-            has_valid_coredump = true;
-        }
+        if (found_data_end)
+          break;
+      }
     }
 
-    // Payload: [exists_flag][size_lsb][size_msb][first_16_bytes]
-    uint8_t payload[3 + 16];
-    uint16_t idx = 0;
-
-    if (has_valid_coredump) {
-        uint32_t reported_size = (actual_coredump_size > 0) ? actual_coredump_size : coredump_partition->size;
-        payload[idx++] = 1;  // exists flag
-        payload[idx++] = (reported_size >> 0) & 0xFF;
-        payload[idx++] = (reported_size >> 8) & 0xFF;
-        // Include first 16 bytes
-        for (int i = 0; i < 16; i++) {
-            payload[idx++] = check_buffer[i];
-        }
-        ESP_LOGI(TAG, "Coredump found: size=%" PRIu32 " bytes", reported_size);
-    } else {
-        payload[idx++] = 0;  // no coredump
-        payload[idx++] = 0;
-        payload[idx++] = 0;
-        // Include first 16 bytes
-        for (int i = 0; i < 16; i++) {
-            payload[idx++] = check_buffer[i];
-        }
+    // If still not found, use partition size but round down
+    if (!found_data_end) {
+      data_end = coredump_partition->size;
+      data_end = (data_end / 1024) * 1024; // Round down to 1KB boundary
     }
 
-    usb_serial_send_response(RSP_COREDUMP_INFO, payload, idx);
+    // Additional safety: if calculated size is very close to partition size,
+    // subtract 4KB to account for potential padding/metadata
+    if (data_end > coredump_partition->size - 4096) {
+      data_end = coredump_partition->size - 4096;
+      data_end = (data_end / 1024) * 1024; // Round down to 1KB boundary
+    }
+
+    actual_coredump_size = data_end;
+    // Check for ELF magic at various offsets in the header area
+    bool found_elf = false;
+    for (int offset = 0; offset < sizeof(check_buffer) - 4; offset++) {
+      if (check_buffer[offset] == 0x7F && check_buffer[offset + 1] == 'E' &&
+          check_buffer[offset + 2] == 'L' && check_buffer[offset + 3] == 'F') {
+        found_elf = true;
+        break;
+      }
+    }
+
+    if (found_elf || actual_coredump_size > 0) {
+      has_valid_coredump = true;
+    }
+  }
+
+  // Payload: [exists_flag][size_lsb][size_msb][first_16_bytes]
+  uint8_t payload[3 + 16];
+  uint16_t idx = 0;
+
+  if (has_valid_coredump) {
+    uint32_t reported_size = (actual_coredump_size > 0)
+                                 ? actual_coredump_size
+                                 : coredump_partition->size;
+    payload[idx++] = 1; // exists flag
+    payload[idx++] = (reported_size >> 0) & 0xFF;
+    payload[idx++] = (reported_size >> 8) & 0xFF;
+    // Include first 16 bytes
+    for (int i = 0; i < 16; i++) {
+      payload[idx++] = check_buffer[i];
+    }
+    ESP_LOGI(TAG, "Coredump found: size=%" PRIu32 " bytes", reported_size);
+  } else {
+    payload[idx++] = 0; // no coredump
+    payload[idx++] = 0;
+    payload[idx++] = 0;
+    // Include first 16 bytes
+    for (int i = 0; i < 16; i++) {
+      payload[idx++] = check_buffer[i];
+    }
+  }
+
+  usb_serial_send_response(RSP_COREDUMP_INFO, payload, idx);
 }
 
-static void handle_cmd_get_coredump(const binary_packet_t* packet) {
-    // Payload: [chunk_offset_lsb][chunk_offset_msb]
-    if (packet->payload_length != 2) {
-        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_INVALID_PAYLOAD);
-        return;
-    }
+static void handle_cmd_get_coredump(const binary_packet_t *packet) {
+  // Payload: [chunk_offset_lsb][chunk_offset_msb]
+  if (packet->payload_length != 2) {
+    usb_serial_send_ack(CMD_GET_COREDUMP, ERR_INVALID_PAYLOAD);
+    return;
+  }
 
-    uint16_t chunk_offset = packet->payload[0] | (packet->payload[1] << 8);
+  uint16_t chunk_offset = packet->payload[0] | (packet->payload[1] << 8);
 
-    // Find the coredump partition
-    const esp_partition_t* coredump_partition = esp_partition_find_first(
-        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
+  // Find the coredump partition
+  const esp_partition_t *coredump_partition = esp_partition_find_first(
+      ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
 
-    if (coredump_partition == NULL) {
-        ESP_LOGW(TAG, "Coredump partition not found");
-        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_NO_COREDUMP);
-        return;
-    }
+  if (coredump_partition == NULL) {
+    ESP_LOGW(TAG, "Coredump partition not found");
+    usb_serial_send_ack(CMD_GET_COREDUMP, ERR_NO_COREDUMP);
+    return;
+  }
 
-    // Validate chunk offset
-    if (chunk_offset >= coredump_partition->size) {
-        ESP_LOGW(TAG, "Chunk offset out of range: %" PRIu16 " >= %" PRIu32, chunk_offset, coredump_partition->size);
-        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_OUT_OF_RANGE);
-        return;
-    }
+  // Validate chunk offset
+  if (chunk_offset >= coredump_partition->size) {
+    ESP_LOGW(TAG, "Chunk offset out of range: %" PRIu16 " >= %" PRIu32,
+             chunk_offset, coredump_partition->size);
+    usb_serial_send_ack(CMD_GET_COREDUMP, ERR_OUT_OF_RANGE);
+    return;
+  }
 
-    // Calculate chunk size (max payload - 2 bytes for chunk info)
-    uint16_t max_chunk_size = PACKET_MAX_PAYLOAD_SIZE - 4;  // Reserve 4 bytes for chunk_offset and chunk_size
-    uint32_t remaining = coredump_partition->size - chunk_offset;
-    uint16_t chunk_size = (remaining < max_chunk_size) ? (uint16_t)remaining : max_chunk_size;
+  // Calculate chunk size (max payload - 2 bytes for chunk info)
+  uint16_t max_chunk_size =
+      PACKET_MAX_PAYLOAD_SIZE -
+      4; // Reserve 4 bytes for chunk_offset and chunk_size
+  uint32_t remaining = coredump_partition->size - chunk_offset;
+  uint16_t chunk_size =
+      (remaining < max_chunk_size) ? (uint16_t)remaining : max_chunk_size;
 
-    // Read chunk from partition
-    uint8_t payload[PACKET_MAX_PAYLOAD_SIZE];
-    uint16_t idx = 0;
+  // Read chunk from partition
+  uint8_t payload[PACKET_MAX_PAYLOAD_SIZE];
+  uint16_t idx = 0;
 
-    // Add chunk metadata: [chunk_offset_lsb][chunk_offset_msb][chunk_size_lsb][chunk_size_msb]
-    payload[idx++] = (chunk_offset >> 0) & 0xFF;
-    payload[idx++] = (chunk_offset >> 8) & 0xFF;
-    payload[idx++] = (chunk_size >> 0) & 0xFF;
-    payload[idx++] = (chunk_size >> 8) & 0xFF;
+  // Add chunk metadata:
+  // [chunk_offset_lsb][chunk_offset_msb][chunk_size_lsb][chunk_size_msb]
+  payload[idx++] = (chunk_offset >> 0) & 0xFF;
+  payload[idx++] = (chunk_offset >> 8) & 0xFF;
+  payload[idx++] = (chunk_size >> 0) & 0xFF;
+  payload[idx++] = (chunk_size >> 8) & 0xFF;
 
-    // Read data from partition
-    esp_err_t err = esp_partition_read(coredump_partition, chunk_offset, &payload[idx], chunk_size);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read coredump chunk at offset %" PRIu16 ": %s", chunk_offset, esp_err_to_name(err));
-        usb_serial_send_ack(CMD_GET_COREDUMP, ERR_READ_FAILED);
-        return;
-    }
+  // Read data from partition
+  esp_err_t err = esp_partition_read(coredump_partition, chunk_offset,
+                                     &payload[idx], chunk_size);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to read coredump chunk at offset %" PRIu16 ": %s",
+             chunk_offset, esp_err_to_name(err));
+    usb_serial_send_ack(CMD_GET_COREDUMP, ERR_READ_FAILED);
+    return;
+  }
 
-    idx += chunk_size;
+  idx += chunk_size;
 
-    ESP_LOGD(TAG, "Sending coredump chunk: offset=%" PRIu16 ", size=%" PRIu16, chunk_offset, chunk_size);
-    usb_serial_send_response(RSP_COREDUMP_CHUNK, payload, idx);
+  ESP_LOGD(TAG, "Sending coredump chunk: offset=%" PRIu16 ", size=%" PRIu16,
+           chunk_offset, chunk_size);
+  usb_serial_send_response(RSP_COREDUMP_CHUNK, payload, idx);
 }
