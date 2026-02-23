@@ -1,0 +1,11 @@
+#!/bin/bash
+# Post-commit hook: remove macOS cruft files (filenames ending with '' or ")
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT="$REPO_ROOT/firmware/remove_macos_cruft.sh"
+
+if [ -f "$SCRIPT" ]; then
+    "$SCRIPT"
+fi
+
+exit 0
