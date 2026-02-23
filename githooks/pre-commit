@@ -1,0 +1,93 @@
+#!/bin/bash
+# Pre-commit hook: trim trailing whitespace + run clang-format on C/C++ files
+
+# Get list of staged files
+staged_files=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$staged_files" ]; then
+    exit 0
+fi
+
+# Detect OS for sed compatibility
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    SED_INPLACE="sed -i ''"
+else
+    SED_INPLACE="sed -i"
+fi
+
+# Track if any files were modified
+modified=0
+
+# Process each staged file - trim trailing whitespace
+for file in $staged_files; do
+    # Skip if file doesn't exist (might have been deleted)
+    [ ! -f "$file" ] && continue
+
+    # Skip binary files - check if git treats it as binary
+    if git check-attr --stdin diff < <(echo "$file") | grep -q "binary: set"; then
+        continue
+    fi
+
+    # Additional check: skip common binary file extensions
+    case "$file" in
+        *.bin|*.hex|*.elf|*.o|*.a|*.so|*.dylib|*.dll|*.exe|*.jpg|*.jpeg|*.png|*.gif|*.ico|*.pdf|*.zip|*.tar|*.gz)
+            continue
+            ;;
+    esac
+
+    # Save original file state
+    original_hash=$(git hash-object "$file" 2>/dev/null || echo "")
+
+    # Trim trailing whitespace
+    $SED_INPLACE 's/[[:space:]]*$//' "$file" 2>/dev/null
+
+    # Check if file was actually modified
+    if [ -n "$original_hash" ]; then
+        new_hash=$(git hash-object "$file" 2>/dev/null || echo "")
+        if [ "$original_hash" != "$new_hash" ]; then
+            echo "Trimmed trailing whitespace: $file"
+            git add "$file"
+            modified=1
+        fi
+    elif ! git diff --quiet "$file" 2>/dev/null; then
+        echo "Trimmed trailing whitespace: $file"
+        git add "$file"
+        modified=1
+    fi
+done
+
+if [ $modified -eq 1 ]; then
+    echo ""
+    echo "⚠️  Trailing whitespace was removed from staged files."
+    echo "   The files have been re-staged. You can review with 'git diff --cached'"
+fi
+
+# Run clang-format on staged C/C++ files
+for file in $staged_files; do
+    [ ! -f "$file" ] && continue
+    case "$file" in
+        *.c|*.h|*.cpp|*.cc|*.cxx|*.hpp)
+            if command -v clang-format >/dev/null 2>&1; then
+                original_hash=$(git hash-object "$file" 2>/dev/null || echo "")
+                clang-format -i "$file" 2>/dev/null
+                if [ -n "$original_hash" ]; then
+                    new_hash=$(git hash-object "$file" 2>/dev/null || echo "")
+                    if [ "$original_hash" != "$new_hash" ]; then
+                        echo "Formatted with clang-format: $file"
+                        git add "$file"
+                        modified=1
+                    fi
+                fi
+            else
+                echo "⚠️  clang-format not found. Install it to auto-format C/C++ files (e.g. brew install clang-format)"
+            fi
+            ;;
+    esac
+done
+
+if [ $modified -eq 1 ]; then
+    echo ""
+    echo "   Run 'git diff --cached' to review changes before committing."
+fi
+
+exit 0

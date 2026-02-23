@@ -158,6 +158,16 @@ The receiver firmware (`gb_receiver`) handles the BMS communication and forwards
 
 This project is open source and welcomes contributions! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
 
+### Pre-commit hooks
+
+To enable auto-formatting (trailing whitespace trim + clang-format on C/C++ files) before each commit:
+
+```bash
+git config core.hooksPath githooks
+```
+
+Requires [clang-format](https://clang.llvm.org/docs/ClangFormat.html) (e.g. `brew install clang-format` on macOS).
+
 ## License
 
 **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**
