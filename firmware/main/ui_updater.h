@@ -1,24 +1,23 @@
 #ifndef UI_UPDATER_H
 #define UI_UPDATER_H
 
-#include <stdint.h>
+#include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "esp_err.h"
-#include "ui.h"
 #include "screens.h"
-
+#include "ui.h"
+#include <stdint.h>
 
 // Task update intervals
-#define SPEED_UPDATE_MS         50      // 20Hz for smooth speed display
-#define TRIP_UPDATE_MS          1000    // 1Hz for distance
-#define BATTERY_UPDATE_MS       1000    // 1Hz for battery
-#define CONNECTION_UPDATE_MS    3000    // 0.33Hz for connection icon
+#define SPEED_UPDATE_MS 50        // 20Hz for smooth speed display
+#define TRIP_UPDATE_MS 1000       // 1Hz for distance
+#define BATTERY_UPDATE_MS 1000    // 1Hz for battery
+#define CONNECTION_UPDATE_MS 3000 // 0.33Hz for connection icon
 
 // Timing constants
-#define TASK_STARTUP_DELAY_MS   100     // Staggered task startup delay
-#define MUTEX_RETRY_DELAY_MS    5       // Delay when mutex unavailable
-#define SPLASH_SCREEN_DELAY_MS  1000    // Post-splash delay
+#define TASK_STARTUP_DELAY_MS 100   // Staggered task startup delay
+#define MUTEX_RETRY_DELAY_MS 5      // Delay when mutex unavailable
+#define SPLASH_SCREEN_DELAY_MS 1000 // Post-splash delay
 
 // UI Command Queue for thread-safe UI updates
 #define UI_CMD_QUEUE_SIZE 32
