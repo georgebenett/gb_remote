@@ -1,52 +1,53 @@
 #ifndef BUTTON_H
 #define BUTTON_H
 
-#include <stdbool.h>
 #include "driver/gpio.h"
 #include "esp_err.h"
+#include <stdbool.h>
 
-#define DEBOUNCE_TIME_MS                15
-#define LONG_PRESS_CHECK_MS             50
-#define TASK_STACK_SIZE                 4096
-#define TASK_PRIORITY                   5
-#define MAX_CALLBACKS                   4
-#define WDT_RESET_INTERVAL_MS           4000
+#define DEBOUNCE_TIME_MS 15
+#define LONG_PRESS_CHECK_MS 50
+#define TASK_STACK_SIZE 4096
+#define TASK_PRIORITY 5
+#define MAX_CALLBACKS 4
+#define WDT_RESET_INTERVAL_MS 4000
 
 // Button timing definitions
-#define BUTTON_LONG_PRESS_TIME_MS       500
-#define BUTTON_DOUBLE_PRESS_TIME_MS     300
+#define BUTTON_LONG_PRESS_TIME_MS 500
+#define BUTTON_DOUBLE_PRESS_TIME_MS 300
 
 // Button states
 typedef enum {
-    BUTTON_IDLE,
-    BUTTON_PRESSED,
-    BUTTON_LONG_PRESS,
-    BUTTON_DOUBLE_PRESS
+  BUTTON_IDLE,
+  BUTTON_PRESSED,
+  BUTTON_LONG_PRESS,
+  BUTTON_DOUBLE_PRESS
 } button_state_t;
 
 // Button configuration
 typedef struct {
-    gpio_num_t gpio_num;
-    uint32_t long_press_time_ms;    // Time in ms to trigger long press
-    uint32_t double_press_time_ms;  // Maximum time between presses to count as double press
-    bool active_low;                // true if button is active low (pressed = 0)
+  gpio_num_t gpio_num;
+  uint32_t long_press_time_ms;   // Time in ms to trigger long press
+  uint32_t double_press_time_ms; // Maximum time between presses to count as
+                                 // double press
+  bool active_low;               // true if button is active low (pressed = 0)
 } button_config_t;
 
 // Button event types
 typedef enum {
-    BUTTON_EVENT_PRESSED,
-    BUTTON_EVENT_RELEASED,
-    BUTTON_EVENT_LONG_PRESS,
-    BUTTON_EVENT_DOUBLE_PRESS
+  BUTTON_EVENT_PRESSED,
+  BUTTON_EVENT_RELEASED,
+  BUTTON_EVENT_LONG_PRESS,
+  BUTTON_EVENT_DOUBLE_PRESS
 } button_event_t;
 
-typedef void (*button_callback_t)(button_event_t event, void* user_data);
+typedef void (*button_callback_t)(button_event_t event, void *user_data);
 
-esp_err_t button_init(const button_config_t* config);
+esp_err_t button_init(const button_config_t *config);
 
 esp_err_t button_init_main(void);
 
-void button_register_callback(button_callback_t callback, void* user_data);
+void button_register_callback(button_callback_t callback, void *user_data);
 
 button_state_t button_get_state(void);
 
@@ -54,6 +55,6 @@ uint32_t button_get_press_duration_ms(void);
 
 void button_start_monitoring(void);
 
-void switch_to_screen2_callback(button_event_t event, void* user_data);
+void switch_to_screen2_callback(button_event_t event, void *user_data);
 
 #endif // BUTTON_H
