@@ -1385,66 +1385,67 @@ static void adc_send_task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(ADC_SEND_INTERVAL_MS));
     }
   }
+}
 
-  float get_latest_voltage(void) { return latest_voltage; }
+float get_latest_voltage(void) { return latest_voltage; }
 
-  int32_t get_latest_erpm(void) { return latest_erpm; }
+int32_t get_latest_erpm(void) { return latest_erpm; }
 
-  float get_latest_current_motor(void) { return latest_current_motor; }
+float get_latest_current_motor(void) { return latest_current_motor; }
 
-  float get_latest_current_in(void) { return latest_current_in; }
+float get_latest_current_in(void) { return latest_current_in; }
 
-  float get_bms_total_voltage(void) { return bms_total_voltage; }
+float get_bms_total_voltage(void) { return bms_total_voltage; }
 
-  float get_bms_current(void) { return bms_current; }
+float get_bms_current(void) { return bms_current; }
 
-  float get_bms_remaining_capacity(void) { return bms_remaining_capacity; }
+float get_bms_remaining_capacity(void) { return bms_remaining_capacity; }
 
-  float get_bms_nominal_capacity(void) { return bms_nominal_capacity; }
+float get_bms_nominal_capacity(void) { return bms_nominal_capacity; }
 
-  uint8_t get_bms_num_cells(void) { return bms_num_cells; }
+uint8_t get_bms_num_cells(void) { return bms_num_cells; }
 
-  float get_bms_cell_voltage(uint8_t cell_index) {
-    if (cell_index < bms_num_cells && cell_index < 16) {
-      return bms_cell_voltages[cell_index];
-    }
-    return 0.0f;
+float get_bms_cell_voltage(uint8_t cell_index) {
+  if (cell_index < bms_num_cells && cell_index < 16) {
+    return bms_cell_voltages[cell_index];
   }
+  return 0.0f;
+}
 
-  static void log_rssi_task(void *pvParameters) {
-    while (1) {
-      if (ble_is_connected() && spp_gattc_if != 0xff) {
-        esp_err_t ret = esp_ble_gap_read_rssi(scan_rst.scan_rst.bda);
-        if (ret != ESP_OK) {
-          ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));
-        }
+static void log_rssi_task(void *pvParameters) {
+  while (1) {
+    if (ble_is_connected() && spp_gattc_if != 0xff) {
+      esp_err_t ret = esp_ble_gap_read_rssi(scan_rst.scan_rst.bda);
+      if (ret != ESP_OK) {
+        ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));
       }
-      vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
     }
+    vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
   }
+}
 
-  int get_bms_battery_percentage(void) {
-    if (bms_nominal_capacity <= 0.0f)
-      return -1;
+int get_bms_battery_percentage(void) {
+  if (bms_nominal_capacity <= 0.0f)
+    return -1;
 
-    float percentage = (bms_remaining_capacity / bms_nominal_capacity) * 100.0f;
+  float percentage = (bms_remaining_capacity / bms_nominal_capacity) * 100.0f;
 
-    if (percentage > 100.0f)
-      percentage = 100.0f;
-    if (percentage < 0.0f)
-      percentage = 0.0f;
+  if (percentage > 100.0f)
+    percentage = 100.0f;
+  if (percentage < 0.0f)
+    percentage = 0.0f;
 
-    return (int)percentage;
+  return (int)percentage;
+}
+
+bool ble_is_connected(void) {
+  bool result = false;
+  if (is_connect_mutex != NULL &&
+      xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    result = is_connect;
+    xSemaphoreGive(is_connect_mutex);
+  } else {
+    result = is_connect;
   }
-
-  bool ble_is_connected(void) {
-    bool result = false;
-    if (is_connect_mutex != NULL &&
-        xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-      result = is_connect;
-      xSemaphoreGive(is_connect_mutex);
-    } else {
-      result = is_connect;
-    }
-    return result;
-  }
+  return result;
+}
