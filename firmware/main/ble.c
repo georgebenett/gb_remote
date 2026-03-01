@@ -1292,6 +1292,9 @@ static void adc_send_task(void *pvParameters) {
   uint8_t data_buffer[3]; // 2 bytes for ADC value + 1 byte for aux output
 
   while (1) {
+    esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
+                          // connected
+
     if (ble_is_connected() && db != NULL &&
         ((db + SPP_IDX_SPP_DATA_RECV_VAL)->properties &
          (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
@@ -1383,6 +1386,9 @@ static void adc_send_task(void *pvParameters) {
       // Reset watchdog before delay
       esp_task_wdt_reset();
       vTaskDelay(pdMS_TO_TICKS(ADC_SEND_INTERVAL_MS));
+    } else {
+      vTaskDelay(
+          pdMS_TO_TICKS(50)); // Yield when not connected, avoid tight loop
     }
   }
 }
