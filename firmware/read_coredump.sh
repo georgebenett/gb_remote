@@ -5,7 +5,9 @@
 #   ./read_coredump.sh <coredump_name> [serial_port]
 #
 # The coredump name is used to detect product (Lite or Dual_Throttle) and version.
-# The script will checkout the matching git tag, build that target, then decode the dump.
+# Preferentially uses the ELF from the GitHub release for that version (avoids SHA
+# mismatch). If the release ELF is not available, checks out the matching git tag,
+# builds that target, then decodes the dump.
 #
 # Examples:
 #   ./read_coredump.sh coredump_2026-03-01T19-07-08-246Z_Dual_Throttle_v2.0.4
@@ -31,7 +33,7 @@ if [ $# -lt 1 ]; then
     echo "  serial_port   optional, for reading from device if coredump file not found (default: /dev/tty.usbmodem1101)"
     echo ""
     echo "The script parses product (Lite / Dual_Throttle) and version from the filename,"
-    echo "checks out the matching git tag, builds that target, then decodes the coredump."
+    echo "then uses the ELF from the GitHub release (or builds from the git tag) to decode."
     exit 1
 fi
 
@@ -104,8 +106,43 @@ echo "Version:  $VERSION"
 echo "Git tag:  $GIT_TAG"
 echo ""
 
-# --- Ensure we're in firmware directory (already there) ---
-# (SCRIPT_DIR and REPO_ROOT set above)
+# --- Try to get ELF from GitHub release (avoids SHA mismatch vs. rebuilding) ---
+ELF_FILE="build/gb_controller_lite.elf"
+USE_RELEASE_ELF=""
+ELF_CACHE="$SCRIPT_DIR/.coredump_elf_cache"
+RELEASE_ELF="$ELF_CACHE/gb_controller_${TARGET}_v${VERSION}.elf"
+
+if [ -f "$RELEASE_ELF" ]; then
+    echo "Using cached ELF from release: $RELEASE_ELF"
+    ELF_FILE="$RELEASE_ELF"
+    USE_RELEASE_ELF=1
+elif command -v gh &>/dev/null; then
+    REPO=$(cd "$REPO_ROOT" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || true
+    if [ -n "$REPO" ]; then
+        echo "Downloading ELF from GitHub release v$VERSION..."
+        mkdir -p "$ELF_CACHE"
+        TMP_ZIP=$(mktemp)
+        if (cd "$REPO_ROOT" && gh release download "v$VERSION" --repo "$REPO" --pattern "${TARGET}_v${VERSION}.zip" -O "$TMP_ZIP" 2>/dev/null); then
+            if unzip -j -o "$TMP_ZIP" "gb_controller_${TARGET}.elf" -d "$ELF_CACHE" 2>/dev/null; then
+                if [ -f "$ELF_CACHE/gb_controller_${TARGET}.elf" ]; then
+                    mv "$ELF_CACHE/gb_controller_${TARGET}.elf" "$RELEASE_ELF"
+                    ELF_FILE="$RELEASE_ELF"
+                    USE_RELEASE_ELF=1
+                    echo "Using ELF from release v$VERSION"
+                fi
+            fi
+        fi
+        rm -f "$TMP_ZIP"
+    fi
+fi
+
+if [ -n "$USE_RELEASE_ELF" ]; then
+    echo "Skipping git checkout and build (using release ELF)."
+fi
+echo ""
+
+# --- Checkout git tag and build (only if we don't have release ELF) ---
+if [ -z "$USE_RELEASE_ELF" ]; then
 
 # --- Checkout git tag ---
 CURRENT_REF=$(cd "$REPO_ROOT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
@@ -155,6 +192,9 @@ fi
 echo "Building firmware..."
 idf.py build
 echo ""
+
+fi
+# --- End of checkout/build (when not using release ELF) ---
 
 # --- Obtain coredump: from file or from flash ---
 if [ -n "$COREDUMP_ABS" ] && [ -f "$COREDUMP_ABS" ]; then

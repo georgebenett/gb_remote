@@ -1,5 +1,6 @@
 # Build directories
 firmware/build
+firmware/.coredump_elf_cache/
 debug/
 gb_engineering_website/
 release/

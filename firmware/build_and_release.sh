@@ -165,9 +165,13 @@ build_target() {
 
     # Copy and rename files to staging directory with correct names
     # The updater expects: gb_controller_<target>.bin, bootloader.bin, partition-table.bin
+    # Include .elf for coredump decoding (must match flashed binary to avoid SHA mismatch)
     cp "$APP_BIN" "$STAGING_DIR/gb_controller_${target}.bin"
     cp "build/bootloader/bootloader.bin" "$STAGING_DIR/bootloader.bin"
     cp "build/partition_table/partition-table.bin" "$STAGING_DIR/partition-table.bin"
+    if [ -f "build/gb_controller_lite.elf" ]; then
+        cp "build/gb_controller_lite.elf" "$STAGING_DIR/gb_controller_${target}.elf"
+    fi
 
     # Create zip from staging directory (files will be at root level)
     cd "$STAGING_DIR"
@@ -175,6 +179,9 @@ build_target() {
         gb_controller_${target}.bin \
         bootloader.bin \
         partition-table.bin
+    if [ -f "gb_controller_${target}.elf" ]; then
+        zip -q "$ZIP_PATH" "gb_controller_${target}.elf"
+    fi
     cd - > /dev/null
 
     # Clean up staging directory
@@ -265,7 +272,8 @@ else
 Each zip contains:
 - \`bootloader.bin\` - Bootloader binary
 - \`partition-table.bin\` - Partition table
-- \`gb_controller_lite.bin\` or \`gb_controller_dual_throttle.bin\` - Application binary (target-specific)" \
+- \`gb_controller_lite.bin\` or \`gb_controller_dual_throttle.bin\` - Application binary (target-specific)
+- \`gb_controller_lite.elf\` or \`gb_controller_dual_throttle.elf\` - Application ELF (for coredump decoding)" \
         "$ARTIFACTS_DIR"/*.zip
 fi
 
