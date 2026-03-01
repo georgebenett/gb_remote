@@ -2,7 +2,7 @@
 #define VERSION_H
 
 // Application version information
-#define FW_VERSION "2.0.6"
+#define FW_VERSION "2.0.7"
 
 // Build information
 #define BUILD_DATE __DATE__
