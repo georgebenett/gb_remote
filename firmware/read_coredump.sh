@@ -5,9 +5,8 @@
 #   ./read_coredump.sh <coredump_name> [serial_port]
 #
 # The coredump name is used to detect product (Lite or Dual_Throttle) and version.
-# Preferentially uses the ELF from the GitHub release for that version (avoids SHA
-# mismatch). If the release ELF is not available, checks out the matching git tag,
-# builds that target, then decodes the dump.
+# The script downloads the matching ELF from the GitHub release (via gh) and uses it
+# to decode. It does not build firmware locally, to avoid SHA/build-date mismatch.
 #
 # Examples:
 #   ./read_coredump.sh coredump_2026-03-01T19-07-08-246Z_Dual_Throttle_v2.0.4
@@ -33,14 +32,14 @@ if [ $# -lt 1 ]; then
     echo "  serial_port   optional, for reading from device if coredump file not found (default: /dev/tty.usbmodem1101)"
     echo ""
     echo "The script parses product (Lite / Dual_Throttle) and version from the filename,"
-    echo "then uses the ELF from the GitHub release (or builds from the git tag) to decode."
+    echo "then downloads the ELF from the GitHub release (gh CLI) and decodes."
     exit 1
 fi
 
 COREDUMP_INPUT="$1"
 SERIAL_PORT="${2:-/dev/tty.usbmodem1101}"
 
-# Script and repo paths (must be set before any git commands)
+# Script and repo paths
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 if [ ! -f "CMakeLists.txt" ]; then
@@ -81,120 +80,53 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# Resolve git tag (prefer vX.Y.Z)
-# Fetch from remote in case the tag exists on GitHub but not locally
-if ! (cd "$REPO_ROOT" && git rev-parse "v$VERSION" &>/dev/null); then
-    if ! (cd "$REPO_ROOT" && git rev-parse "$VERSION" &>/dev/null); then
-        echo "Tag v$VERSION not found locally, fetching from remote..."
-        (cd "$REPO_ROOT" && git fetch --tags 2>/dev/null) || true
-    fi
+# --- Require GitHub CLI and get ELF from release (no local build; avoids SHA mismatch) ---
+if ! command -v gh &>/dev/null; then
+    echo "Error: GitHub CLI (gh) is required to download the release ELF. Install from https://cli.github.com/"
+    exit 1
 fi
-if (cd "$REPO_ROOT" && git rev-parse "v$VERSION" &>/dev/null); then
-    GIT_TAG="v$VERSION"
-elif (cd "$REPO_ROOT" && git rev-parse "$VERSION" &>/dev/null); then
-    GIT_TAG="$VERSION"
-else
-    echo "Error: Git tag not found for version '$VERSION' (tried 'v$VERSION' and '$VERSION')"
-    echo "Available tags:"
-    (cd "$REPO_ROOT" && git tag -l | tail -20)
+REPO=$(cd "$REPO_ROOT" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || true
+if [ -z "$REPO" ]; then
+    echo "Error: Could not detect GitHub repo. Run from a git clone and ensure 'gh auth login' has been done."
     exit 1
 fi
 
 echo "Coredump: $BASENAME"
 echo "Product:  $TARGET"
 echo "Version:  $VERSION"
-echo "Git tag:  $GIT_TAG"
 echo ""
 
 # --- Try to get ELF from GitHub release (avoids SHA mismatch vs. rebuilding) ---
-ELF_FILE="build/gb_controller_lite.elf"
-USE_RELEASE_ELF=""
 ELF_CACHE="$SCRIPT_DIR/.coredump_elf_cache"
 RELEASE_ELF="$ELF_CACHE/gb_controller_${TARGET}_v${VERSION}.elf"
+ELF_FILE="$RELEASE_ELF"
 
 if [ -f "$RELEASE_ELF" ]; then
     echo "Using cached ELF from release: $RELEASE_ELF"
-    ELF_FILE="$RELEASE_ELF"
-    USE_RELEASE_ELF=1
-elif command -v gh &>/dev/null; then
-    REPO=$(cd "$REPO_ROOT" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || true
-    if [ -n "$REPO" ]; then
-        echo "Downloading ELF from GitHub release v$VERSION..."
-        mkdir -p "$ELF_CACHE"
-        TMP_ZIP=$(mktemp)
-        if (cd "$REPO_ROOT" && gh release download "v$VERSION" --repo "$REPO" --pattern "${TARGET}_v${VERSION}.zip" -O "$TMP_ZIP" 2>/dev/null); then
-            if unzip -j -o "$TMP_ZIP" "gb_controller_${TARGET}.elf" -d "$ELF_CACHE" 2>/dev/null; then
-                if [ -f "$ELF_CACHE/gb_controller_${TARGET}.elf" ]; then
-                    mv "$ELF_CACHE/gb_controller_${TARGET}.elf" "$RELEASE_ELF"
-                    ELF_FILE="$RELEASE_ELF"
-                    USE_RELEASE_ELF=1
-                    echo "Using ELF from release v$VERSION"
-                fi
-            fi
-        fi
-        rm -f "$TMP_ZIP"
-    fi
-fi
-
-if [ -n "$USE_RELEASE_ELF" ]; then
-    echo "Skipping git checkout and build (using release ELF)."
-fi
-echo ""
-
-# --- Checkout git tag and build (only if we don't have release ELF) ---
-if [ -z "$USE_RELEASE_ELF" ]; then
-
-# --- Checkout git tag ---
-CURRENT_REF=$(cd "$REPO_ROOT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-if [ -z "$CURRENT_REF" ] || [ "$CURRENT_REF" = "HEAD" ]; then
-    CURRENT_REF=$(cd "$REPO_ROOT" && git rev-parse HEAD)
-fi
-AT_TAG=$(cd "$REPO_ROOT" && git rev-parse "$GIT_TAG" 2>/dev/null)
-if [ "$(cd "$REPO_ROOT" && git rev-parse HEAD)" = "$AT_TAG" ]; then
-    echo "Already at tag $GIT_TAG"
 else
-    echo "Checking out tag $GIT_TAG..."
-    (cd "$REPO_ROOT" && git checkout "$GIT_TAG")
-    trap 'echo ""; echo "Restoring previous git state..."; (cd "$REPO_ROOT" && git checkout "$CURRENT_REF" 2>/dev/null); exit' EXIT
-fi
-echo ""
-
-# --- Build for target ---
-config_file="sdkconfig.defaults.$TARGET"
-if [ ! -f "$config_file" ]; then
-    echo "Error: $config_file not found. Cannot build for $TARGET."
-    exit 1
-fi
-
-# Detect OS for sed
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed_inplace() { sed -i '' "$@"; }
-else
-    sed_inplace() { sed -i "$@"; }
-fi
-
-echo "Configuring for $TARGET..."
-cp "$config_file" sdkconfig.defaults
-if [ -f sdkconfig ]; then
-    if [ "$TARGET" = "lite" ]; then
-        sed_inplace 's/^CONFIG_TARGET_DUAL_THROTTLE=y/# CONFIG_TARGET_DUAL_THROTTLE is not set/' sdkconfig
-        sed_inplace 's/^# CONFIG_TARGET_LITE is not set$/CONFIG_TARGET_LITE=y/' sdkconfig || true
-    else
-        sed_inplace 's/^# CONFIG_TARGET_DUAL_THROTTLE is not set$/CONFIG_TARGET_DUAL_THROTTLE=y/' sdkconfig
-        sed_inplace 's/^CONFIG_TARGET_LITE=y/# CONFIG_TARGET_LITE is not set/' sdkconfig
+    echo "Downloading ELF from GitHub release v$VERSION..."
+    mkdir -p "$ELF_CACHE"
+    TMP_ZIP=$(mktemp)
+    trap "rm -f $TMP_ZIP" EXIT
+    if ! (cd "$REPO_ROOT" && gh release download "v$VERSION" --repo "$REPO" --pattern "${TARGET}_v${VERSION}.zip" -O "$TMP_ZIP" --clobber); then
+        echo "Error: Could not download release v$VERSION asset '${TARGET}_v${VERSION}.zip'."
+        echo "Check that release v$VERSION exists: https://github.com/$REPO/releases/tag/v$VERSION"
+        exit 1
     fi
+    if ! unzip -j -o "$TMP_ZIP" "gb_controller_${TARGET}.elf" -d "$ELF_CACHE"; then
+        echo "Error: Release zip does not contain gb_controller_${TARGET}.elf."
+        exit 1
+    fi
+    rm -f "$TMP_ZIP"
+    trap - EXIT
+    if [ ! -f "$ELF_CACHE/gb_controller_${TARGET}.elf" ]; then
+        echo "Error: ELF not found after unzip."
+        exit 1
+    fi
+    mv "$ELF_CACHE/gb_controller_${TARGET}.elf" "$RELEASE_ELF"
+    echo "Using ELF from release v$VERSION"
 fi
-
-if command -v ccache &>/dev/null; then
-    export IDF_CCACHE_ENABLE=1
-fi
-
-echo "Building firmware..."
-idf.py build
 echo ""
-
-fi
-# --- End of checkout/build (when not using release ELF) ---
 
 # --- Obtain coredump: from file or from flash ---
 if [ -n "$COREDUMP_ABS" ] && [ -f "$COREDUMP_ABS" ]; then
