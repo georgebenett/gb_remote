@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/4",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -156,7 +156,8 @@
                       "enableClose": false,
                       "icon": "material:code"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -215,10 +216,10 @@
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "low battery screen",
+                  "name": "charging screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/4",
+                    "objectPath": "[eezproject.eez-project]:/userPages/1",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -234,8 +235,7 @@
                   },
                   "icon": "svg:page"
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
@@ -1537,16 +1537,13 @@
     "[eezproject.eez-project]:/userPages/1[flow-state]": {
       "selection": {
         "0": {
-          "1": {
-            "$selected": true
-          },
-          "2": {}
+          "1": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -190.10476190476183,
-          "y": -173.76452380952387
+          "x": -40.7890625,
+          "y": -205.1171875
         },
         "scale": 1.1
       },
@@ -1560,13 +1557,16 @@
     "[eezproject.eez-project]:/userPages/0[flow-state]": {
       "selection": {
         "0": {
-          "1": {}
+          "1": {
+            "$selected": true
+          },
+          "2": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -40.7890625,
-          "y": -205.1171875
+          "x": -190.10476190476183,
+          "y": -173.76452380952387
         },
         "scale": 1.1
       },

@@ -8,8 +8,6 @@
 #include "actions.h"
 #include "vars.h"
 #include "ui_updater.h"
-#include "version.h"
-#include "target_config.h"
 
 
 
@@ -57,15 +55,7 @@ void ui_init() {
     this is responsible for navigating the screens with swipe motion
     edit this only in EEZ STUDIO*/
 
-   // Set firmware version and target text on splash screen
-   if (objects.firmware_text != NULL) {
-       char version_str[64];
-       snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION, TARGET_NAME);
-       lv_label_set_text(objects.firmware_text, version_str);
-   }
-
-    loadScreen(SCREEN_ID_SPLASH_SCREEN);
-
+    loadScreen(SCREEN_ID_CHARGING_SCREEN);
 }
 
 void ui_tick() {

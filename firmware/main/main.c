@@ -44,29 +44,6 @@ static void initialize_system(void) {
   }
 }
 
-static void initialize_hardware(void) {
-  ESP_ERROR_CHECK(adc_init());
-  adc_start_task();
-  lcd_init();
-
-  while (!throttle_is_calibrated()) {
-    vTaskDelay(pdMS_TO_TICKS(100));
-  }
-}
-
-static void initialize_communication(void) {
-  usb_serial_init();
-  usb_serial_start_task();
-  spp_client_demo_init();
-  ESP_LOGI(TAG, "BLE initialization complete");
-}
-
-static void initialize_monitoring(void) {
-  ESP_ERROR_CHECK(battery_init());
-  battery_start_monitoring();
-  button_start_monitoring();
-}
-
 static void initialize_ui(void) {
   ui_init();
   ui_create_aux_output_indicator();
@@ -81,6 +58,32 @@ static void initialize_ui(void) {
     ESP_LOGW(TAG, "Failed to load speed unit config, using default km/h");
     ui_update_speed_unit(false);
   }
+}
+
+static void initialize_pre_boot_charging(void) {
+  // Initialize the bare minimum needed to show the charging screen
+  // before committing to a full boot (BLE, throttle, etc.)
+  ESP_ERROR_CHECK(battery_init());
+  battery_start_monitoring();
+  lcd_init();
+  initialize_ui();
+  lcd_fade_to_saved_brightness();
+
+  // Block here until the user holds the power button
+  power_wait_for_power_button();
+}
+
+static void initialize_communication(void) {
+  usb_serial_init();
+  usb_serial_start_task();
+  spp_client_demo_init();
+  ESP_LOGI(TAG, "BLE initialization complete");
+}
+
+static void initialize_monitoring(void) {
+  // battery_init and battery_start_monitoring are already called in
+  // initialize_pre_boot_charging; just start the button monitoring task here
+  button_start_monitoring();
 }
 
 static void log_startup_info(void) {
@@ -100,12 +103,24 @@ void app_main(void) {
 
   // Initialize all subsystems
   initialize_system();
-  initialize_hardware();
+
+  // Initialize ADC and throttle calibration first (needed early)
+  ESP_ERROR_CHECK(adc_init());
+  adc_start_task();
+
+  // Early init for charging mode: battery + LCD + UI, then block until
+  // the power button is held if the device wasn't booted by a button press
+  initialize_pre_boot_charging();
+
+  // Wait for throttle calibration to complete (adc_start_task is already running)
+  while (!throttle_is_calibrated()) {
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
   initialize_communication();
   initialize_monitoring();
 
-  // Initialize and show UI
-  initialize_ui();
+  // Show splash and fade in
   ui_show_splash_screen();
   lcd_fade_to_saved_brightness();
 

@@ -16,6 +16,7 @@
 bool power_is_entering_off_mode(void);
 
 void power_init(void);
+void power_wait_for_power_button(void);
 void power_reset_inactivity_timer(void);
 void power_check_inactivity(bool is_ble_connected);
 void power_shutdown(void);

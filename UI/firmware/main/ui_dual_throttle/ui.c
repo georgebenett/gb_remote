@@ -8,6 +8,8 @@
 #include "actions.h"
 #include "vars.h"
 #include "ui_updater.h"
+#include "version.h"
+#include "target_config.h"
 
 
 
@@ -15,7 +17,7 @@
 
 
 
-/*CUSTOM FUNCTION DECLARATIONS:*/
+/*CUSTOM FUNCTION DECLARATIONS:*/ 
 
 
 #if defined(EEZ_FOR_LVGL)
@@ -50,12 +52,12 @@ void loadScreen(enum ScreensEnum screenId) {
 
 void ui_init() {
     create_screens();
-
+    
     /*CUSTOM CODE HERE:
     this is responsible for navigating the screens with swipe motion
     edit this only in EEZ STUDIO*/
 
-    loadScreen(SCREEN_ID_CHARGING_SCREEN);
+    ${eez-studio LVGL_LOAD_FIRST_SCREEN}
 }
 
 void ui_tick() {

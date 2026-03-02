@@ -12,7 +12,9 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "power.h"
+#include "target_config.h"
 #include "throttle.h"
+#include "version.h"
 #include "vesc_config.h"
 #include "viber.h"
 #include <stdio.h>
@@ -693,6 +695,14 @@ static void splash_timer_cb(lv_timer_t *timer) {
 
 void ui_show_splash_screen(void) {
   viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
+
+  // Set firmware version label now, just before showing the splash screen
+  if (objects.firmware_text != NULL) {
+    char version_str[64];
+    snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION, TARGET_NAME);
+    lv_label_set_text(objects.firmware_text, version_str);
+  }
+
   lv_disp_load_scr(objects.splash_screen);
 
   lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);
