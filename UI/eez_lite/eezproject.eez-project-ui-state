@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -201,7 +201,7 @@
               "children": [
                 {
                   "type": "tab",
-                  "id": "#1a3d5f3e-c42b-48fa-a378-cc2e8dc455a9",
+                  "id": "#49d5ed1d-2799-4ab8-b60c-a87a5c34776f",
                   "name": "Settings",
                   "component": "editor",
                   "config": {
@@ -214,7 +214,7 @@
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "charging screen",
+                  "name": "splash screen",
                   "component": "editor",
                   "config": {
                     "objectPath": "[eezproject.eez-project]:/userPages/1",
@@ -225,7 +225,7 @@
                 {
                   "type": "tab",
                   "id": "#f7628938-c0e4-44c0-ac20-5ae7b9b1b467",
-                  "name": "splash screen",
+                  "name": "charging screen",
                   "component": "editor",
                   "config": {
                     "objectPath": "[eezproject.eez-project]:/userPages/0",
@@ -1557,9 +1557,8 @@
       "selection": {
         "0": {
           "1": {
-            "$selected": true
-          },
-          "2": {}
+            "0": {}
+          }
         }
       },
       "transform": {

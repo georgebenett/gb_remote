@@ -216,6 +216,9 @@ uint32_t button_get_press_duration_ms(void) {
 }
 
 void button_start_monitoring(void) {
+  if (button_task_handle != NULL) {
+    return; // Already started (e.g. before charging screen)
+  }
   xTaskCreate(button_monitor_task, "button_monitor", TASK_STACK_SIZE, NULL,
               TASK_PRIORITY, &button_task_handle);
 }

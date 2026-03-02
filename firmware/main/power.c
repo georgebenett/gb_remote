@@ -31,6 +31,11 @@ bool power_is_entering_off_mode(void) { return entering_power_off_mode; }
 
 static bool button_released_since_boot = false;
 
+// Charging-only mode: wait for long press via callback (interrupt-based), not
+// polling
+static volatile bool in_charging_wait_for_long_press = false;
+static volatile bool long_press_received_proceed_boot = false;
+
 // Forward declarations
 static bool power_check_wake_from_sleep(void);
 static void power_sleep_immediate(void);
@@ -44,7 +49,19 @@ static void set_bar_value(void *obj, int32_t v) {
   lv_bar_set_value(obj, v, LV_ANIM_OFF);
 
   if (v >= 100) {
-    ESP_LOGI(TAG, "Bar filled - Shutting down");
+    bool usb_connected = (gpio_get_level(USB_DETECT_GPIO) == 1);
+    if (usb_connected) {
+      ESP_LOGI(TAG,
+               "Bar filled but USB connected - returning to charging screen");
+      viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
+      arc_animation_active = false;
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
+      lv_disp_load_scr(objects.charging_screen);
+      lv_obj_invalidate(objects.charging_screen);
+      return;
+    }
+    ESP_LOGI(TAG, "Bar filled - USB not connected - Shutting down");
     viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
     entering_power_off_mode = true;
     vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_FEEDBACK_DELAY_MS));
@@ -79,6 +96,11 @@ static void power_button_callback(button_event_t event, void *user_data) {
     break;
 
   case BUTTON_EVENT_LONG_PRESS:
+    // Charging-only mode: long press means "proceed with normal boot"
+    if (in_charging_wait_for_long_press) {
+      long_press_received_proceed_boot = true;
+      break;
+    }
     if (!button_released_since_boot) {
       ESP_LOGI(TAG,
                "Long press ignored - button must be released first after boot");
@@ -150,6 +172,14 @@ static bool power_check_wake_from_sleep(void) {
 
       // Button was held for long press duration
       ESP_LOGI(TAG, "Long press detected - turning device on");
+      // Restore button to interrupt mode for when button task starts later
+      gpio_config_t button_restore = {.pin_bit_mask =
+                                          (1ULL << MAIN_BUTTON_GPIO),
+                                      .mode = GPIO_MODE_INPUT,
+                                      .pull_up_en = GPIO_PULLUP_ENABLE,
+                                      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+                                      .intr_type = GPIO_INTR_ANYEDGE};
+      gpio_config(&button_restore);
       return true; // Device should turn on
     } else {
       ESP_LOGI(TAG, "Button not pressed after wake - going back to sleep");
@@ -163,19 +193,14 @@ static bool power_check_wake_from_sleep(void) {
 void power_wait_for_power_button(void) {
   // Configure USB detect GPIO as input (no pull — driven by hardware)
   gpio_config_t usb_conf = {.pin_bit_mask = (1ULL << USB_DETECT_GPIO),
-                             .mode = GPIO_MODE_INPUT,
-                             .pull_up_en = GPIO_PULLUP_DISABLE,
-                             .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                             .intr_type = GPIO_INTR_DISABLE};
+                            .mode = GPIO_MODE_INPUT,
+                            .pull_up_en = GPIO_PULLUP_DISABLE,
+                            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+                            .intr_type = GPIO_INTR_DISABLE};
   gpio_config(&usb_conf);
 
-  // Configure button GPIO as input
-  gpio_config_t button_conf = {.pin_bit_mask = (1ULL << MAIN_BUTTON_GPIO),
-                               .mode = GPIO_MODE_INPUT,
-                               .pull_up_en = GPIO_PULLUP_ENABLE,
-                               .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                               .intr_type = GPIO_INTR_DISABLE};
-  gpio_config(&button_conf);
+  // Button stays in interrupt mode (configured by button_init_main); do not
+  // reconfigure here
   vTaskDelay(pdMS_TO_TICKS(BUTTON_DEBOUNCE_DELAY_MS));
 
   bool usb_connected = (gpio_get_level(USB_DETECT_GPIO) == 1);
@@ -183,55 +208,48 @@ void power_wait_for_power_button(void) {
 
   // USB not plugged in, or USB plugged in with button held → normal boot
   if (!usb_connected || button_pressed) {
-    ESP_LOGI(TAG, "Normal boot (USB=%d, BTN=%d)", usb_connected, button_pressed);
+    ESP_LOGI(TAG, "Normal boot (USB=%d, BTN=%d)", usb_connected,
+             button_pressed);
     return;
   }
 
   // USB plugged in, button not held → charging-only mode
-  ESP_LOGI(TAG, "USB connected without button press - entering charging-only mode");
+  ESP_LOGI(TAG,
+           "USB connected without button press - entering charging-only mode");
 
   if (take_lvgl_mutex()) {
     lv_disp_load_scr(objects.charging_screen);
     lv_obj_invalidate(objects.charging_screen);
     give_lvgl_mutex();
   }
+  vTaskDelay(pdMS_TO_TICKS(500));
+  lcd_fade_to_saved_brightness();
 
-  // Poll for a long press to proceed with normal boot, or USB removal to shut down
+  // Wait for long press (via interrupt-driven callback) or USB removal. No
+  // button polling.
+  in_charging_wait_for_long_press = true;
+  long_press_received_proceed_boot = false;
+
   while (1) {
-    vTaskDelay(pdMS_TO_TICKS(BUTTON_POLL_INTERVAL_MS));
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     // If USB is unplugged, fade out and power off
     if (gpio_get_level(USB_DETECT_GPIO) == 0) {
+      in_charging_wait_for_long_press = false;
       ESP_LOGI(TAG, "USB disconnected in charging mode - powering off");
-      lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
+      lcd_fade_backlight(lcd_get_backlight(), 0,
+                         LCD_BACKLIGHT_FADE_DURATION_MS);
       power_enter_sleep();
       // Never returns
     }
 
-    button_pressed = (gpio_get_level(MAIN_BUTTON_GPIO) == 0);
-
-    if (!button_pressed) {
-      continue;
+    if (long_press_received_proceed_boot) {
+      in_charging_wait_for_long_press = false;
+      ESP_LOGI(
+          TAG,
+          "Long press detected in charging mode - proceeding with normal boot");
+      return;
     }
-
-    // Button is now pressed – measure hold duration
-    TickType_t start_time = xTaskGetTickCount();
-    const TickType_t long_press_ticks = pdMS_TO_TICKS(BUTTON_LONG_PRESS_TIME_MS);
-    bool still_held = true;
-
-    while ((xTaskGetTickCount() - start_time) < long_press_ticks) {
-      vTaskDelay(pdMS_TO_TICKS(BUTTON_POLL_INTERVAL_MS));
-      if (gpio_get_level(MAIN_BUTTON_GPIO) != 0) {
-        still_held = false;
-        break;
-      }
-    }
-
-    if (still_held) {
-      ESP_LOGI(TAG, "Long press detected in charging mode - proceeding with normal boot");
-      return; // Proceed to normal initialization
-    }
-    // Short press — stay in charging mode
   }
 }
 
@@ -279,6 +297,19 @@ void power_check_inactivity(bool is_ble_connected) {
              (unsigned int)elapsed_time);
     power_shutdown();
   }
+}
+
+void power_check_charging_screen_usb(void) {
+  if (lv_scr_act() != objects.charging_screen) {
+    return;
+  }
+  if (gpio_get_level(USB_DETECT_GPIO) != 0) {
+    return; /* USB still connected */
+  }
+  ESP_LOGI(TAG, "USB disconnected on charging screen - powering off");
+  lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
+  power_enter_sleep();
+  /* never returns */
 }
 
 static void power_enter_sleep(void) {

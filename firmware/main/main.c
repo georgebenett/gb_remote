@@ -67,9 +67,8 @@ static void initialize_pre_boot_charging(void) {
   battery_start_monitoring();
   lcd_init();
   initialize_ui();
-  lcd_fade_to_saved_brightness();
 
-  // Block here until the user holds the power button
+  // wait here until the user holds the power button
   power_wait_for_power_button();
 }
 
@@ -108,24 +107,21 @@ void app_main(void) {
   ESP_ERROR_CHECK(adc_init());
   adc_start_task();
 
-  // Early init for charging mode: battery + LCD + UI, then block until
-  // the power button is held if the device wasn't booted by a button press
+  button_start_monitoring();
   initialize_pre_boot_charging();
 
-  // Wait for throttle calibration to complete (adc_start_task is already running)
   while (!throttle_is_calibrated()) {
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 
   initialize_communication();
-  initialize_monitoring();
+  initialize_monitoring(); // button already started above
 
-  // Show splash and fade in
   ui_show_splash_screen();
-  lcd_fade_to_saved_brightness();
 
-  // Main loop: monitor for inactivity
+  // Main loop: monitor for inactivity and USB on charging screen
   while (1) {
+    power_check_charging_screen_usb();
     power_check_inactivity(ble_is_connected());
     vTaskDelay(pdMS_TO_TICKS(100));
   }

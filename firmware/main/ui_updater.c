@@ -564,6 +564,11 @@ static void ui_cmd_processor_task(void *pvParameters) {
                                           LV_PART_MAIN | LV_STATE_DEFAULT);
             }
           }
+          if (get_current_screen() == objects.charging_screen &&
+              objects.charging_screen_percentage != NULL) {
+            lv_label_set_text_fmt(objects.charging_screen_percentage, "%d%%",
+                                  cmd.data.battery.percentage);
+          }
           break;
 
         case UI_CMD_UPDATE_BATTERY_VOLTAGE:
@@ -699,7 +704,8 @@ void ui_show_splash_screen(void) {
   // Set firmware version label now, just before showing the splash screen
   if (objects.firmware_text != NULL) {
     char version_str[64];
-    snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION, TARGET_NAME);
+    snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,
+             TARGET_NAME);
     lv_label_set_text(objects.firmware_text, version_str);
   }
 

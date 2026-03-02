@@ -1,34 +1,28 @@
 #if defined(EEZ_FOR_LVGL)
 #include <eez/core/vars.h>
 #endif
-#include <stdio.h>
-#include "ui.h"
-#include "screens.h"
-#include "images.h"
 #include "actions.h"
-#include "vars.h"
-#include "ui_updater.h"
-#include "version.h"
+#include "images.h"
+#include "screens.h"
 #include "target_config.h"
+#include "ui.h"
+#include "ui_updater.h"
+#include "vars.h"
+#include "version.h"
+#include <stdio.h>
 
-
-
-
-
-
-
-/*CUSTOM FUNCTION DECLARATIONS:*/ 
-
+/*CUSTOM FUNCTION DECLARATIONS:*/
 
 #if defined(EEZ_FOR_LVGL)
 
 void ui_init() {
-    eez_flow_init(assets, sizeof(assets), (lv_obj_t **)&objects, sizeof(objects), images, sizeof(images), actions);
+  eez_flow_init(assets, sizeof(assets), (lv_obj_t **)&objects, sizeof(objects),
+                images, sizeof(images), actions);
 }
 
 void ui_tick() {
-    eez_flow_tick();
-    tick_screen(g_currentScreen);
+  eez_flow_tick();
+  tick_screen(g_currentScreen);
 }
 
 #else
@@ -38,30 +32,26 @@ void ui_tick() {
 static int16_t currentScreen = -1;
 
 static lv_obj_t *getLvglObjectFromIndex(int32_t index) {
-    if (index == -1) {
-        return 0;
-    }
-    return ((lv_obj_t **)&objects)[index];
+  if (index == -1) {
+    return 0;
+  }
+  return ((lv_obj_t **)&objects)[index];
 }
 
 void loadScreen(enum ScreensEnum screenId) {
-    currentScreen = screenId - 1;
-    lv_obj_t *screen = getLvglObjectFromIndex(currentScreen);
-    lv_scr_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_OUT, 500, 0, false);
+  currentScreen = screenId - 1;
+  lv_obj_t *screen = getLvglObjectFromIndex(currentScreen);
+  lv_scr_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_OUT, 500, 0, false);
 }
 
 void ui_init() {
-    create_screens();
-    
-    /*CUSTOM CODE HERE:
-    this is responsible for navigating the screens with swipe motion
-    edit this only in EEZ STUDIO*/
+  create_screens();
 
-   ${eez-studio LVGL_LOAD_FIRST_SCREEN}
+  /*CUSTOM CODE HERE:
+  this is responsible for navigating the screens with swipe motion
+  edit this only in EEZ STUDIO*/
 }
 
-void ui_tick() {
-    tick_screen(currentScreen);
-}
+void ui_tick() { tick_screen(currentScreen); }
 
 #endif

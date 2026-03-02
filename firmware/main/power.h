@@ -19,6 +19,9 @@ void power_init(void);
 void power_wait_for_power_button(void);
 void power_reset_inactivity_timer(void);
 void power_check_inactivity(bool is_ble_connected);
+/** If on charging screen and USB disconnected, fades backlight and enters
+ * sleep. Call from main loop. */
+void power_check_charging_screen_usb(void);
 void power_shutdown(void);
 
 #endif // POWER_H
