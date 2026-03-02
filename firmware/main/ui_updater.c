@@ -698,6 +698,20 @@ static void splash_timer_cb(lv_timer_t *timer) {
   lv_disp_load_scr(objects.home_screen);
 }
 
+/** Show splash and schedule transition to home after 4s. Caller must hold LVGL
+ * mutex. */
+void ui_show_splash_then_home(void) {
+  if (objects.firmware_text != NULL) {
+    char version_str[64];
+    snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,
+             TARGET_NAME);
+    lv_label_set_text(objects.firmware_text, version_str);
+  }
+  lv_disp_load_scr(objects.splash_screen);
+  lv_timer_t *t = lv_timer_create(splash_timer_cb, 4000, NULL);
+  lv_timer_set_repeat_count(t, 1);
+}
+
 void ui_show_splash_screen(void) {
   viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
 

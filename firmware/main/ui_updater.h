@@ -61,5 +61,8 @@ void ui_update_aux_output_indicator(void);
 
 // Splash screen
 void ui_show_splash_screen(void);
+/** Show splash then auto-switch to home after 4s (for mode 1→2 transition).
+ * Call with LVGL mutex held. */
+void ui_show_splash_then_home(void);
 
 #endif // UI_UPDATER_H
