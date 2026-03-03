@@ -11,6 +11,7 @@
 #include "power.h"
 #include "target_config.h"
 #include "vesc_config.h"
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -32,7 +33,10 @@ static uint32_t brake_input_min_value = ADC_INITIAL_MIN_VALUE;
 #endif
 static bool calibration_done = false;
 static bool calibration_in_progress = false;
+static float throttle_curve_exponent = 4.0f;
 static esp_err_t load_calibration_from_nvs(void);
+
+#define NVS_KEY_CURVE_EXP "curve_exp"
 
 void adc_deinit(void);
 
@@ -399,6 +403,18 @@ static esp_err_t load_calibration_from_nvs(void) {
   }
 #endif
 
+  // Load throttle curve exponent (optional – use default 1.0 if absent)
+  uint16_t stored_exp = 100; // default = 1.00
+  if (nvs_get_u16(nvs_handle, NVS_KEY_CURVE_EXP, &stored_exp) == ESP_OK) {
+    throttle_curve_exponent = (float)stored_exp / 100.0f;
+    if (throttle_curve_exponent < 0.1f)
+      throttle_curve_exponent = 0.1f;
+    if (throttle_curve_exponent > 5.0f)
+      throttle_curve_exponent = 5.0f;
+    ESP_LOGI(TAG, "Loaded throttle curve exponent: %.2f",
+             throttle_curve_exponent);
+  }
+
   nvs_close(nvs_handle);
   calibration_done = true;
   ESP_LOGI(TAG, "Loaded calibration: throttle %lu-%lu", adc_input_min_value,
@@ -647,6 +663,20 @@ bool throttle_should_use_neutral(void) {
   return calibration_in_progress || !calibration_done;
 }
 
+// Apply non-linear throttle curve: output = 255 * (input/255)^exponent
+// exponent=1.0 is linear, higher values give a gentler start.
+static uint8_t apply_throttle_curve(uint8_t linear_value) {
+  if (throttle_curve_exponent == 1.0f) {
+    return linear_value; // Fast path: no curve
+  }
+  float normalized = (float)linear_value / 255.0f; // 0.0 .. 1.0
+  float curved = powf(normalized, throttle_curve_exponent);
+  int32_t result = (int32_t)(curved * 255.0f + 0.5f);  // round
+  if (result < 0) result = 0;
+  if (result > 255) result = 255;
+  return (uint8_t)result;
+}
+
 uint8_t map_throttle_value(uint32_t adc_value) {
   // Protection against invalid calibration
   uint32_t range = adc_input_max_value - adc_input_min_value;
@@ -662,11 +692,14 @@ uint8_t map_throttle_value(uint32_t adc_value) {
     adc_value = adc_input_max_value;
   }
 
-  // Perform the mapping
+  // Perform the linear mapping
   uint8_t mapped =
       (uint8_t)((adc_value - adc_input_min_value) *
                     (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) / range +
                 ADC_OUTPUT_MIN_VALUE);
+
+  // Apply non-linear throttle curve
+  mapped = apply_throttle_curve(mapped);
 
   // Apply dead zone around neutral (±3 units)
   if (mapped >= (VESC_NEUTRAL_VALUE - 3) &&
@@ -743,6 +776,11 @@ uint8_t get_throttle_brake_ble_value(void) {
   float throttle_factor =
       (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
 
+  // Apply non-linear throttle curve
+  if (throttle_curve_exponent != 1.0f) {
+    throttle_factor = powf(throttle_factor, throttle_curve_exponent);
+  }
+
   // Throttle mapping: throttle MAX (factor=1.0) = 255, throttle MIN
   // (factor=0.0) = 128 (neutral)
   uint8_t throttle_ble_value =
@@ -760,3 +798,41 @@ uint8_t map_adc_value(uint32_t adc_value) {
   return map_throttle_value(adc_value);
 }
 #endif
+
+// --- Throttle curve exponent API ---
+
+float throttle_get_curve_exponent(void) { return throttle_curve_exponent; }
+
+esp_err_t throttle_set_curve_exponent(float exponent) {
+  // Clamp to sane range
+  if (exponent < 0.1f)
+    exponent = 0.1f;
+  if (exponent > 5.0f)
+    exponent = 5.0f;
+
+  throttle_curve_exponent = exponent;
+
+  // Persist to NVS
+  nvs_handle_t nvs_handle;
+  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to open NVS for curve exponent: %s",
+             esp_err_to_name(err));
+    return err;
+  }
+
+  // Store as integer: exponent * 100 (e.g. 1.50 -> 150)
+  uint16_t stored = (uint16_t)(exponent * 100.0f + 0.5f);
+  err = nvs_set_u16(nvs_handle, NVS_KEY_CURVE_EXP, stored);
+  if (err == ESP_OK) {
+    err = nvs_commit(nvs_handle);
+  }
+  nvs_close(nvs_handle);
+
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "Throttle curve exponent set to %.2f", exponent);
+  } else {
+    ESP_LOGE(TAG, "Failed to save curve exponent: %s", esp_err_to_name(err));
+  }
+  return err;
+}

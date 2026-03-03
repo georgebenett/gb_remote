@@ -77,6 +77,10 @@ uint8_t
 map_adc_value(uint32_t adc_value); // Single throttle mapping for lite mode
 #endif
 
+// Throttle curve exponent: 1.0 = linear, higher = gentler low-end
+float throttle_get_curve_exponent(void);
+esp_err_t throttle_set_curve_exponent(float exponent);
+
 // ADC handle accessors for other modules (e.g., battery)
 adc_oneshot_unit_handle_t adc_get_handle(void);
 bool adc_is_initialized(void);
