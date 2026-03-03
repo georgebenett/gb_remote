@@ -1290,12 +1290,27 @@ static void adc_send_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint8_t data_buffer[3]; // 2 bytes for ADC value + 1 byte for aux output
+  bool was_connected = false;
+  uint32_t connection_time = 0;
 
   while (1) {
     esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
                           // connected
 
-    if (ble_is_connected() && db != NULL &&
+    bool is_connected = ble_is_connected();
+
+    // Detect connection state change
+    if (is_connected && !was_connected) {
+      connection_time = esp_timer_get_time() / 1000; // Convert to ms
+      ESP_LOGI(GATTC_TAG, "BLE connection established, sending neutral for %dms",
+               NEUTRAL_HOLD_MS);
+      was_connected = true;
+    } else if (!is_connected && was_connected) {
+      was_connected = false;
+      connection_time = 0;
+    }
+
+    if (is_connected && db != NULL &&
         ((db + SPP_IDX_SPP_DATA_RECV_VAL)->properties &
          (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
 
@@ -1306,8 +1321,13 @@ static void adc_send_task(void *pvParameters) {
       uint32_t adc_value;
       bool throttle_inverted = false;
 
+      // After connection, send neutral value for initial hold period
+      uint32_t time_since_connect = (esp_timer_get_time() / 1000) - connection_time;
+      if (time_since_connect < NEUTRAL_HOLD_MS) {
+        adc_value = VESC_NEUTRAL_VALUE;
+      }
       // SAFETY: Block throttle on low battery - force neutral
-      if (battery_is_low_voltage()) {
+      else if (battery_is_low_voltage()) {
         adc_value = VESC_NEUTRAL_VALUE;
         ESP_LOGW(GATTC_TAG, "Low battery - throttle blocked, sending neutral");
       } else {

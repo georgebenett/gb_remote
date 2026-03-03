@@ -32,6 +32,6 @@
 #define TFT_BL_PIN GPIO_NUM_13
 
 // Viber GPIO definition
-#define VIBER_PIN GPIO_NUM_6
+#define VIBER_PIN GPIO_NUM_5
 
 #endif // HW_CONFIG_H

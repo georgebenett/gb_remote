@@ -56,21 +56,22 @@ static void set_bar_value(void *obj, int32_t v) {
   lv_bar_set_value(obj, v, LV_ANIM_OFF);
 
   if (v >= 100) {
+
+    viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
     bool usb_connected = (gpio_get_level(USB_DETECT_GPIO) == 1);
     if (usb_connected) {
-      ESP_LOGI(TAG,
-               "Bar filled but USB connected - returning to charging screen");
+
       viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
       arc_animation_active = false;
-      current_mode = POWER_MODE_CHARGING; /* Charging screen = mode 1 */
+      current_mode = POWER_MODE_CHARGING;
       vTaskDelay(pdMS_TO_TICKS(1000));
       lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
+      lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
       lv_disp_load_scr(objects.charging_screen);
       lv_obj_invalidate(objects.charging_screen);
       return;
     }
     ESP_LOGI(TAG, "Bar filled - USB not connected - Shutting down");
-    viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
     entering_power_off_mode = true;
     vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_FEEDBACK_DELAY_MS));
     power_shutdown();

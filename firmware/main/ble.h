@@ -23,6 +23,7 @@
 // Task timing constants
 #define ADC_SEND_INTERVAL_MS 75    // Throttle data send rate
 #define RSSI_READ_INTERVAL_MS 1000 // RSSI polling rate
+#define NEUTRAL_HOLD_MS 1000 // Hold neutral after connection
 
 // BLE Security Configuration
 #define BLE_PASSKEY 483265 // Fixed passkey for pairing (must match server)
