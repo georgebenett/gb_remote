@@ -37,6 +37,10 @@ static float throttle_curve_exponent = 4.0f;
 static uint8_t throttle_curve_index = 3; // 0=Linear, 1=Gentle, 2=Medium, 3=Soft
 static const float throttle_curve_presets[THROTTLE_CURVE_COUNT] = {1.0f, 2.0f,
                                                                    3.0f, 4.0f};
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+static float brake_curve_exponent = 4.0f;
+static uint8_t brake_curve_index = 3;
+#endif
 static esp_err_t load_calibration_from_nvs(void);
 
 void adc_deinit(void);
@@ -445,6 +449,21 @@ static esp_err_t load_calibration_from_nvs(void) {
     }
   }
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+  // Load brake curve index (dual throttle only)
+  uint8_t brake_idx = THROTTLE_CURVE_DEFAULT_INDEX;
+  if (nvs_get_u8(nvs_handle, NVS_KEY_BRAKE_CURVE_INDEX, &brake_idx) == ESP_OK &&
+      brake_idx < THROTTLE_CURVE_COUNT) {
+    brake_curve_index = brake_idx;
+    brake_curve_exponent = throttle_curve_presets[brake_idx];
+    ESP_LOGI(TAG, "Loaded brake curve index %u (exponent %.2f)",
+             (unsigned)brake_idx, brake_curve_exponent);
+  } else {
+    brake_curve_index = THROTTLE_CURVE_DEFAULT_INDEX;
+    brake_curve_exponent = throttle_curve_presets[THROTTLE_CURVE_DEFAULT_INDEX];
+  }
+#endif
+
   nvs_close(nvs_handle);
   calibration_done = true;
   ESP_LOGI(TAG, "Loaded calibration: throttle %lu-%lu", adc_input_min_value,
@@ -804,6 +823,11 @@ uint8_t get_throttle_brake_ble_value(void) {
   float brake_factor =
       (float)(brake_raw - brake_input_min_value) / (float)brake_range;
 
+  // Apply non-linear brake curve (same presets as throttle)
+  if (brake_curve_exponent != 1.0f) {
+    brake_factor = powf(brake_factor, brake_curve_exponent);
+  }
+
   // Calculate throttle factor
   float throttle_factor =
       (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
@@ -900,4 +924,46 @@ esp_err_t throttle_set_curve_index(uint8_t index) {
     ESP_LOGE(TAG, "Failed to save curve index: %s", esp_err_to_name(err));
   }
   return err;
+}
+
+uint8_t throttle_get_brake_curve_index(void) {
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+  return brake_curve_index;
+#else
+  return 0;
+#endif
+}
+
+esp_err_t throttle_set_brake_curve_index(uint8_t index) {
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+  if (index >= THROTTLE_CURVE_COUNT) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  brake_curve_index = index;
+  brake_curve_exponent = throttle_curve_presets[index];
+
+  nvs_handle_t nvs_handle;
+  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to open NVS for brake curve index: %s",
+             esp_err_to_name(err));
+    return err;
+  }
+  err = nvs_set_u8(nvs_handle, NVS_KEY_BRAKE_CURVE_INDEX, brake_curve_index);
+  if (err == ESP_OK) {
+    err = nvs_commit(nvs_handle);
+  }
+  nvs_close(nvs_handle);
+
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "Brake curve set to index %u (exponent %.2f)",
+             (unsigned)index, brake_curve_exponent);
+  } else {
+    ESP_LOGE(TAG, "Failed to save brake curve index: %s", esp_err_to_name(err));
+  }
+  return err;
+#else
+  (void)index;
+  return ESP_ERR_NOT_SUPPORTED;
+#endif
 }

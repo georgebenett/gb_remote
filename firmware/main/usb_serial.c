@@ -63,6 +63,8 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet);
 static void handle_cmd_get_coredump(const binary_packet_t *packet);
 static void handle_cmd_get_throttle_curve(const binary_packet_t *packet);
 static void handle_cmd_set_throttle_curve(const binary_packet_t *packet);
+static void handle_cmd_get_brake_curve(const binary_packet_t *packet);
+static void handle_cmd_set_brake_curve(const binary_packet_t *packet);
 
 // CRC-16-CCITT calculation (polynomial: 0x1021)
 uint16_t calculate_crc16(const uint8_t *data, uint16_t length) {
@@ -386,6 +388,12 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_SET_THROTTLE_CURVE:
     handle_cmd_set_throttle_curve(packet);
     break;
+  case CMD_GET_BRAKE_CURVE:
+    handle_cmd_get_brake_curve(packet);
+    break;
+  case CMD_SET_BRAKE_CURVE:
+    handle_cmd_set_brake_curve(packet);
+    break;
   default:
     ESP_LOGW(TAG, "Unknown command: 0x%02X", packet->cmd_id);
     usb_serial_send_ack(packet->cmd_id, ERR_UNKNOWN_CMD);
@@ -494,6 +502,9 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
 
   // Throttle curve index (1 byte): 0=Linear, 1=Gentle, 2=Medium, 3=Soft
   payload[idx++] = throttle_get_curve_index();
+
+  // Brake curve index (1 byte), dual throttle only; lite sends 0
+  payload[idx++] = throttle_get_brake_curve_index();
 
   // Throttle calibration (4 bytes each, little-endian)
   if (throttle_is_calibrated()) {
@@ -1022,6 +1033,33 @@ static void handle_cmd_set_throttle_curve(const binary_packet_t *packet) {
     usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_OK);
   } else {
     usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_SAVE_FAILED);
+  }
+}
+
+static void handle_cmd_get_brake_curve(const binary_packet_t *packet) {
+  (void)packet;
+  uint8_t payload[1];
+  payload[0] = throttle_get_brake_curve_index();
+  usb_serial_send_response(RSP_BRAKE_CURVE, payload, 1);
+}
+
+static void handle_cmd_set_brake_curve(const binary_packet_t *packet) {
+  if (packet->payload_length < 1) {
+    usb_serial_send_ack(CMD_SET_BRAKE_CURVE, ERR_INVALID_PAYLOAD);
+    return;
+  }
+  uint8_t index = packet->payload[0];
+  if (index >= THROTTLE_CURVE_COUNT) {
+    usb_serial_send_ack(CMD_SET_BRAKE_CURVE, ERR_OUT_OF_RANGE);
+    return;
+  }
+  esp_err_t err = throttle_set_brake_curve_index(index);
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_SET_BRAKE_CURVE, ERR_OK);
+  } else if (err == ESP_ERR_NOT_SUPPORTED) {
+    usb_serial_send_ack(CMD_SET_BRAKE_CURVE, ERR_NOT_SUPPORTED);
+  } else {
+    usb_serial_send_ack(CMD_SET_BRAKE_CURVE, ERR_SAVE_FAILED);
   }
 }
 

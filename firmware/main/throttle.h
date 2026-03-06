@@ -37,6 +37,7 @@
 #define NVS_KEY_CALIBRATED "cal_done"
 #define NVS_KEY_CURVE_EXP "curve_exp"
 #define NVS_KEY_CURVE_INDEX "curve_idx"
+#define NVS_KEY_BRAKE_CURVE_INDEX "brake_curve_idx"
 
 // Four throttle curve presets: output = (input/255)^exponent; 1.0=linear,
 // higher=gentler start
@@ -92,6 +93,11 @@ esp_err_t throttle_set_curve_exponent(float exponent);
 // Throttle curve preset (0..3): Linear, Gentle, Medium, Soft
 uint8_t throttle_get_curve_index(void);
 esp_err_t throttle_set_curve_index(uint8_t index);
+
+// Brake curve preset (0..3), dual throttle only; lite get returns 0, set
+// returns ERR_NOT_SUPPORTED
+uint8_t throttle_get_brake_curve_index(void);
+esp_err_t throttle_set_brake_curve_index(uint8_t index);
 
 // ADC handle accessors for other modules (e.g., battery)
 adc_oneshot_unit_handle_t adc_get_handle(void);

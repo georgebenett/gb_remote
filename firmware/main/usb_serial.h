@@ -52,7 +52,9 @@ typedef enum {
   CMD_GET_COREDUMP = 0x17, // Get coredump data (payload: chunk_offset uint16)
   CMD_GET_THROTTLE_CURVE = 0x1A, // Get throttle curve index (0-3)
   CMD_SET_THROTTLE_CURVE =
-      0x1B, // Set throttle curve index (payload: uint8 0-3)
+      0x1B,                   // Set throttle curve index (payload: uint8 0-3)
+  CMD_GET_BRAKE_CURVE = 0x1C, // Get brake curve index (0-3, dual throttle)
+  CMD_SET_BRAKE_CURVE = 0x1D, // Set brake curve index (payload: uint8 0-3)
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code
@@ -62,6 +64,7 @@ typedef enum {
   RSP_CALIBRATION = 0x84,          // Calibration data
   RSP_BLE_TRIM = 0x85,             // BLE trim offset data
   RSP_THROTTLE_CURVE = 0x89,       // Throttle curve index (1 byte, 0-3)
+  RSP_BRAKE_CURVE = 0x8A,          // Brake curve index (1 byte, 0-3)
   RSP_COREDUMP_INFO = 0x86,        // Coredump info (exists flag, size)
   RSP_COREDUMP_CHUNK = 0x87,       // Coredump data chunk
   RSP_CALIBRATION_PROGRESS = 0x88, // Real-time calibration progress update
