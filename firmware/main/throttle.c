@@ -34,9 +34,10 @@ static uint32_t brake_input_min_value = ADC_INITIAL_MIN_VALUE;
 static bool calibration_done = false;
 static bool calibration_in_progress = false;
 static float throttle_curve_exponent = 4.0f;
+static uint8_t throttle_curve_index = 3; // 0=Linear, 1=Gentle, 2=Medium, 3=Soft
+static const float throttle_curve_presets[THROTTLE_CURVE_COUNT] = {1.0f, 2.0f,
+                                                                   3.0f, 4.0f};
 static esp_err_t load_calibration_from_nvs(void);
-
-#define NVS_KEY_CURVE_EXP "curve_exp"
 
 void adc_deinit(void);
 
@@ -403,16 +404,45 @@ static esp_err_t load_calibration_from_nvs(void) {
   }
 #endif
 
-  // Load throttle curve exponent (optional – use default 1.0 if absent)
-  uint16_t stored_exp = 100; // default = 1.00
-  if (nvs_get_u16(nvs_handle, NVS_KEY_CURVE_EXP, &stored_exp) == ESP_OK) {
-    throttle_curve_exponent = (float)stored_exp / 100.0f;
-    if (throttle_curve_exponent < 0.1f)
-      throttle_curve_exponent = 0.1f;
-    if (throttle_curve_exponent > 5.0f)
-      throttle_curve_exponent = 5.0f;
-    ESP_LOGI(TAG, "Loaded throttle curve exponent: %.2f",
-             throttle_curve_exponent);
+  // Load throttle curve: prefer curve index (0-3), else legacy curve_exp for
+  // backward compat
+  uint8_t stored_idx = THROTTLE_CURVE_DEFAULT_INDEX;
+  if (nvs_get_u8(nvs_handle, NVS_KEY_CURVE_INDEX, &stored_idx) == ESP_OK &&
+      stored_idx < THROTTLE_CURVE_COUNT) {
+    throttle_curve_index = stored_idx;
+    throttle_curve_exponent = throttle_curve_presets[stored_idx];
+    ESP_LOGI(TAG, "Loaded throttle curve index %u (exponent %.2f)",
+             (unsigned)stored_idx, throttle_curve_exponent);
+  } else {
+    uint16_t stored_exp = 100;
+    if (nvs_get_u16(nvs_handle, NVS_KEY_CURVE_EXP, &stored_exp) == ESP_OK) {
+      throttle_curve_exponent = (float)stored_exp / 100.0f;
+      if (throttle_curve_exponent < 0.1f)
+        throttle_curve_exponent = 0.1f;
+      if (throttle_curve_exponent > 5.0f)
+        throttle_curve_exponent = 5.0f;
+      // Map to nearest preset index and persist for next time
+      uint8_t nearest = 0;
+      float best = fabsf(throttle_curve_exponent - throttle_curve_presets[0]);
+      for (uint8_t i = 1; i < THROTTLE_CURVE_COUNT; i++) {
+        float d = fabsf(throttle_curve_exponent - throttle_curve_presets[i]);
+        if (d < best) {
+          best = d;
+          nearest = i;
+        }
+      }
+      throttle_curve_index = nearest;
+      throttle_curve_exponent = throttle_curve_presets[nearest];
+      ESP_LOGI(TAG,
+               "Loaded throttle curve exponent (legacy) -> index %u (%.2f)",
+               (unsigned)nearest, throttle_curve_exponent);
+    } else {
+      throttle_curve_index = THROTTLE_CURVE_DEFAULT_INDEX;
+      throttle_curve_exponent =
+          throttle_curve_presets[THROTTLE_CURVE_DEFAULT_INDEX];
+      ESP_LOGI(TAG, "Throttle curve default index %u (%.2f)",
+               (unsigned)throttle_curve_index, throttle_curve_exponent);
+    }
   }
 
   nvs_close(nvs_handle);
@@ -671,9 +701,11 @@ static uint8_t apply_throttle_curve(uint8_t linear_value) {
   }
   float normalized = (float)linear_value / 255.0f; // 0.0 .. 1.0
   float curved = powf(normalized, throttle_curve_exponent);
-  int32_t result = (int32_t)(curved * 255.0f + 0.5f);  // round
-  if (result < 0) result = 0;
-  if (result > 255) result = 255;
+  int32_t result = (int32_t)(curved * 255.0f + 0.5f); // round
+  if (result < 0)
+    result = 0;
+  if (result > 255)
+    result = 255;
   return (uint8_t)result;
 }
 
@@ -833,6 +865,39 @@ esp_err_t throttle_set_curve_exponent(float exponent) {
     ESP_LOGI(TAG, "Throttle curve exponent set to %.2f", exponent);
   } else {
     ESP_LOGE(TAG, "Failed to save curve exponent: %s", esp_err_to_name(err));
+  }
+  return err;
+}
+
+uint8_t throttle_get_curve_index(void) { return throttle_curve_index; }
+
+esp_err_t throttle_set_curve_index(uint8_t index) {
+  if (index >= THROTTLE_CURVE_COUNT) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  throttle_curve_index = index;
+  throttle_curve_exponent = throttle_curve_presets[index];
+
+  nvs_handle_t nvs_handle;
+  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to open NVS for curve index: %s",
+             esp_err_to_name(err));
+    return err;
+  }
+  err = nvs_set_u8(nvs_handle, NVS_KEY_CURVE_INDEX, throttle_curve_index);
+  if (err == ESP_OK) {
+    uint16_t stored_exp = (uint16_t)(throttle_curve_exponent * 100.0f + 0.5f);
+    nvs_set_u16(nvs_handle, NVS_KEY_CURVE_EXP, stored_exp);
+    err = nvs_commit(nvs_handle);
+  }
+  nvs_close(nvs_handle);
+
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "Throttle curve set to index %u (exponent %.2f)",
+             (unsigned)index, throttle_curve_exponent);
+  } else {
+    ESP_LOGE(TAG, "Failed to save curve index: %s", esp_err_to_name(err));
   }
   return err;
 }

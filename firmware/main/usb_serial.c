@@ -61,6 +61,8 @@ static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet);
 static void handle_cmd_get_ble_trim(const binary_packet_t *packet);
 static void handle_cmd_check_coredump(const binary_packet_t *packet);
 static void handle_cmd_get_coredump(const binary_packet_t *packet);
+static void handle_cmd_get_throttle_curve(const binary_packet_t *packet);
+static void handle_cmd_set_throttle_curve(const binary_packet_t *packet);
 
 // CRC-16-CCITT calculation (polynomial: 0x1021)
 uint16_t calculate_crc16(const uint8_t *data, uint16_t length) {
@@ -378,6 +380,12 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_GET_COREDUMP:
     handle_cmd_get_coredump(packet);
     break;
+  case CMD_GET_THROTTLE_CURVE:
+    handle_cmd_get_throttle_curve(packet);
+    break;
+  case CMD_SET_THROTTLE_CURVE:
+    handle_cmd_set_throttle_curve(packet);
+    break;
   default:
     ESP_LOGW(TAG, "Unknown command: 0x%02X", packet->cmd_id);
     usb_serial_send_ack(packet->cmd_id, ERR_UNKNOWN_CMD);
@@ -483,6 +491,9 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
   payload[idx++] =
       (uint8_t)trim_offset; // Cast to uint8_t for transmission (will be
                             // interpreted as int8_t on receive)
+
+  // Throttle curve index (1 byte): 0=Linear, 1=Gentle, 2=Medium, 3=Soft
+  payload[idx++] = throttle_get_curve_index();
 
   // Throttle calibration (4 bytes each, little-endian)
   if (throttle_is_calibrated()) {
@@ -988,6 +999,30 @@ static void handle_cmd_get_ble_trim(const binary_packet_t *packet) {
   payload[0] = (uint8_t)trim_offset; // Cast to uint8_t for transmission
                                      // (interpret as int8_t on receive)
   usb_serial_send_response(RSP_BLE_TRIM, payload, 1);
+}
+
+static void handle_cmd_get_throttle_curve(const binary_packet_t *packet) {
+  uint8_t payload[1];
+  payload[0] = throttle_get_curve_index();
+  usb_serial_send_response(RSP_THROTTLE_CURVE, payload, 1);
+}
+
+static void handle_cmd_set_throttle_curve(const binary_packet_t *packet) {
+  if (packet->payload_length < 1) {
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_INVALID_PAYLOAD);
+    return;
+  }
+  uint8_t index = packet->payload[0];
+  if (index >= THROTTLE_CURVE_COUNT) {
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_OUT_OF_RANGE);
+    return;
+  }
+  esp_err_t err = throttle_set_curve_index(index);
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_SAVE_FAILED);
+  }
 }
 
 // ========== COREDUMP FUNCTIONS ==========
