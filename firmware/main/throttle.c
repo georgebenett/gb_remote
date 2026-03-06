@@ -712,17 +712,20 @@ bool throttle_should_use_neutral(void) {
   return calibration_in_progress || !calibration_done;
 }
 
-// Apply non-linear throttle curve: output = 255 * (input/255)^exponent
-// exponent=1.0 is linear, higher values give a gentler start.
+// Apply non-linear throttle curve. Neutral (128) is kept fixed; curve applies
+// only to the throttle half (128..255). So: output = 128 + (input-128)^exp
+// scaled to 127 range. exponent=1.0 is linear, higher = gentler start.
 static uint8_t apply_throttle_curve(uint8_t linear_value) {
   if (throttle_curve_exponent == 1.0f) {
     return linear_value; // Fast path: no curve
   }
-  float normalized = (float)linear_value / 255.0f; // 0.0 .. 1.0
-  float curved = powf(normalized, throttle_curve_exponent);
-  int32_t result = (int32_t)(curved * 255.0f + 0.5f); // round
-  if (result < 0)
-    result = 0;
+  if (linear_value <= VESC_NEUTRAL_VALUE) {
+    return linear_value; // Below/at neutral: no curve, keep as-is
+  }
+  // Throttle half: map (128..255) -> 0..1, apply curve, map back to 128..255
+  float throttle_amount = (float)(linear_value - VESC_NEUTRAL_VALUE) / 127.0f;
+  float curved = powf(throttle_amount, throttle_curve_exponent);
+  int32_t result = VESC_NEUTRAL_VALUE + (int32_t)(curved * 127.0f + 0.5f);
   if (result > 255)
     result = 255;
   return (uint8_t)result;
