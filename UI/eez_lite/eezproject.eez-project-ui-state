@@ -5,7 +5,7 @@
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
     "selectedFontObject": "[eezproject.eez-project]:/fonts/4",
-    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/-1",
+    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/9",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
     }
@@ -1533,7 +1533,7 @@
           "x": -40.7890625,
           "y": -205.1171875
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1545,17 +1545,15 @@
     "[eezproject.eez-project]:/userPages/0[flow-state]": {
       "selection": {
         "0": {
-          "1": {
-            "0": {}
-          }
+          "1": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -190.10476190476183,
-          "y": -173.76452380952387
+          "x": -111.10476190476183,
+          "y": -155.7645238095239
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1573,7 +1571,7 @@
           "x": -70.93892045454547,
           "y": -262.4353693181817
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1593,7 +1591,7 @@
           "x": -188,
           "y": -195
         },
-        "scale": 1.5
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1610,10 +1608,10 @@
       },
       "transform": {
         "translate": {
-          "x": -127.96484375,
-          "y": -188.4921875
+          "x": -46.97656250000006,
+          "y": -162.078125
         },
-        "scale": 1.1
+        "scale": 1
       },
       "timeline": {
         "isEditorActive": false,
@@ -1896,6 +1894,6 @@
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,
-  "flowZoom": 1.5,
+  "flowZoom": 1,
   "implementationLanguage": "C"
 }

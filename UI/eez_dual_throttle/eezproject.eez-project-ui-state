@@ -1,11 +1,11 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
     "selectedFontObject": "[eezproject.eez-project]:/fonts/4",
-    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/7",
+    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/-1",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
     }
@@ -172,7 +172,8 @@
                       "enableClose": false,
                       "icon": "svg:hierarchy"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -196,16 +197,17 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 54.39745508982036,
+              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
                 {
                   "type": "tab",
                   "id": "#45dc7a1b-658c-4c4b-8c05-00940cbe08ee",
-                  "name": "charging screen",
+                  "name": "low battery screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/0",
+                    "objectPath": "[eezproject.eez-project]:/userPages/4",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -221,8 +223,7 @@
                   },
                   "icon": "svg:page"
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
@@ -1529,10 +1530,10 @@
       },
       "transform": {
         "translate": {
-          "x": -86,
-          "y": -160
+          "x": -115.68750000000024,
+          "y": -214.375
         },
-        "scale": 1
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1544,9 +1545,8 @@
     "[eezproject.eez-project]:/userPages/0[flow-state]": {
       "selection": {
         "0": {
-          "1": {},
-          "2": {},
-          "3": {}
+          "0": {},
+          "1": {}
         }
       },
       "transform": {
@@ -1554,7 +1554,7 @@
           "x": -55.61328125,
           "y": -127.2265625
         },
-        "scale": 1
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1576,7 +1576,7 @@
           "x": -86,
           "y": -160
         },
-        "scale": 1
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1598,7 +1598,7 @@
           "x": -86,
           "y": -160
         },
-        "scale": 1
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1619,7 +1619,7 @@
           "x": -86,
           "y": -160
         },
-        "scale": 1
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1898,10 +1898,11 @@
     "LAYOUT",
     "PADDING",
     "LINE",
-    "ARC"
+    "ARC",
+    "TEXT"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,
-  "flowZoom": 1,
+  "flowZoom": 1.25,
   "implementationLanguage": "C"
 }

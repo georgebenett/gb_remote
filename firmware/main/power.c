@@ -313,6 +313,11 @@ void power_reset_inactivity_timer(void) {
 }
 
 void power_check_inactivity(bool is_ble_connected) {
+  /* No timeout while charging screen is visible */
+  if (lv_scr_act() == objects.charging_screen) {
+    return;
+  }
+
   TickType_t current_time = xTaskGetTickCount();
   TickType_t elapsed_time =
       (current_time - last_activity_time) * portTICK_PERIOD_MS;
