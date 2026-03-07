@@ -24,12 +24,12 @@
 
 #define TRIP_NVS_NAMESPACE "trip_data"
 #define NVS_KEY_TRIP_KM "trip_km"
+#define KM_TO_MI 0.621371f
 
 typedef enum {
   UI_CMD_UPDATE_SPEED,
   UI_CMD_UPDATE_SPEED_UNIT,
   UI_CMD_UPDATE_BATTERY_PERCENTAGE,
-  UI_CMD_UPDATE_BATTERY_VOLTAGE,
   UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE,
   UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE,
   UI_CMD_UPDATE_CONNECTION_ICON,
@@ -47,7 +47,6 @@ typedef struct {
       int percentage;
       bool is_charging;
     } battery;
-    float voltage;
     int skate_percentage;
     float skate_voltage;
     uint8_t connection_quality;
@@ -64,6 +63,7 @@ static volatile bool force_config_reload = false;
 
 // Shared UI state (volatile ensures visibility across tasks)
 static volatile uint8_t connection_quality = 0;
+static volatile bool speed_unit_mph = false;
 static volatile float total_trip_km = 0.0f;
 static uint32_t last_update_time = 0;
 
@@ -161,19 +161,6 @@ void ui_update_battery_percentage(int percentage) {
   ui_cmd_t cmd = {
       .type = UI_CMD_UPDATE_BATTERY_PERCENTAGE,
       .data.battery = {.percentage = percentage, .is_charging = is_charging}};
-  ui_queue_send(&cmd);
-}
-
-void ui_update_battery_voltage_display(float voltage) {
-  if (power_is_entering_off_mode())
-    return;
-  if (objects.display_voltage == NULL)
-    return;
-
-  float battery_voltage = battery_get_voltage();
-
-  ui_cmd_t cmd = {.type = UI_CMD_UPDATE_BATTERY_VOLTAGE,
-                  .data.voltage = battery_voltage};
   ui_queue_send(&cmd);
 }
 
@@ -452,7 +439,6 @@ static void battery_update_task(void *pvParameters) {
 
   while (1) {
     int battery_percentage = battery_get_percentage();
-    float battery_voltage = battery_get_voltage();
 
     if (battery_percentage >= 0) {
       int display_percentage = battery_percentage;
@@ -477,7 +463,6 @@ static void battery_update_task(void *pvParameters) {
 
       displayed_percentage = display_percentage;
       ui_update_battery_percentage(display_percentage);
-      ui_update_battery_voltage_display(battery_voltage);
     }
 
     if (ble_is_connected()) {
@@ -539,6 +524,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
           break;
 
         case UI_CMD_UPDATE_SPEED_UNIT:
+          speed_unit_mph = cmd.data.speed_unit_mph;
           if (on_home && objects.static_speed != NULL) {
             lv_label_set_text(objects.static_speed,
                               cmd.data.speed_unit_mph ? "mph" : "km/h");
@@ -568,14 +554,6 @@ static void ui_cmd_processor_task(void *pvParameters) {
               objects.charging_screen_percentage != NULL) {
             lv_label_set_text_fmt(objects.charging_screen_percentage, "%d%%",
                                   cmd.data.battery.percentage);
-          }
-          break;
-
-        case UI_CMD_UPDATE_BATTERY_VOLTAGE:
-          if (on_home && objects.display_voltage != NULL) {
-            snprintf(str_buf, sizeof(str_buf), "%dmV",
-                     (int)(cmd.data.voltage * 1000 + 0.5f));
-            lv_label_set_text(objects.display_voltage, str_buf);
           }
           break;
 
@@ -619,7 +597,12 @@ static void ui_cmd_processor_task(void *pvParameters) {
 
         case UI_CMD_UPDATE_TRIP_DISTANCE:
           if (on_home && objects.odometer != NULL) {
-            snprintf(str_buf, sizeof(str_buf), "%.1f", cmd.data.trip_km);
+            if (speed_unit_mph) {
+              snprintf(str_buf, sizeof(str_buf), "%.1f mi",
+                       cmd.data.trip_km * KM_TO_MI);
+            } else {
+              snprintf(str_buf, sizeof(str_buf), "%.1f km", cmd.data.trip_km);
+            }
             lv_label_set_text(objects.odometer, str_buf);
             lv_obj_invalidate(objects.odometer);
           }
@@ -627,7 +610,8 @@ static void ui_cmd_processor_task(void *pvParameters) {
 
         case UI_CMD_RESET_TRIP_DISTANCE:
           if (on_home && objects.odometer != NULL) {
-            lv_label_set_text(objects.odometer, "0.0");
+            lv_label_set_text(objects.odometer,
+                              speed_unit_mph ? "0.0 mi" : "0.0 km");
             lv_obj_invalidate(objects.odometer);
           }
           break;

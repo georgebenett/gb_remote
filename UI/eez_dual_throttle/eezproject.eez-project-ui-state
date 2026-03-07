@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/2",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -156,8 +156,7 @@
                       "enableClose": false,
                       "icon": "material:code"
                     }
-                  ],
-                  "active": true
+                  ]
                 },
                 {
                   "type": "tabset",
@@ -202,23 +201,11 @@
               "children": [
                 {
                   "type": "tab",
-                  "id": "#efdb6d9a-642c-41cb-8b9b-46140923d9ba",
-                  "name": "Settings",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/settings",
-                    "subObjectPath": "[eezproject.eez-project]:/settings",
-                    "permanent": false
-                  },
-                  "icon": "material:settings"
-                },
-                {
-                  "type": "tab",
                   "id": "#45dc7a1b-658c-4c4b-8c05-00940cbe08ee",
-                  "name": "low battery screen",
+                  "name": "home screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/4",
+                    "objectPath": "[eezproject.eez-project]:/userPages/2",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -234,7 +221,8 @@
                   },
                   "icon": "svg:page"
                 }
-              ]
+              ],
+              "active": true
             },
             {
               "type": "row",

@@ -14,7 +14,7 @@ else()
             set(UI_DIR "ui_lite")
         endif()
     endif()
-    
+
     if(UI_DIR STREQUAL "")
         message(FATAL_ERROR "No target configuration selected. Please set CONFIG_TARGET_DUAL_THROTTLE or CONFIG_TARGET_LITE in sdkconfig.\nRun: idf.py reconfigure or use ./dual_throttle_build.sh / ./lite_build.sh")
     endif()
@@ -26,6 +26,7 @@ file(GLOB_RECURSE UI_SOURCES
 
 idf_component_register(
     SRCS
+        "app_init.c"
         "battery.c"
         "ble.c"
         "button.c"
