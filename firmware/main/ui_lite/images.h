@@ -15,23 +15,18 @@ extern const lv_img_dsc_t img_66_connection;
 extern const lv_img_dsc_t img_100_connection;
 extern const lv_img_dsc_t img_connection_0;
 extern const lv_img_dsc_t img_aux_output;
-extern const lv_img_dsc_t img_batt1;
-extern const lv_img_dsc_t img_batt2;
-extern const lv_img_dsc_t img_batt3;
-extern const lv_img_dsc_t img_batt4;
-extern const lv_img_dsc_t img_batt5;
 extern const lv_img_dsc_t img_lightning;
+extern const lv_img_dsc_t img_empty_battery;
 
 #ifndef EXT_IMG_DESC_T
 #define EXT_IMG_DESC_T
 typedef struct _ext_img_desc_t {
-    const char *name;
-    const lv_img_dsc_t *img_dsc;
+  const char *name;
+  const lv_img_dsc_t *img_dsc;
 } ext_img_desc_t;
 #endif
 
-extern const ext_img_desc_t images[14];
-
+extern const ext_img_desc_t images[10];
 
 #ifdef __cplusplus
 }

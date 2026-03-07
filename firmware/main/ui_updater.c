@@ -552,23 +552,15 @@ static void ui_cmd_processor_task(void *pvParameters) {
           }
           if (get_current_screen() == objects.charging_screen &&
               objects.charging_screen_percentage != NULL) {
-            lv_label_set_text_fmt(objects.charging_screen_percentage, "%d%%",
-                                  cmd.data.battery.percentage);
-            if (objects.batt_charging_main != NULL) {
+            lv_label_set_text_fmt(objects.charging_screen_percentage,
+                                  "%d%% charged", cmd.data.battery.percentage);
+            if (objects.charging_arc != NULL) {
               int pct = cmd.data.battery.percentage;
-              const lv_img_dsc_t *src = &img_batt1;
-              if (pct <= 20) {
-                src = &img_batt1;
-              } else if (pct <= 40) {
-                src = &img_batt2;
-              } else if (pct <= 60) {
-                src = &img_batt3;
-              } else if (pct <= 80) {
-                src = &img_batt4;
-              } else {
-                src = &img_batt5;
-              }
-              lv_img_set_src(objects.batt_charging_main, src);
+              if (pct < 0)
+                pct = 0;
+              if (pct > 100)
+                pct = 100;
+              lv_arc_set_value(objects.charging_arc, (int16_t)pct);
             }
           }
           break;

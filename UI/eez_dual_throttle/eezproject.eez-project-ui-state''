@@ -213,7 +213,7 @@
                 {
                   "type": "tab",
                   "id": "#c881c365-1517-4cf8-ab69-fef4500899d7",
-                  "name": "splash screen",
+                  "name": "charging screen",
                   "component": "editor",
                   "config": {
                     "objectPath": "[eezproject.eez-project]:/userPages/1",
@@ -221,8 +221,7 @@
                   },
                   "icon": "svg:page"
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
@@ -242,7 +241,8 @@
                       "enableClose": false,
                       "icon": "svg:properties"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -1544,15 +1544,15 @@
     "[eezproject.eez-project]:/userPages/0[flow-state]": {
       "selection": {
         "0": {
-          "1": {},
-          "2": {},
-          "3": {}
+          "1": {
+            "$selected": true
+          }
         }
       },
       "transform": {
         "translate": {
-          "x": -55.61328125,
-          "y": -127.2265625
+          "x": -86,
+          "y": -160
         },
         "scale": 1
       },
@@ -1588,9 +1588,7 @@
     "[eezproject.eez-project]:/userPages/3[flow-state]": {
       "selection": {
         "0": {
-          "1": {
-            "$selected": true
-          }
+          "1": {}
         }
       },
       "transform": {
@@ -1891,14 +1889,14 @@
   "showComponentDescriptions": false,
   "logsPanelFilter": "all",
   "selectedStylePropertyName": "",
-  "lvglPart": "INDICATOR",
+  "lvglPart": "MAIN",
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
+    "BACKGROUND",
     "POSITION AND SIZE",
     "LAYOUT",
     "PADDING",
-    "LINE",
-    "ARC"
+    "TEXT"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,

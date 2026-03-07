@@ -28,11 +28,6 @@ extern const lv_img_dsc_t img_connection_0;
 extern const lv_img_dsc_t img_33_connection;
 extern const lv_img_dsc_t img_66_connection;
 extern const lv_img_dsc_t img_100_connection;
-extern const lv_img_dsc_t img_batt1;
-extern const lv_img_dsc_t img_batt2;
-extern const lv_img_dsc_t img_batt3;
-extern const lv_img_dsc_t img_batt4;
-extern const lv_img_dsc_t img_batt5;
 
 void ui_updater_init(void);
 void ui_update_speed(int32_t value);

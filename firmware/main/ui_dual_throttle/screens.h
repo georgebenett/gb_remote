@@ -13,10 +13,8 @@ typedef struct _objects_t {
   lv_obj_t *home_screen;
   lv_obj_t *shutdown_screen;
   lv_obj_t *low_battery_screen;
-  lv_obj_t *main_battery_text;
-  lv_obj_t *batt_charging_main;
-  lv_obj_t *lightning;
   lv_obj_t *charging_screen_percentage;
+  lv_obj_t *charging_arc;
   lv_obj_t *firmware_version;
   lv_obj_t *firmware_text;
   lv_obj_t *skate_battery;
