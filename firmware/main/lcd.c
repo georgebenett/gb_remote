@@ -282,7 +282,16 @@ void lcd_fade_to_saved_brightness(void) {
 
   // Map percentage (1-100) to PWM duty (0-255)
   uint8_t target_pwm = (target_brightness * 255) / 100;
-  uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
+  uint8_t current_pwm = lcd_get_backlight();
 
-  lcd_fade_backlight(min_pwm, target_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
+  // Already at or very close to target – skip fade to avoid visible dip when
+  // coming from charging screen (already at saved brightness).
+  if (current_pwm == target_pwm ||
+      (current_pwm > target_pwm && current_pwm - target_pwm <= 2) ||
+      (target_pwm > current_pwm && target_pwm - current_pwm <= 2)) {
+    lcd_set_backlight(target_pwm);
+    return;
+  }
+
+  lcd_fade_backlight(current_pwm, target_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
 }

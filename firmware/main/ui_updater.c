@@ -554,6 +554,22 @@ static void ui_cmd_processor_task(void *pvParameters) {
               objects.charging_screen_percentage != NULL) {
             lv_label_set_text_fmt(objects.charging_screen_percentage, "%d%%",
                                   cmd.data.battery.percentage);
+            if (objects.batt_charging_main != NULL) {
+              int pct = cmd.data.battery.percentage;
+              const lv_img_dsc_t *src = &img_batt1;
+              if (pct <= 20) {
+                src = &img_batt1;
+              } else if (pct <= 40) {
+                src = &img_batt2;
+              } else if (pct <= 60) {
+                src = &img_batt3;
+              } else if (pct <= 80) {
+                src = &img_batt4;
+              } else {
+                src = &img_batt5;
+              }
+              lv_img_set_src(objects.batt_charging_main, src);
+            }
           }
           break;
 
@@ -680,11 +696,14 @@ void ui_update_aux_output_indicator(void) {
 
 static void splash_timer_cb(lv_timer_t *timer) {
   lv_disp_load_scr(objects.home_screen);
+  lv_obj_invalidate(objects.home_screen);
 }
 
 /** Show splash and schedule transition to home after 4s. Caller must hold LVGL
  * mutex. */
 void ui_show_splash_then_home(void) {
+  viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
+
   if (objects.firmware_text != NULL) {
     char version_str[64];
     snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,

@@ -151,6 +151,8 @@ static bool has_paired_server = false;
 static bool searching_for_paired = false;
 static bool pending_scan_restart =
     false; // Flag to restart scan after stop completes
+/** When true, we are on charging screen (from full mode); no BLE activity. */
+static volatile bool ble_charging_mode = false;
 static int64_t reconnect_start_time = 0;
 static TimerHandle_t reconnect_timer = NULL;
 static TaskHandle_t reconnect_task_handle = NULL;
@@ -308,6 +310,9 @@ static void reconnect_handler_task(void *pvParameters) {
     // Wait for notification from timer callback
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
+    if (ble_charging_mode) {
+      continue;
+    }
     if (searching_for_paired && !ble_is_connected()) {
       ESP_LOGW(GATTC_TAG,
                "Paired server not found after %d seconds, scanning for any %s "
@@ -531,6 +536,9 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
       ESP_LOGE(GATTC_TAG, "Scan param set failed: %s", esp_err_to_name(err));
       break;
     }
+    if (ble_charging_mode) {
+      break;
+    }
     // the unit of the duration is second
     uint32_t duration = 0xFFFF;
     ESP_LOGI(GATTC_TAG, "Enable Ble Scan:during time %04" PRIx32 " minutes.",
@@ -553,6 +561,10 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
       break;
     }
     ESP_LOGI(GATTC_TAG, "Scan stop successfully");
+    if (ble_charging_mode) {
+      pending_scan_restart = false;
+      break;
+    }
     if (pending_scan_restart) {
       // Restart scan after reconnect timeout (switching from paired-only to any
       // device)
@@ -818,16 +830,20 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
 
     free_gattc_srv_db();
 
-    // Restart scanning - try paired server first if available
-    if (has_paired_server) {
-      ESP_LOGI(GATTC_TAG, "Reconnecting to paired server " BT_BD_ADDR_STR "...",
-               BT_BD_ADDR_HEX(paired_server_mac));
-      searching_for_paired = true;
-      start_reconnect_timer();
-    } else {
-      searching_for_paired = false;
+    // Restart scanning - try paired server first if available (skip when on
+    // charging screen)
+    if (!ble_charging_mode) {
+      if (has_paired_server) {
+        ESP_LOGI(GATTC_TAG,
+                 "Reconnecting to paired server " BT_BD_ADDR_STR "...",
+                 BT_BD_ADDR_HEX(paired_server_mac));
+        searching_for_paired = true;
+        start_reconnect_timer();
+      } else {
+        searching_for_paired = false;
+      }
+      esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
     }
-    esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
     break;
   case ESP_GATTC_SEARCH_RES_EVT:
     ESP_LOGI(GATTC_TAG,
@@ -1297,12 +1313,18 @@ static void adc_send_task(void *pvParameters) {
     esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
                           // connected
 
+    if (ble_charging_mode) {
+      vTaskDelay(pdMS_TO_TICKS(500));
+      continue;
+    }
+
     bool is_connected = ble_is_connected();
 
     // Detect connection state change
     if (is_connected && !was_connected) {
       connection_time = esp_timer_get_time() / 1000; // Convert to ms
-      ESP_LOGI(GATTC_TAG, "BLE connection established, sending neutral for %dms",
+      ESP_LOGI(GATTC_TAG,
+               "BLE connection established, sending neutral for %dms",
                NEUTRAL_HOLD_MS);
       was_connected = true;
     } else if (!is_connected && was_connected) {
@@ -1322,7 +1344,8 @@ static void adc_send_task(void *pvParameters) {
       bool throttle_inverted = false;
 
       // After connection, send neutral value for initial hold period
-      uint32_t time_since_connect = (esp_timer_get_time() / 1000) - connection_time;
+      uint32_t time_since_connect =
+          (esp_timer_get_time() / 1000) - connection_time;
       if (time_since_connect < NEUTRAL_HOLD_MS) {
         adc_value = VESC_NEUTRAL_VALUE;
       }
@@ -1440,6 +1463,10 @@ float get_bms_cell_voltage(uint8_t cell_index) {
 
 static void log_rssi_task(void *pvParameters) {
   while (1) {
+    if (ble_charging_mode) {
+      vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
+      continue;
+    }
     if (ble_is_connected() && spp_gattc_if != 0xff) {
       esp_err_t ret = esp_ble_gap_read_rssi(scan_rst.scan_rst.bda);
       if (ret != ESP_OK) {
@@ -1464,7 +1491,36 @@ int get_bms_battery_percentage(void) {
   return (int)percentage;
 }
 
+void ble_enter_charging_mode(void) {
+  bool was_connected = false;
+  if (is_connect_mutex != NULL &&
+      xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    was_connected = is_connect;
+    xSemaphoreGive(is_connect_mutex);
+  } else {
+    was_connected = is_connect;
+  }
+  ble_charging_mode = true;
+  stop_reconnect_timer();
+  pending_scan_restart = false;
+  esp_ble_gap_stop_scanning();
+  if (was_connected && spp_gattc_if != 0xff &&
+      gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
+    esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if, spp_conn_id);
+  }
+  ESP_LOGI(GATTC_TAG, "BLE charging mode: stopped scan and connection");
+}
+
+void ble_leave_charging_mode(void) {
+  ble_charging_mode = false;
+  ESP_LOGI(GATTC_TAG, "BLE charging mode: resuming scan");
+  esp_ble_gap_set_scan_params(&ble_scan_params);
+}
+
 bool ble_is_connected(void) {
+  if (ble_charging_mode) {
+    return false;
+  }
   bool result = false;
   if (is_connect_mutex != NULL &&
       xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {

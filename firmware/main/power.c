@@ -11,7 +11,6 @@
 #include "hw_config.h"
 #include "lcd.h"
 #include "lvgl.h"
-#include "nvs.h"
 #include "ui.h"
 #include "ui_updater.h"
 #include "viber.h"
@@ -45,6 +44,12 @@ static bool power_check_wake_from_sleep(void);
 static void power_sleep_immediate(void);
 static void power_enter_sleep(void);
 
+/* One-shot timer callback: fade backlight up after charging screen is drawn */
+static void charging_screen_fade_up_timer_cb(lv_timer_t *timer) {
+  (void)timer;
+  lcd_fade_to_saved_brightness();
+}
+
 /* --------------------------------------------------------------------------
  * Shutdown bar animation (full mode): USB connected → charging screen
  * ----------------------------------------------------------------------- */
@@ -61,14 +66,19 @@ static void set_bar_value(void *obj, int32_t v) {
     bool usb_connected = (gpio_get_level(USB_DETECT_GPIO) == 1);
     if (usb_connected) {
 
-      viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
       arc_animation_active = false;
       current_mode = POWER_MODE_CHARGING;
+      ble_enter_charging_mode();
       vTaskDelay(pdMS_TO_TICKS(1000));
       lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
-      lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
+      lcd_fade_backlight(lcd_get_backlight(), 0,
+                         LCD_BACKLIGHT_FADE_DURATION_MS);
       lv_disp_load_scr(objects.charging_screen);
       lv_obj_invalidate(objects.charging_screen);
+      /* One-shot timer: let LVGL draw the charging screen, then fade up */
+      lv_timer_t *t =
+          lv_timer_create(charging_screen_fade_up_timer_cb, 300, NULL);
+      lv_timer_set_repeat_count(t, 1);
       return;
     }
     ESP_LOGI(TAG, "Bar filled - USB not connected - Shutting down");
@@ -110,6 +120,8 @@ static void power_button_callback(button_event_t event, void *user_data) {
     if (current_mode == POWER_MODE_CHARGING) {
       charging_mode_long_press_received = true;
       current_mode = POWER_MODE_FULL;
+      power_reset_inactivity_timer();
+      ble_leave_charging_mode();
       if (take_lvgl_mutex()) {
         ui_show_splash_then_home();
         give_lvgl_mutex();
@@ -323,6 +335,19 @@ void power_check_charging_screen_usb(void) {
     return;
   }
   ESP_LOGI(TAG, "USB disconnected on charging screen - powering off");
+
+  esp_err_t err = ui_save_trip_distance();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to save trip distance: %s, retrying...",
+             esp_err_to_name(err));
+    vTaskDelay(pdMS_TO_TICKS(NVS_RETRY_DELAY_MS));
+    err = ui_save_trip_distance();
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "Retry failed: %s", esp_err_to_name(err));
+    }
+  }
+  vTaskDelay(pdMS_TO_TICKS(NVS_FLUSH_DELAY_MS));
+
   lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
   power_enter_sleep();
   /* never returns */
@@ -351,17 +376,7 @@ static void power_enter_sleep(void) {
 void power_shutdown(void) {
   ESP_LOGI(TAG, "Preparing for shutdown");
 
-  uint8_t current_brightness = LCD_BACKLIGHT_DEFAULT;
-  nvs_handle_t nvs_handle;
-  if (nvs_open("lcd_cfg", NVS_READONLY, &nvs_handle) == ESP_OK) {
-    uint8_t saved_brightness;
-    if (nvs_get_u8(nvs_handle, "backlight", &saved_brightness) == ESP_OK) {
-      current_brightness = saved_brightness;
-    }
-    nvs_close(nvs_handle);
-  }
-
-  uint8_t current_pwm = (current_brightness * 255) / 100;
+  uint8_t current_pwm = lcd_get_backlight();
   uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
   lcd_fade_backlight(current_pwm, min_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
 

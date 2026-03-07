@@ -24,7 +24,10 @@ void app_main(void) {
 
   for (;;) {
     power_check_charging_screen_usb();
-    power_check_inactivity(ble_is_connected());
+    /* Inactivity only considers BLE when in full mode; on charging screen BLE
+     * is off. */
+    power_check_inactivity(power_get_mode() == POWER_MODE_FULL &&
+                           ble_is_connected());
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 }

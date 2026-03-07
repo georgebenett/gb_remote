@@ -23,7 +23,7 @@
 // Task timing constants
 #define ADC_SEND_INTERVAL_MS 75    // Throttle data send rate
 #define RSSI_READ_INTERVAL_MS 1000 // RSSI polling rate
-#define NEUTRAL_HOLD_MS 1000 // Hold neutral after connection
+#define NEUTRAL_HOLD_MS 1000       // Hold neutral after connection
 
 // BLE Security Configuration
 #define BLE_PASSKEY 483265 // Fixed passkey for pairing (must match server)
@@ -66,5 +66,10 @@ esp_err_t ble_decrease_trim_offset(void);
 // Paired device management
 bool ble_has_paired_device(void);
 esp_err_t ble_clear_paired_device(void);
+
+/** Enter charging screen from full mode: stop BLE (disconnect, stop scan). */
+void ble_enter_charging_mode(void);
+/** Leave charging screen: resume BLE scanning. */
+void ble_leave_charging_mode(void);
 
 #endif // SPP_CLIENT_DEMO_H
