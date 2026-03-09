@@ -36,7 +36,7 @@ void create_screen_charging_screen() {
       // charging_screen_percentage
       lv_obj_t *obj = lv_label_create(parent_obj);
       objects.charging_screen_percentage = obj;
-      lv_obj_set_pos(obj, 0, 80);
+      lv_obj_set_pos(obj, 0, 60);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -51,8 +51,8 @@ void create_screen_charging_screen() {
       // charging_arc
       lv_obj_t *obj = lv_arc_create(parent_obj);
       objects.charging_arc = obj;
-      lv_obj_set_pos(obj, 11, 55);
-      lv_obj_set_size(obj, 150, 150);
+      lv_obj_set_pos(obj, 24, 60);
+      lv_obj_set_size(obj, 125, 125);
       lv_arc_set_value(obj, 0);
       lv_arc_set_bg_start_angle(obj, 1);
       lv_arc_set_bg_end_angle(obj, 0);
@@ -71,7 +71,7 @@ void create_screen_charging_screen() {
         lv_obj_t *parent_obj = obj;
         {
           lv_obj_t *obj = lv_img_create(parent_obj);
-          lv_obj_set_pos(obj, 25, 25);
+          lv_obj_set_pos(obj, 13, 13);
           lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
           lv_img_set_src(obj, &img_lightning);
           lv_img_set_zoom(obj, 180);
@@ -113,7 +113,7 @@ void create_screen_splash_screen() {
       // firmware_version
       lv_obj_t *obj = lv_label_create(parent_obj);
       objects.firmware_version = obj;
-      lv_obj_set_pos(obj, 0, 100);
+      lv_obj_set_pos(obj, 0, 110);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -128,7 +128,7 @@ void create_screen_splash_screen() {
       // firmware_text
       lv_obj_t *obj = lv_label_create(parent_obj);
       objects.firmware_text = obj;
-      lv_obj_set_pos(obj, 0, 125);
+      lv_obj_set_pos(obj, 0, 130);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -267,7 +267,7 @@ void create_screen_home_screen() {
       // odometer
       lv_obj_t *obj = lv_label_create(parent_obj);
       objects.odometer = obj;
-      lv_obj_set_pos(obj, 0, -15);
+      lv_obj_set_pos(obj, 0, -10);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
