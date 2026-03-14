@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/4",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -196,17 +196,16 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 54.39745508982036,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "splash screen",
+                  "name": "low battery screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/1",
+                    "objectPath": "[eezproject.eez-project]:/userPages/4",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -1525,7 +1524,9 @@
     "[eezproject.eez-project]:/userPages/1[flow-state]": {
       "selection": {
         "0": {
-          "1": {}
+          "1": {
+            "$selected": true
+          }
         }
       },
       "transform": {
@@ -1564,12 +1565,14 @@
     },
     "[eezproject.eez-project]:/userPages/2[flow-state]": {
       "selection": {
-        "0": {}
+        "0": {
+          "1": {}
+        }
       },
       "transform": {
         "translate": {
-          "x": -70.93892045454547,
-          "y": -262.4353693181817
+          "x": -54.93892045454547,
+          "y": -164.4353693181817
         },
         "scale": 1
       },

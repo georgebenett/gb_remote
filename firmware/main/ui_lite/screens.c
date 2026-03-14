@@ -113,7 +113,7 @@ void create_screen_splash_screen() {
       // firmware_version
       lv_obj_t *obj = lv_label_create(parent_obj);
       objects.firmware_version = obj;
-      lv_obj_set_pos(obj, 0, 110);
+      lv_obj_set_pos(obj, 0, 100);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -128,7 +128,7 @@ void create_screen_splash_screen() {
       // firmware_text
       lv_obj_t *obj = lv_label_create(parent_obj);
       objects.firmware_text = obj;
-      lv_obj_set_pos(obj, 0, 130);
+      lv_obj_set_pos(obj, 0, 120);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -267,7 +267,7 @@ void create_screen_home_screen() {
       // odometer
       lv_obj_t *obj = lv_label_create(parent_obj);
       objects.odometer = obj;
-      lv_obj_set_pos(obj, 0, -15);
+      lv_obj_set_pos(obj, 0, -30);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);

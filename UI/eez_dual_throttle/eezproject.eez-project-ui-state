@@ -1,11 +1,10 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/2",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
     "selectedFontObject": "[eezproject.eez-project]:/fonts/4",
-    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/-1",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
     }
@@ -172,8 +171,7 @@
                       "enableClose": false,
                       "icon": "svg:hierarchy"
                     }
-                  ],
-                  "active": true
+                  ]
                 },
                 {
                   "type": "tabset",
@@ -197,17 +195,16 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 54.39745508982036,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
                 {
                   "type": "tab",
                   "id": "#45dc7a1b-658c-4c4b-8c05-00940cbe08ee",
-                  "name": "low battery screen",
+                  "name": "home screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/4",
+                    "objectPath": "[eezproject.eez-project]:/userPages/2",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -223,7 +220,8 @@
                   },
                   "icon": "svg:page"
                 }
-              ]
+              ],
+              "active": true
             },
             {
               "type": "row",
@@ -1546,7 +1544,9 @@
       "selection": {
         "0": {
           "0": {},
-          "1": {}
+          "1": {
+            "$selected": true
+          }
         }
       },
       "transform": {
@@ -1566,9 +1566,7 @@
     "[eezproject.eez-project]:/userPages/2[flow-state]": {
       "selection": {
         "0": {
-          "5": {
-            "$selected": true
-          }
+          "5": {}
         }
       },
       "transform": {
