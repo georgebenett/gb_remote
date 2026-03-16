@@ -540,8 +540,7 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
   uint32_t brake_current = 0;
 #endif
 
-#define CAL_PROGRESS_INTERVAL                                                  \
-  30 // Send progress update every N samples (~300ms)
+#define CAL_PROGRESS_INTERVAL 5 // Send progress update every N samples (~50ms)
 
   // Take multiple samples to find the actual range
   for (int i = 0; i < ADC_CALIBRATION_SAMPLES; i++) {

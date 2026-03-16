@@ -57,7 +57,7 @@ typedef struct {
 
 static QueueHandle_t ui_cmd_queue = NULL;
 static SemaphoreHandle_t lvgl_mutex = NULL;
-static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(10);
+static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(50);
 
 static volatile bool force_config_reload = false;
 
