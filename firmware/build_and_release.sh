@@ -229,6 +229,17 @@ if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
+# Create git tag if it doesn't exist and push
+if ! git rev-parse "v$VERSION" >/dev/null 2>&1; then
+    print_info "Creating git tag v$VERSION..."
+    git tag -a "v$VERSION" -m "Release v$VERSION"
+    print_info "Pushing tag v$VERSION..."
+    git push origin "v$VERSION"
+else
+    print_info "Tag v$VERSION already exists; pushing if needed..."
+    git push origin "v$VERSION" 2>/dev/null || true
+fi
+
 # Create GitHub release
 print_info "Creating GitHub release v$VERSION..."
 
