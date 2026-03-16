@@ -6,7 +6,7 @@
 *.swo
 *~
 
-gb_*/
+gb_*
 
 # Build artifacts
 build/
