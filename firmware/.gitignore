@@ -6,6 +6,8 @@
 *.swo
 *~
 
+gb_*/
+
 # Build artifacts
 build/
 .cache/
