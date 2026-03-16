@@ -41,4 +41,8 @@ void power_check_charging_screen_usb(void);
 
 void power_shutdown(void);
 
+/** Signal charging mode loop to exit and proceed to full boot (e.g. from USB
+ * command). */
+void power_request_full_boot(void);
+
 #endif /* POWER_H */

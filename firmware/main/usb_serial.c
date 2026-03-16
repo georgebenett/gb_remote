@@ -10,6 +10,7 @@
 #include "lcd.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "power.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "ui_updater.h"
@@ -28,6 +29,7 @@
 #define NVS_KEY_BACKLIGHT "backlight"
 
 // Binary protocol state machine variables
+static bool usb_serial_initialized = false;
 static TaskHandle_t usb_task_handle = NULL;
 static packet_state_t rx_state = STATE_WAIT_START;
 static binary_packet_t rx_packet;
@@ -65,6 +67,7 @@ static void handle_cmd_get_throttle_curve(const binary_packet_t *packet);
 static void handle_cmd_set_throttle_curve(const binary_packet_t *packet);
 static void handle_cmd_get_brake_curve(const binary_packet_t *packet);
 static void handle_cmd_set_brake_curve(const binary_packet_t *packet);
+static void handle_cmd_boot_full_mode(const binary_packet_t *packet);
 
 // CRC-16-CCITT calculation (polynomial: 0x1021)
 uint16_t calculate_crc16(const uint8_t *data, uint16_t length) {
@@ -83,6 +86,11 @@ uint16_t calculate_crc16(const uint8_t *data, uint16_t length) {
 }
 
 void usb_serial_init(void) {
+  if (usb_serial_initialized) {
+    ESP_LOGI(TAG, "USB Serial already initialized, skipping");
+    return;
+  }
+  usb_serial_initialized = true;
   ESP_LOGI(TAG, "Initializing USB Serial Handler");
   ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
   ESP_LOGI(TAG, "USB CDC Enabled: %d", USB_CDC_ENABLED);
@@ -394,6 +402,9 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_SET_BRAKE_CURVE:
     handle_cmd_set_brake_curve(packet);
     break;
+  case CMD_BOOT_FULL_MODE:
+    handle_cmd_boot_full_mode(packet);
+    break;
   default:
     ESP_LOGW(TAG, "Unknown command: 0x%02X", packet->cmd_id);
     usb_serial_send_ack(packet->cmd_id, ERR_UNKNOWN_CMD);
@@ -616,6 +627,10 @@ static error_code_t calibration_result_to_error(calibration_result_t result) {
 }
 
 static void handle_cmd_calibrate_throttle(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_CALIBRATE_THROTTLE, ERR_NOT_SUPPORTED);
+    return;
+  }
   ESP_LOGI(TAG, "Starting throttle calibration...");
 
   calibration_result_t result =
@@ -784,6 +799,10 @@ static void handle_cmd_set_backlight(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_NOT_SUPPORTED);
+    return;
+  }
 #ifdef CONFIG_TARGET_LITE
   hand_controller_config.invert_throttle =
       !hand_controller_config.invert_throttle;
@@ -846,6 +865,10 @@ static uint8_t apply_trim_with_compensation(uint8_t adc_value,
 }
 
 static void handle_cmd_start_streaming(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_START_STREAMING, ERR_NOT_SUPPORTED);
+    return;
+  }
   uint16_t rate_hz = 10; // Default 10Hz
 
   if (packet->payload_length >= 2) {
@@ -866,12 +889,20 @@ static void handle_cmd_start_streaming(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_stop_streaming(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_STOP_STREAMING, ERR_NOT_SUPPORTED);
+    return;
+  }
   usb_serial_stop_streaming();
   ESP_LOGI(TAG, "Streaming stopped");
   usb_serial_send_ack(CMD_STOP_STREAMING, ERR_OK);
 }
 
 static void handle_cmd_set_stream_rate(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_NOT_SUPPORTED);
+    return;
+  }
   if (packet->payload_length != 2) {
     usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_INVALID_PAYLOAD);
     return;
@@ -983,6 +1014,10 @@ void usb_serial_send_stream_data(void) {
 }
 
 static void handle_cmd_increase_ble_trim(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_NOT_SUPPORTED);
+    return;
+  }
   esp_err_t err = ble_increase_trim_offset();
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OK);
@@ -994,6 +1029,10 @@ static void handle_cmd_increase_ble_trim(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_NOT_SUPPORTED);
+    return;
+  }
   esp_err_t err = ble_decrease_trim_offset();
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OK);
@@ -1005,6 +1044,10 @@ static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_get_ble_trim(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_GET_BLE_TRIM, ERR_NOT_SUPPORTED);
+    return;
+  }
   int8_t trim_offset = ble_get_trim_offset();
   uint8_t payload[1];
   payload[0] = (uint8_t)trim_offset; // Cast to uint8_t for transmission
@@ -1303,4 +1346,14 @@ static void handle_cmd_get_coredump(const binary_packet_t *packet) {
   ESP_LOGD(TAG, "Sending coredump chunk: offset=%" PRIu16 ", size=%" PRIu16,
            chunk_offset, chunk_size);
   usb_serial_send_response(RSP_COREDUMP_CHUNK, payload, idx);
+}
+
+static void handle_cmd_boot_full_mode(const binary_packet_t *packet) {
+  if (power_get_mode() != POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_BOOT_FULL_MODE, ERR_NOT_SUPPORTED);
+    return;
+  }
+  ESP_LOGI(TAG, "USB boot command received - requesting full boot");
+  usb_serial_send_ack(CMD_BOOT_FULL_MODE, ERR_OK);
+  power_request_full_boot();
 }

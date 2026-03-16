@@ -80,7 +80,10 @@ void app_run_charging_mode(void) {
   battery_start_monitoring();
   lcd_init();
   init_ui();
-  power_run_charging_mode(); /* Blocks until long-press or USB disconnect */
+  usb_serial_init();
+  usb_serial_start_task();
+  power_run_charging_mode(); /* Blocks until long-press, USB boot cmd, or USB
+                                disconnect */
 }
 
 void app_init_after_charging(void) {

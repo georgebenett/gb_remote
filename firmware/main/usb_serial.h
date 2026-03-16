@@ -55,6 +55,7 @@ typedef enum {
       0x1B,                   // Set throttle curve index (payload: uint8 0-3)
   CMD_GET_BRAKE_CURVE = 0x1C, // Get brake curve index (0-3, dual throttle)
   CMD_SET_BRAKE_CURVE = 0x1D, // Set brake curve index (payload: uint8 0-3)
+  CMD_BOOT_FULL_MODE = 0x1E,  // Boot into full mode from charging screen
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code

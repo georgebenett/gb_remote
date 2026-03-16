@@ -34,6 +34,9 @@ static bool button_released_since_boot = false;
  * loop. */
 static volatile bool charging_mode_long_press_received = false;
 
+/** Set by USB command handler to request full boot from charging mode. */
+static volatile bool charging_mode_usb_boot_requested = false;
+
 bool power_is_entering_off_mode(void) { return entering_power_off_mode; }
 power_mode_t power_get_mode(void) { return current_mode; }
 
@@ -245,6 +248,7 @@ void power_run_charging_mode(void) {
 
   current_mode = POWER_MODE_CHARGING;
   charging_mode_long_press_received = false;
+  charging_mode_usb_boot_requested = false;
   ESP_LOGI(TAG, "Charging mode: USB connected, button not held");
 
   if (take_lvgl_mutex()) {
@@ -272,8 +276,17 @@ void power_run_charging_mode(void) {
       ESP_LOGI(TAG, "Charging mode: long press - proceeding to full boot");
       return;
     }
+
+    if (charging_mode_usb_boot_requested) {
+      current_mode = POWER_MODE_FULL;
+      ESP_LOGI(TAG,
+               "Charging mode: USB boot requested - proceeding to full boot");
+      return;
+    }
   }
 }
+
+void power_request_full_boot(void) { charging_mode_usb_boot_requested = true; }
 
 /* --------------------------------------------------------------------------
  * Power hold and button callback
