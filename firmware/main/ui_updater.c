@@ -679,7 +679,7 @@ void ui_update_aux_output_indicator(void) {
   if (objects.aux_output == NULL)
     return;
 
-  bool aux_state = ble_get_aux_output_state();
+  bool aux_state = ble_get_receiver_aux_output_state();
 
   ui_cmd_t cmd = {.type = UI_CMD_UPDATE_AUX_INDICATOR,
                   .data.aux_state = aux_state};

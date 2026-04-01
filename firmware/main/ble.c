@@ -143,6 +143,7 @@ static float latest_temp_mos = 0.0f;
 static float latest_temp_motor = 0.0f;
 
 static bool aux_output_state = false;
+static bool receiver_aux_output_state = false;
 static int8_t ble_trim_offset = 0; // Trim offset for BLE output (-127 to +127)
 
 /** When true, we are on charging screen (from full mode); no BLE activity. */
@@ -242,6 +243,10 @@ void ble_toggle_aux_output(void) {
 
 bool ble_get_aux_output_state(void) { return aux_output_state; }
 
+bool ble_get_receiver_aux_output_state(void) {
+  return receiver_aux_output_state;
+}
+
 static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   uint8_t handle = 0;
 
@@ -261,7 +266,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
 
   if (handle == db[SPP_IDX_SPP_DATA_NTY_VAL].attribute_handle) {
     if (p_data->notify.value_len ==
-        60) { // Combined VESC + BMS + motor config data
+        61) { // Combined VESC + BMS + motor config + aux state data
       // First process VESC data (first 14 bytes)
       // All values are little-endian (LSB first, MSB second)
       // temp_mos (bytes 0-1)
@@ -344,6 +349,10 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       vesc_config_update_motor(motor_poles, gear_ratio_x1000,
                                wheel_diameter_mm);
 
+      // aux output state (byte 60)
+      receiver_aux_output_state = (p_data->notify.value[60] != 0);
+      ui_update_aux_output_indicator();
+
       ESP_LOGI(GATTC_TAG, "Combined Data Received:");
       ESP_LOGI(GATTC_TAG,
                "VESC: V=%.2fV, RPM=%ld, Motor=%.2fA, In=%.2fA, TempMos=%.2f°C, "
@@ -355,7 +364,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
                bms_total_voltage, bms_current, bms_remaining_capacity,
                bms_num_cells);
     } else {
-      ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 60)",
+      ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 61)",
                p_data->notify.value_len);
     }
   }

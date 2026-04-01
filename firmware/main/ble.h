@@ -49,6 +49,7 @@ int get_bms_battery_percentage(void);
 // Auxiliary output control
 void ble_toggle_aux_output(void);
 bool ble_get_aux_output_state(void);
+bool ble_get_receiver_aux_output_state(void);
 
 // BLE trim offset control
 int8_t ble_get_trim_offset(void);
