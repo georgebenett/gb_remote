@@ -12,14 +12,6 @@
 #define AUX_NVS_KEY_STATE "aux_state"
 #define BLE_TRIM_NVS_NAMESPACE "ble_cfg"
 #define BLE_TRIM_NVS_KEY_OFFSET "trim_offset"
-#define BLE_PAIRED_NVS_NAMESPACE "ble_paired"
-#define BLE_PAIRED_NVS_KEY_MAC "server_mac"
-#define BLE_PAIRED_NVS_KEY_VALID "mac_valid"
-
-#define RECONNECT_TIMEOUT_MS 5000 // 5 seconds to find stored server
-#define RECONNECT_SCAN_INTERVAL_MS                                             \
-  1000 // Scan interval when looking for stored server
-
 // Task timing constants
 #define ADC_SEND_INTERVAL_MS 75    // Throttle data send rate
 #define RSSI_READ_INTERVAL_MS 1000 // RSSI polling rate
@@ -62,10 +54,6 @@ bool ble_get_aux_output_state(void);
 int8_t ble_get_trim_offset(void);
 esp_err_t ble_increase_trim_offset(void);
 esp_err_t ble_decrease_trim_offset(void);
-
-// Paired device management
-bool ble_has_paired_device(void);
-esp_err_t ble_clear_paired_device(void);
 
 /** Enter charging screen from full mode: stop BLE (disconnect, stop scan). */
 void ble_enter_charging_mode(void);
