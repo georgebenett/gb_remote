@@ -36,6 +36,7 @@ typedef enum {
   UI_CMD_UPDATE_TRIP_DISTANCE,
   UI_CMD_RESET_TRIP_DISTANCE,
   UI_CMD_UPDATE_AUX_INDICATOR,
+  UI_CMD_RESET_SKATE_DISPLAY,
 } ui_cmd_type_t;
 
 typedef struct {
@@ -465,7 +466,9 @@ static void battery_update_task(void *pvParameters) {
       ui_update_battery_percentage(display_percentage);
     }
 
+    static bool was_connected = false;
     if (ble_is_connected()) {
+      was_connected = true;
       float bms_voltage = get_bms_total_voltage();
       bool bms_connected = (bms_voltage > 0.1f);
 
@@ -483,6 +486,10 @@ static void battery_update_task(void *pvParameters) {
           ui_update_skate_battery_percentage(skate_battery_percentage);
         }
       }
+    } else if (was_connected) {
+      was_connected = false;
+      ui_cmd_t cmd = {.type = UI_CMD_RESET_SKATE_DISPLAY};
+      ui_queue_send(&cmd);
     }
     esp_task_wdt_reset();
     vTaskDelay(pdMS_TO_TICKS(BATTERY_UPDATE_MS));
@@ -631,6 +638,15 @@ static void ui_cmd_processor_task(void *pvParameters) {
             } else {
               lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
             }
+          }
+          break;
+
+        case UI_CMD_RESET_SKATE_DISPLAY:
+          if (on_home && objects.skate_battery_text != NULL) {
+            lv_label_set_text(objects.skate_battery_text, "--");
+          }
+          if (objects.aux_output != NULL) {
+            lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
           }
           break;
         }
