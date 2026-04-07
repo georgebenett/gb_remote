@@ -67,6 +67,10 @@ void create_screen_charging_screen() {
       lv_obj_set_style_bg_opa(obj, 0, LV_PART_KNOB | LV_STATE_DEFAULT);
       lv_obj_set_style_arc_color(obj, lv_color_hex(0xff04de71),
                                  LV_PART_INDICATOR | LV_STATE_DEFAULT);
+      lv_obj_set_style_arc_color(obj, lv_color_hex(0xff303030),
+                                 LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_style_arc_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_style_arc_width(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
       {
         lv_obj_t *parent_obj = obj;
         {

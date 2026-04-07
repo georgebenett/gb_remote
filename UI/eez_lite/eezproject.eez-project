@@ -325,7 +325,7 @@
               "objID": "30976d53-578b-4f59-ebe4-274df21fb071",
               "type": "LVGLLabelWidget",
               "left": 0,
-              "top": 80,
+              "top": 114,
               "width": 30,
               "height": 32,
               "customInputs": [],
@@ -377,10 +377,10 @@
             {
               "objID": "3bb9b7b0-90b9-4ef9-9dd8-ff0ff7ce3962",
               "type": "LVGLArcWidget",
-              "left": 45,
-              "top": 60,
-              "width": 150,
-              "height": 150,
+              "left": 30,
+              "top": 48,
+              "width": 180,
+              "height": 180,
               "customInputs": [],
               "customOutputs": [],
               "style": {
@@ -400,8 +400,8 @@
                 {
                   "objID": "a454d3a0-823a-4be9-9710-ed92868f5e3c",
                   "type": "LVGLImageWidget",
-                  "left": 25,
-                  "top": 25,
+                  "left": 40,
+                  "top": 40,
                   "width": 100,
                   "height": 100,
                   "customInputs": [],
@@ -438,7 +438,7 @@
                   "setPivot": false,
                   "pivotX": 0,
                   "pivotY": 0,
-                  "zoom": 180,
+                  "zoom": 200,
                   "angle": 0,
                   "innerAlign": "CENTER"
                 }
@@ -457,15 +457,22 @@
               "localStyles": {
                 "objID": "f065c239-a480-42a1-b24d-b2199135f122",
                 "definition": {
+                  "INDICATOR": {
+                    "DEFAULT": {
+                      "arc_color": "#04de71",
+                      "arc_width": 10
+                    }
+                  },
                   "KNOB": {
                     "DEFAULT": {
-                      "bg_color": "#04de71",
                       "bg_opa": 0
                     }
                   },
-                  "INDICATOR": {
+                  "MAIN": {
                     "DEFAULT": {
-                      "arc_color": "#04de71"
+                      "arc_color": "#303030",
+                      "arc_opa": 255,
+                      "arc_width": 10
                     }
                   }
                 }
@@ -476,7 +483,7 @@
               "rangeMinType": "literal",
               "rangeMax": 100,
               "rangeMaxType": "literal",
-              "value": 0,
+              "value": 30,
               "valueType": "literal",
               "bgStartAngle": 1,
               "bgEndAngle": 0,
@@ -1405,9 +1412,9 @@
                   },
                   "MAIN": {
                     "DEFAULT": {
-                      "bg_color": "#303030",
                       "bg_opa": 255,
-                      "align": "CENTER"
+                      "align": "CENTER",
+                      "bg_color": "303030"
                     }
                   },
                   "INDICATOR": {

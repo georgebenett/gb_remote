@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/2",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -201,22 +201,11 @@
                 {
                   "type": "tab",
                   "id": "#45dc7a1b-658c-4c4b-8c05-00940cbe08ee",
-                  "name": "home screen",
+                  "name": "charging screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/2",
+                    "objectPath": "[eezproject.eez-project]:/userPages/0",
                     "permanent": false
-                  },
-                  "icon": "svg:page"
-                },
-                {
-                  "type": "tab",
-                  "id": "#c881c365-1517-4cf8-ab69-fef4500899d7",
-                  "name": "splash screen",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/1",
-                    "permanent": true
                   },
                   "icon": "svg:page"
                 }
@@ -1544,9 +1533,7 @@
       "selection": {
         "0": {
           "0": {},
-          "1": {
-            "$selected": true
-          }
+          "1": {}
         }
       },
       "transform": {
@@ -1889,7 +1876,7 @@
   "showComponentDescriptions": false,
   "logsPanelFilter": "all",
   "selectedStylePropertyName": "",
-  "lvglPart": "INDICATOR",
+  "lvglPart": "MAIN",
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
     "POSITION AND SIZE",

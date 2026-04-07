@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/4",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -196,16 +196,17 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 54.39745508982036,
+              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "low battery screen",
+                  "name": "shutdown screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/4",
+                    "objectPath": "[eezproject.eez-project]:/userPages/3",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -1586,7 +1587,9 @@
     "[eezproject.eez-project]:/userPages/3[flow-state]": {
       "selection": {
         "0": {
-          "1": {}
+          "1": {
+            "$selected": true
+          }
         }
       },
       "transform": {
@@ -1893,7 +1896,8 @@
     "POSITION AND SIZE",
     "LAYOUT",
     "PADDING",
-    "TEXT"
+    "TEXT",
+    "ARC"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,

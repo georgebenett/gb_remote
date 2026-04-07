@@ -467,6 +467,13 @@
                     "DEFAULT": {
                       "arc_color": "#04de71"
                     }
+                  },
+                  "MAIN": {
+                    "DEFAULT": {
+                      "arc_color": "#303030",
+                      "arc_opa": 255,
+                      "arc_width": 10
+                    }
                   }
                 }
               },
