@@ -354,16 +354,6 @@ static void battery_low_voltage_shutdown(void) {
 
   lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
 
-  esp_err_t err = ui_save_trip_distance();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to save trip distance: %s, retrying...",
-             esp_err_to_name(err));
-    vTaskDelay(pdMS_TO_TICKS(NVS_RETRY_DELAY_MS));
-    err = ui_save_trip_distance();
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Retry failed: %s", esp_err_to_name(err));
-    }
-  }
   vTaskDelay(pdMS_TO_TICKS(NVS_FLUSH_DELAY_MS));
 
   // Turn off power hold pin to prevent over-discharge

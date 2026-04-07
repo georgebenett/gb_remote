@@ -10,7 +10,6 @@
 
 // Task update intervals
 #define SPEED_UPDATE_MS 50        // 20Hz for smooth speed display
-#define TRIP_UPDATE_MS 1000       // 1Hz for distance
 #define BATTERY_UPDATE_MS 1000    // 1Hz for battery
 #define CONNECTION_UPDATE_MS 3000 // 0.33Hz for connection icon
 
@@ -37,20 +36,16 @@ void ui_update_battery_current(float current);
 void ui_update_consumption(float consumption);
 void ui_update_connection_quality(int rssi);
 void ui_update_connection_icon(void);
-void ui_update_trip_distance(int32_t speed_kmh);
+void ui_update_trip_distance(float trip_km_val);
 void ui_reset_trip_distance(void);
 void ui_update_skate_battery_percentage(int percentage);
 void ui_update_skate_battery_voltage_display(float voltage);
-
-esp_err_t ui_save_trip_distance(void);
-esp_err_t ui_load_trip_distance(void);
 
 bool take_lvgl_mutex(void);
 bool take_lvgl_mutex_for_handler(void);
 void give_lvgl_mutex(void);
 SemaphoreHandle_t get_lvgl_mutex_handle(void);
 void ui_check_mutex_health(void);
-esp_err_t ui_init_trip_nvs(void);
 void ui_start_update_tasks(void);
 void ui_force_config_reload(void);
 void ui_update_speed_unit(bool is_mph);

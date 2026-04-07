@@ -51,6 +51,9 @@ void ble_toggle_aux_output(void);
 bool ble_get_aux_output_state(void);
 bool ble_get_receiver_aux_output_state(void);
 
+// Trip odometer (stored on receiver)
+float ble_get_latest_trip_km(void);
+
 // BLE trim offset control
 int8_t ble_get_trim_offset(void);
 esp_err_t ble_increase_trim_offset(void);

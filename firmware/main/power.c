@@ -354,18 +354,6 @@ void power_check_charging_screen_usb(void) {
   }
   ESP_LOGI(TAG, "USB disconnected on charging screen - powering off");
 
-  esp_err_t err = ui_save_trip_distance();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to save trip distance: %s, retrying...",
-             esp_err_to_name(err));
-    vTaskDelay(pdMS_TO_TICKS(NVS_RETRY_DELAY_MS));
-    err = ui_save_trip_distance();
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Retry failed: %s", esp_err_to_name(err));
-    }
-  }
-  vTaskDelay(pdMS_TO_TICKS(NVS_FLUSH_DELAY_MS));
-
   lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
   power_enter_sleep();
   /* never returns */
@@ -398,19 +386,7 @@ void power_shutdown(void) {
   uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
   lcd_fade_backlight(current_pwm, min_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
 
-  // Save trip distance with retry on failure
-  esp_err_t err = ui_save_trip_distance();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to save trip distance: %s, retrying...",
-             esp_err_to_name(err));
-    vTaskDelay(pdMS_TO_TICKS(NVS_RETRY_DELAY_MS));
-    err = ui_save_trip_distance();
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Retry failed: %s", esp_err_to_name(err));
-    }
-  }
-
-  // Allow sufficient time for NVS flash operations to complete
+  // Allow sufficient time for any pending NVS operations to complete
   vTaskDelay(pdMS_TO_TICKS(NVS_FLUSH_DELAY_MS));
 
   power_enter_sleep();

@@ -145,6 +145,7 @@ static float latest_temp_motor = 0.0f;
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
 static int8_t ble_trim_offset = 0; // Trim offset for BLE output (-127 to +127)
+static float latest_trip_km = 0.0f;
 
 /** When true, we are on charging screen (from full mode); no BLE activity. */
 static volatile bool ble_charging_mode = false;
@@ -152,6 +153,8 @@ static volatile bool ble_charging_mode = false;
 float get_latest_temp_mos(void) { return latest_temp_mos; }
 
 float get_latest_temp_motor(void) { return latest_temp_motor; }
+
+float ble_get_latest_trip_km(void) { return latest_trip_km; }
 
 static void aux_output_save_state(void) {
   nvs_handle_t nvs_handle;
@@ -266,7 +269,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
 
   if (handle == db[SPP_IDX_SPP_DATA_NTY_VAL].attribute_handle) {
     if (p_data->notify.value_len ==
-        61) { // Combined VESC + BMS + motor config + aux state data
+        65) { // VESC + BMS + motor config + aux state + trip_km
       // First process VESC data (first 14 bytes)
       // All values are little-endian (LSB first, MSB second)
       // temp_mos (bytes 0-1)
@@ -353,6 +356,14 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       receiver_aux_output_state = (p_data->notify.value[60] != 0);
       ui_update_aux_output_indicator();
 
+      // trip_km (bytes 61-64, int32 * 100)
+      int32_t trip_km_x100 = ((int32_t)p_data->notify.value[61]) |
+                             ((int32_t)p_data->notify.value[62] << 8) |
+                             ((int32_t)p_data->notify.value[63] << 16) |
+                             ((int32_t)p_data->notify.value[64] << 24);
+      latest_trip_km = trip_km_x100 / 100.0f;
+      ui_update_trip_distance(latest_trip_km);
+
       ESP_LOGI(GATTC_TAG, "Combined Data Received:");
       ESP_LOGI(GATTC_TAG,
                "VESC: V=%.2fV, RPM=%ld, Motor=%.2fA, In=%.2fA, TempMos=%.2f°C, "
@@ -364,7 +375,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
                bms_total_voltage, bms_current, bms_remaining_capacity,
                bms_num_cells);
     } else {
-      ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 61)",
+      ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 65)",
                p_data->notify.value_len);
     }
   }
@@ -607,6 +618,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     // Reset speed and battery values to 0 when disconnected
     latest_erpm = 0;
     latest_voltage = 0.0f;
+    latest_trip_km = 0.0f;
     latest_current_motor = 0.0f;
     latest_current_in = 0.0f;
     latest_temp_mos = 0.0f;
@@ -1102,7 +1114,7 @@ static void adc_send_task(void *pvParameters) {
   // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
-  uint8_t data_buffer[3]; // 2 bytes for ADC value + 1 byte for aux output
+  uint8_t data_buffer[3]; // throttle (2) + aux state (1)
   bool was_connected = false;
   uint32_t connection_time = 0;
 

@@ -9,8 +9,6 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "hw_config.h"
-#include "nvs.h"
-#include "nvs_flash.h"
 #include "power.h"
 #include "target_config.h"
 #include "throttle.h"
@@ -22,8 +20,6 @@
 
 #define TAG "UI_UPDATER"
 
-#define TRIP_NVS_NAMESPACE "trip_data"
-#define NVS_KEY_TRIP_KM "trip_km"
 #define KM_TO_MI 0.621371f
 
 typedef enum {
@@ -66,7 +62,6 @@ static volatile bool force_config_reload = false;
 static volatile uint8_t connection_quality = 0;
 static volatile bool speed_unit_mph = false;
 static volatile float total_trip_km = 0.0f;
-static uint32_t last_update_time = 0;
 
 static lv_obj_t *get_current_screen(void) { return lv_scr_act(); }
 
@@ -85,18 +80,6 @@ void ui_updater_init(void) {
   } else {
     ESP_LOGI(TAG, "UI command queue created (size: %d)", UI_CMD_QUEUE_SIZE);
   }
-
-  // Initialize NVS for trip data
-  esp_err_t err = ui_init_trip_nvs();
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to initialize trip NVS, trip data may not be saved");
-  }
-
-  // Initialize with current time
-  last_update_time = esp_timer_get_time() / 1000;
-
-  // Load trip distance from NVS
-  ui_load_trip_distance();
 }
 
 bool take_lvgl_mutex(void) {
@@ -211,26 +194,13 @@ void ui_update_connection_icon(void) {
   ui_queue_send(&cmd);
 }
 
-void ui_update_trip_distance(int32_t speed_kmh) {
+void ui_update_trip_distance(float trip_km_val) {
   if (power_is_entering_off_mode())
     return;
   if (objects.odometer == NULL)
     return;
 
-  uint32_t current_time = esp_timer_get_time() / 1000;
-
-  if (last_update_time > 0) {
-    float elapsed_hours = (current_time - last_update_time) / 3600000.0f;
-    float distance = (speed_kmh * elapsed_hours);
-
-    total_trip_km += distance;
-    if (total_trip_km > 999.0f) {
-      ESP_LOGI(TAG, "Trip distance exceeded 999 units, resetting to 0");
-      total_trip_km = 0.0f;
-    }
-  }
-
-  last_update_time = current_time;
+  total_trip_km = trip_km_val;
 
   ui_cmd_t cmd = {.type = UI_CMD_UPDATE_TRIP_DISTANCE,
                   .data.trip_km = total_trip_km};
@@ -240,92 +210,8 @@ void ui_update_trip_distance(int32_t speed_kmh) {
 void ui_reset_trip_distance(void) {
   total_trip_km = 0.0f;
 
-  // Save reset value to NVS
-  esp_err_t err = ui_save_trip_distance();
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to save trip distance reset to NVS: %s",
-             esp_err_to_name(err));
-  }
-
   ui_cmd_t cmd = {.type = UI_CMD_RESET_TRIP_DISTANCE};
   ui_queue_send(&cmd);
-}
-
-esp_err_t ui_save_trip_distance(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err;
-  float trip_km_copy = total_trip_km;
-
-  err = nvs_open(TRIP_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Error opening NVS for trip data: %s", esp_err_to_name(err));
-    return err;
-  }
-
-  err = nvs_set_blob(nvs_handle, NVS_KEY_TRIP_KM, &trip_km_copy, sizeof(float));
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Error saving trip distance: %s", esp_err_to_name(err));
-    nvs_close(nvs_handle);
-    return err;
-  }
-
-  err = nvs_commit(nvs_handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Error committing NVS: %s", esp_err_to_name(err));
-  } else {
-    ESP_LOGI(TAG, "Trip distance saved: %.2f km", trip_km_copy);
-  }
-
-  nvs_close(nvs_handle);
-  return err;
-}
-
-esp_err_t ui_load_trip_distance(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err;
-
-  err = nvs_open(TRIP_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
-  if (err != ESP_OK) {
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-      ESP_LOGI(TAG, "No trip data found, starting from 0");
-      total_trip_km = 0.0f;
-      return ESP_OK;
-    }
-    ESP_LOGE(TAG, "Error opening NVS for trip data: %s", esp_err_to_name(err));
-    return err;
-  }
-
-  float loaded_trip_km = 0.0f;
-  size_t required_size = sizeof(float);
-  err = nvs_get_blob(nvs_handle, NVS_KEY_TRIP_KM, &loaded_trip_km,
-                     &required_size);
-  if (err != ESP_OK) {
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-      ESP_LOGI(TAG, "No trip data found, starting from 0");
-      total_trip_km = 0.0f;
-      err = ESP_OK;
-    } else {
-      ESP_LOGE(TAG, "Error loading trip distance: %s", esp_err_to_name(err));
-    }
-  } else {
-    ESP_LOGI(TAG, "Trip distance loaded: %.2f km", loaded_trip_km);
-    total_trip_km = loaded_trip_km;
-  }
-
-  nvs_close(nvs_handle);
-  return err;
-}
-
-esp_err_t ui_init_trip_nvs(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open(TRIP_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to open NVS namespace: %s", esp_err_to_name(err));
-    return err;
-  }
-
-  nvs_close(nvs_handle);
-  return ESP_OK;
 }
 
 void ui_check_mutex_health(void) {
@@ -397,36 +283,6 @@ static void speed_update_task(void *pvParameters) {
       }
     }
     esp_task_wdt_reset();
-  }
-}
-
-static void trip_distance_update_task(void *pvParameters) {
-  // Register with task watchdog
-  ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
-
-  vesc_config_t config;
-  ESP_ERROR_CHECK(vesc_config_load(&config));
-
-  uint32_t config_reload_counter = 0;
-  const uint32_t CONFIG_RELOAD_INTERVAL = 10;
-
-  while (1) {
-    config_reload_counter++;
-    if (config_reload_counter >= CONFIG_RELOAD_INTERVAL ||
-        force_config_reload) {
-      esp_err_t err = vesc_config_load(&config);
-      if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to reload configuration: %s",
-                 esp_err_to_name(err));
-      }
-      config_reload_counter = 0;
-      force_config_reload = false;
-    }
-
-    int32_t speed = vesc_config_get_speed(&config);
-    ui_update_trip_distance(speed);
-    esp_task_wdt_reset();
-    vTaskDelay(pdMS_TO_TICKS(TRIP_UPDATE_MS));
   }
 }
 
@@ -671,8 +527,6 @@ void ui_start_update_tasks(void) {
   vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
 
   xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4, NULL);
-  vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
-  xTaskCreate(trip_distance_update_task, "trip_update", 4096, NULL, 3, NULL);
   vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
   xTaskCreate(battery_update_task, "battery_update", 4096, NULL, 2, NULL);
   vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
