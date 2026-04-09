@@ -16,6 +16,7 @@
 #include "ui_updater.h"
 #include "version.h"
 #include "vesc_config.h"
+#include "viber.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -24,7 +25,7 @@
 
 #define TAG "USB_SERIAL"
 
-// NVS key for backlight brightness
+// NVS keys for backlight brightness
 #define NVS_NAMESPACE_LCD "lcd_cfg"
 #define NVS_KEY_BACKLIGHT "backlight"
 
@@ -54,6 +55,7 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t *packet);
 static void handle_cmd_reset_odometer(const binary_packet_t *packet);
 static void handle_cmd_set_speed_unit(const binary_packet_t *packet);
 static void handle_cmd_set_backlight(const binary_packet_t *packet);
+static void handle_cmd_set_haptic_intensity(const binary_packet_t *packet);
 static void handle_cmd_invert_throttle(const binary_packet_t *packet);
 static void handle_cmd_start_streaming(const binary_packet_t *packet);
 static void handle_cmd_stop_streaming(const binary_packet_t *packet);
@@ -363,6 +365,9 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_SET_BACKLIGHT:
     handle_cmd_set_backlight(packet);
     break;
+  case CMD_SET_HAPTIC_INTENSITY:
+    handle_cmd_set_haptic_intensity(packet);
+    break;
   case CMD_INVERT_THROTTLE:
     handle_cmd_invert_throttle(packet);
     break;
@@ -516,6 +521,9 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
 
   // Brake curve index (1 byte), dual throttle only; lite sends 0
   payload[idx++] = throttle_get_brake_curve_index();
+
+  // Haptic intensity (1 byte, 0-100%)
+  payload[idx++] = viber_get_intensity();
 
   // Throttle calibration (4 bytes each, little-endian)
   if (throttle_is_calibrated()) {
@@ -795,6 +803,30 @@ static void handle_cmd_set_backlight(const binary_packet_t *packet) {
     usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_OK);
   } else {
     usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_SAVE_FAILED);
+  }
+}
+
+static void handle_cmd_set_haptic_intensity(const binary_packet_t *packet) {
+  // Payload: [intensity 0-100]
+  if (packet->payload_length != 1) {
+    usb_serial_send_ack(CMD_SET_HAPTIC_INTENSITY, ERR_INVALID_PAYLOAD);
+    return;
+  }
+
+  uint8_t intensity = packet->payload[0];
+  if (intensity > 100) {
+    usb_serial_send_ack(CMD_SET_HAPTIC_INTENSITY, ERR_OUT_OF_RANGE);
+    return;
+  }
+
+  esp_err_t err = viber_set_intensity(intensity);
+  if (err == ESP_OK) {
+    usb_serial_send_ack(CMD_SET_HAPTIC_INTENSITY, ERR_OK);
+    if (intensity > 0) {
+      viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
+    }
+  } else {
+    usb_serial_send_ack(CMD_SET_HAPTIC_INTENSITY, ERR_SAVE_FAILED);
   }
 }
 

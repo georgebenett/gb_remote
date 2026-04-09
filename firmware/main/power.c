@@ -382,6 +382,8 @@ static void power_enter_sleep(void) {
 void power_shutdown(void) {
   ESP_LOGI(TAG, "Preparing for shutdown");
 
+  viber_play_shutdown_song();
+
   uint8_t current_pwm = lcd_get_backlight();
   uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
   lcd_fade_backlight(current_pwm, min_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
