@@ -23,9 +23,6 @@
 
 #define TAG "APP_INIT"
 
-/** Max time to wait for throttle calibration before proceeding (ms). */
-#define CALIBRATION_WAIT_TIMEOUT_MS (10 * 60 * 1000)
-
 static void init_nvs(void) {
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -87,15 +84,8 @@ void app_run_charging_mode(void) {
 }
 
 void app_init_after_charging(void) {
-  uint32_t wait_start = xTaskGetTickCount();
-  while (!throttle_is_calibrated()) {
-    if ((xTaskGetTickCount() - wait_start) >=
-        pdMS_TO_TICKS(CALIBRATION_WAIT_TIMEOUT_MS)) {
-      ESP_LOGW(TAG, "Calibration wait timeout, proceeding (throttle will stay "
-                    "neutral until calibrated)");
-      break;
-    }
-    vTaskDelay(pdMS_TO_TICKS(100));
+  if (!throttle_is_calibrated()) {
+    ESP_LOGW(TAG, "No throttle calibration, proceeding uncalibrated");
   }
   usb_serial_init();
   usb_serial_start_task();

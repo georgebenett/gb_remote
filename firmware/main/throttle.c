@@ -291,9 +291,11 @@ void adc_start_task(void) {
   }
   throttle_calibrate(NULL);
 #else
-  // Only calibrate if no valid calibration exists
+  // Only calibrate if valid calibration exists in NVS; on first flash skip
+  // calibration and leave calibration_done = false so the uncalibrated status
+  // is reported over the binary protocol.
   if (load_calibration_from_nvs() != ESP_OK) {
-    throttle_calibrate(NULL);
+    ESP_LOGI(TAG, "No calibration data found, starting uncalibrated");
   }
 #endif
 
