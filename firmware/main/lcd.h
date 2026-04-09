@@ -16,9 +16,7 @@
 #define LCD_BACKLIGHT_MIN 0
 #define LCD_BACKLIGHT_DEFAULT 50
 #define LCD_BACKLIGHT_MAX 100
-#define LCD_BACKLIGHT_FADE_DURATION_MS                                         \
-  1000 // Default fade duration in milliseconds
-
+#define LCD_BACKLIGHT_FADE_DURATION_MS 250
 // Backlight LEDC configuration
 #define LEDC_TIMER LEDC_TIMER_0
 #define LEDC_MODE LEDC_LOW_SPEED_MODE
