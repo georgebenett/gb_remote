@@ -81,6 +81,8 @@ static void button_monitor_task(void *pvParameters) {
 
   bool button_pressed = false;
   bool long_press_sent = false;
+  bool power_off_armed = false;
+  TickType_t arm_start_time = 0;
 
   // On startup, if button is already pressed, wait for it to be released first
   if (read_button_state()) {
@@ -102,12 +104,23 @@ static void button_monitor_task(void *pvParameters) {
            button_cfg.gpio_num);
 
   while (1) {
-    // Wait for interrupt or timeout (for long press detection while held)
-    // Use WDT_RESET_INTERVAL_MS when idle to ensure watchdog gets reset
-    // periodically
-    TickType_t wait_time = button_pressed
-                               ? pdMS_TO_TICKS(LONG_PRESS_CHECK_MS)
-                               : pdMS_TO_TICKS(WDT_RESET_INTERVAL_MS);
+    // Wait for interrupt or timeout (for long press detection while held).
+    // Also wake up to service the double-press expiry and arm-window timeout.
+    TickType_t wait_time;
+    if (button_pressed) {
+      wait_time = pdMS_TO_TICKS(LONG_PRESS_CHECK_MS);
+    } else if (first_press_registered) {
+      uint32_t elapsed_ms =
+          (xTaskGetTickCount() - last_release_time) * portTICK_PERIOD_MS;
+      uint32_t remaining_ms = elapsed_ms < button_cfg.double_press_time_ms
+                                  ? button_cfg.double_press_time_ms - elapsed_ms
+                                  : 1;
+      wait_time = pdMS_TO_TICKS(remaining_ms);
+    } else if (power_off_armed) {
+      wait_time = pdMS_TO_TICKS(LONG_PRESS_CHECK_MS);
+    } else {
+      wait_time = pdMS_TO_TICKS(WDT_RESET_INTERVAL_MS);
+    }
     uint32_t notification = ulTaskNotifyTake(pdTRUE, wait_time);
 
     // Reset watchdog
@@ -125,8 +138,31 @@ static void button_monitor_task(void *pvParameters) {
 
     bool current_state_pressed = read_button_state();
 
+    // Check if double-press window expired → confirm single tap, arm power-off
+    if (first_press_registered && !current_state_pressed) {
+      uint32_t elapsed_ms =
+          (xTaskGetTickCount() - last_release_time) * portTICK_PERIOD_MS;
+      if (elapsed_ms >= button_cfg.double_press_time_ms) {
+        first_press_registered = false;
+        power_off_armed = true;
+        arm_start_time = xTaskGetTickCount();
+        notify_callbacks(BUTTON_EVENT_POWER_OFF_ARMED);
+      }
+    }
+
+    // Check arm window timeout → cancel power-off
+    if (power_off_armed && !current_state_pressed) {
+      uint32_t elapsed_ms =
+          (xTaskGetTickCount() - arm_start_time) * portTICK_PERIOD_MS;
+      if (elapsed_ms >= POWER_OFF_ARM_WINDOW_MS) {
+        power_off_armed = false;
+        notify_callbacks(BUTTON_EVENT_POWER_OFF_CANCELLED);
+      }
+    }
+
     if (current_state_pressed && !button_pressed) {
-      // Button just pressed
+      // Button just pressed - clear armed state (user is performing step 2)
+      power_off_armed = false;
       press_start_time = xTaskGetTickCount();
       button_pressed = true;
       long_press_sent = false;

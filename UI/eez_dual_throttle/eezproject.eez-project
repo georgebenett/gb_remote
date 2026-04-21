@@ -1256,6 +1256,62 @@
               "zoom": 200,
               "angle": 0,
               "innerAlign": "CENTER"
+            },
+            {
+              "objID": "de1fb0a8-5661-4ff9-b819-3476b207d019",
+              "type": "LVGLImageWidget",
+              "left": 60,
+              "top": 136,
+              "width": 48,
+              "height": 48,
+              "customInputs": [],
+              "customOutputs": [],
+              "style": {
+                "objID": "33ebb391-0232-4e13-e326-6f37309d654f",
+                "useStyle": "default",
+                "conditionalStyles": [],
+                "childStyles": []
+              },
+              "locked": false,
+              "hiddenInEditor": false,
+              "timeline": [],
+              "eventHandlers": [],
+              "identifier": "power_lock",
+              "leftUnit": "px",
+              "topUnit": "px",
+              "widthUnit": "content",
+              "heightUnit": "content",
+              "children": [],
+              "widgetFlags": "ADV_HITTEST|CLICK_FOCUSABLE|GESTURE_BUBBLE|PRESS_LOCK|SCROLLABLE|SCROLL_CHAIN_HOR|SCROLL_CHAIN_VER|SCROLL_ELASTIC|SCROLL_MOMENTUM|SCROLL_WITH_ARROW|SNAPPABLE",
+              "hiddenFlag": true,
+              "hiddenFlagType": "literal",
+              "clickableFlagType": "literal",
+              "flagScrollbarMode": "",
+              "flagScrollDirection": "",
+              "scrollSnapX": "",
+              "scrollSnapY": "",
+              "checkedStateType": "literal",
+              "disabledStateType": "literal",
+              "states": "",
+              "localStyles": {
+                "objID": "3d2b6d4f-9444-413f-82c4-73276fba6f2a",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "align": "CENTER"
+                    }
+                  }
+                }
+              },
+              "group": "",
+              "groupIndex": 0,
+              "image": "power lock",
+              "setPivot": false,
+              "pivotX": 0,
+              "pivotY": 0,
+              "zoom": 200,
+              "angle": 0,
+              "innerAlign": "CENTER"
             }
           ],
           "widgetFlags": "CLICKABLE",
@@ -1957,6 +2013,15 @@
       "objID": "3a176d45-ba88-4a38-86a7-ad152f6f93a3",
       "name": "empty_battery",
       "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAACXBIWXMAAAsTAAALEwEAmpwYAAACIklEQVR4nO3cT27UMBiG8YDEqhVXoSv+3AAQFKnlSKWsW25QcSZKWQIXoGVBNzzIqhfBGpg0cSZfx8/vAF883yvbmRnZXSdJkiRJkiRJkiRJkiRJWgzwAHgLfATOgZ/oKvci9eQw9WhTYbwBviz96e+A1KP9OYO4D7xf+lPeMb+B49S7OQIxjPHezbFMpbT7fgEnwBNgp2scsJN7cZp705d697rmBl7uGd+BR1UesIWAvdyjvosqG31+mypnhmEMC6WcKYfdVPk1ru9kctFGAB+K3p3VKPq5KPq4ymgbADwtendeo2j6wtO3W2W0DQB2i95d1ij6lyojbQi1+2cg0xhIMAYSjIEEYyDBGEgwrPcNeDG64KyjbzOQ5OvogrOOfgtxMwPWuk1BA5kgLUdpBhhIcAYSjIEEYyDBGEgwBhKMgQRjIMEYSDAGEoyBBGMgwRjIQoCXQ37xvU1BA5nAn9+DGRKGf1Bt0JAwgOejC846+i1E7f4ZyDQGEoyBBGMgwRhIA4FcFjU9sDMQ8LDo3Y8aRT3SFuxIW3no83Ry0UYw06HPVcei96qMePuPRV8XvTuY8+IAQ1ni4oD8gP0VV2tc5ymZ1snmN3puTtw+yz0pZ0bq3avaD0y32mico6ph9K5nOl4xU/RvqVdHwL3qgRTLV1oP9X8X1ZepNRt9usbuDPi04raHFl3lXqSeHGzsij9JkiRJkiRJkiRJkiRJUjfEHzX/c+8yLUmxAAAAAElFTkSuQmCC",
+      "bpp": 32,
+      "alwaysBuild": false,
+      "lvglBinaryOutputFormat": 3,
+      "lvglDither": false
+    },
+    {
+      "objID": "c4c8454b-f9fe-4ce5-f625-c42c8d3b747c",
+      "name": "power lock",
+      "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAACgElEQVR4nO2YS2sUQRSFWxMVH3EvCW7iExH0B4guFZeS3yDRhQrBSXSTlUaNrk2iy+giOD7iY6ELoyKK+QNR/AXudDHZxE8KavCknHSmu2+NDNSBZpqh65xzu6vq3rpZlpCQkNAKwE7gnr/6sm4DcJG/uJB1G4BxCWA86zaQAogIYANQA34A80BP0QDcGOAV8Au47Dhjelbh7cBzVuNQiQAOBxzPgG2xzfcBC4Hw6wpf4E3A9RbYEcv8Rv+WFBNAb9k1APQCNwPOJ1GmE3BVRH6vt7cXWcTApSCIMWvze4CGCFy33oWAW/L8MrDfMoC6kH9sNecNAugBPsmYR1bmDwArntT9HomVB4Cjfno2tfZZBDApRh7HTmSs3ijWnartEH4TwpMdCOC0jFsqbdyT9QvZT2Bz7GoU2OKzcxO7qgSgb2OhRNKb8Veh8wDwXnRPFTYuRMNCdLc0UXHdadE9W4VoTIiumbrM150Q3dEqRFeEaNLUZb7ubZOsDJwXollTl/m6D0X33H9ZxFWA4SLeLUSNaKXuv7uXq4Wa6M+qAPguZGcqkbWnN2SWyDyh1uvzJi7z9V5alxIHpcByOGbitLXWCdFZMSupg3L6M7DJhFjgyhRgUXTmsogHmvtm5B7AlPAvm5TSCt/6UNQMuUcD7hEr7vBQ/zQQmipSoa4xbWYCznq0HpHr2wDvAsEvwPGSC3Yx4HItm61RzAdBhF8C3+waykt2Pkm5Z160GF+Pbr5Fa1EzZhMNXwrMAnf89QD4kPP8SMdai0Ege133QA79ReDGzAGDHTe+RufiBvC1DeNLLsOa9n0sAQy4w78rg/00q/l799+AqVhCQkJCQlYRfwARZ9nN/o4xHQAAAABJRU5ErkJggg==",
       "bpp": 32,
       "alwaysBuild": false,
       "lvglBinaryOutputFormat": 3,

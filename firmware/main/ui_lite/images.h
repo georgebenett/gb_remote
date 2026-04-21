@@ -17,6 +17,7 @@ extern const lv_img_dsc_t img_connection_0;
 extern const lv_img_dsc_t img_aux_output;
 extern const lv_img_dsc_t img_lightning;
 extern const lv_img_dsc_t img_empty_battery;
+extern const lv_img_dsc_t img_power_lock;
 
 #ifndef EXT_IMG_DESC_T
 #define EXT_IMG_DESC_T
@@ -26,7 +27,7 @@ typedef struct _ext_img_desc_t {
 } ext_img_desc_t;
 #endif
 
-extern const ext_img_desc_t images[10];
+extern const ext_img_desc_t images[11];
 
 #ifdef __cplusplus
 }

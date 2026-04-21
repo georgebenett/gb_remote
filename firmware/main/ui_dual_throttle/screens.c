@@ -293,6 +293,18 @@ void create_screen_home_screen() {
       lv_obj_set_style_align(obj, LV_ALIGN_CENTER,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
     }
+    {
+      // power_lock
+      lv_obj_t *obj = lv_img_create(parent_obj);
+      objects.power_lock = obj;
+      lv_obj_set_pos(obj, 60, 136);
+      lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+      lv_img_set_src(obj, &img_power_lock);
+      lv_img_set_zoom(obj, 200);
+      lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_align(obj, LV_ALIGN_CENTER,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
   }
 
   tick_screen_home_screen();

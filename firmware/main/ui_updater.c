@@ -557,6 +557,7 @@ void ui_update_aux_output_indicator(void) {
 }
 
 static void splash_timer_cb(lv_timer_t *timer) {
+  lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
   lv_disp_load_scr(objects.home_screen);
   lv_obj_invalidate(objects.home_screen);
 }

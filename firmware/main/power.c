@@ -29,6 +29,7 @@ static lv_anim_t arc_anim;
 static bool arc_animation_active = false;
 static volatile bool entering_power_off_mode = false;
 static bool button_released_since_boot = false;
+static bool shutdown_armed = false;
 
 /** Set by button callback when long-press in charging mode; breaks charging
  * loop. */
@@ -107,19 +108,43 @@ static void power_button_callback(button_event_t event, void *user_data) {
         lv_anim_del(objects.shutting_down_bar, set_bar_value);
         lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
         arc_animation_active = false;
+        shutdown_armed = false;
+        lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
         lv_disp_load_scr(objects.home_screen);
         lv_obj_invalidate(objects.home_screen);
         give_lvgl_mutex();
       } else {
         arc_animation_active = false;
+        shutdown_armed = false;
       }
     }
     long_press_triggered = false;
     break;
 
+  case BUTTON_EVENT_POWER_OFF_ARMED:
+    // Step 1: single tap confirmed — arm and show power lock icon
+    if (current_mode == POWER_MODE_CHARGING)
+      break;
+    if (!button_released_since_boot)
+      break;
+    shutdown_armed = true;
+    if (take_lvgl_mutex()) {
+      lv_obj_clear_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
+      give_lvgl_mutex();
+    }
+    break;
+
+  case BUTTON_EVENT_POWER_OFF_CANCELLED:
+    // Arm window expired without hold — disarm and hide power lock icon
+    shutdown_armed = false;
+    if (take_lvgl_mutex()) {
+      lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
+      give_lvgl_mutex();
+    }
+    break;
+
   case BUTTON_EVENT_LONG_PRESS:
-    /* Mode 1 → Mode 2: long-press on charging = show splash, then home (feels
-     * like switching on) */
+    /* Charging mode: long-press = switch on (full boot) */
     if (current_mode == POWER_MODE_CHARGING) {
       charging_mode_long_press_received = true;
       current_mode = POWER_MODE_FULL;
@@ -137,15 +162,17 @@ static void power_button_callback(button_event_t event, void *user_data) {
       break;
     }
 
-    if (!long_press_triggered) {
+    /* Step 2: long press while armed → show shutdown screen + start bar */
+    if (!long_press_triggered && shutdown_armed) {
       long_press_triggered = true;
+      shutdown_armed = false;
       if (take_lvgl_mutex()) {
         lv_disp_load_scr(objects.shutdown_screen);
         lv_obj_invalidate(objects.shutdown_screen);
         lv_anim_init(&arc_anim);
         lv_anim_set_var(&arc_anim, objects.shutting_down_bar);
         lv_anim_set_exec_cb(&arc_anim, set_bar_value);
-        lv_anim_set_time(&arc_anim, 2000);
+        lv_anim_set_time(&arc_anim, SHUTDOWN_ANIMATION_TIME);
         lv_anim_set_values(&arc_anim, 0, 100);
         lv_anim_start(&arc_anim);
         arc_animation_active = true;

@@ -15,6 +15,7 @@
 // Button timing definitions
 #define BUTTON_LONG_PRESS_TIME_MS 500
 #define BUTTON_DOUBLE_PRESS_TIME_MS 300
+#define POWER_OFF_ARM_WINDOW_MS 2000
 
 // Button states
 typedef enum {
@@ -38,7 +39,9 @@ typedef enum {
   BUTTON_EVENT_PRESSED,
   BUTTON_EVENT_RELEASED,
   BUTTON_EVENT_LONG_PRESS,
-  BUTTON_EVENT_DOUBLE_PRESS
+  BUTTON_EVENT_DOUBLE_PRESS,
+  BUTTON_EVENT_POWER_OFF_ARMED,    // single tap confirmed: ready for hold
+  BUTTON_EVENT_POWER_OFF_CANCELLED // arm window expired without hold
 } button_event_t;
 
 typedef void (*button_callback_t)(button_event_t event, void *user_data);
