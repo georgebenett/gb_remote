@@ -296,7 +296,7 @@ void create_screen_home_screen() {
       // power_lock
       lv_obj_t *obj = lv_img_create(parent_obj);
       objects.power_lock = obj;
-      lv_obj_set_pos(obj, 94, 136);
+      lv_obj_set_pos(obj, 94, 110);
       lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
       lv_img_set_src(obj, &img_power_lock);
       lv_img_set_zoom(obj, 200);
