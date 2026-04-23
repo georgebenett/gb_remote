@@ -1,11 +1,11 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/2",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
     "selectedFontObject": "[eezproject.eez-project]:/fonts/4",
-    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/9",
+    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/10",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
     }
@@ -196,17 +196,16 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 54.39745508982036,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "shutdown screen",
+                  "name": "home screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/3",
+                    "objectPath": "[eezproject.eez-project]:/userPages/2",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -1525,15 +1524,13 @@
     "[eezproject.eez-project]:/userPages/1[flow-state]": {
       "selection": {
         "0": {
-          "1": {
-            "$selected": true
-          }
+          "1": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -40.7890625,
-          "y": -205.1171875
+          "x": -120,
+          "y": -160
         },
         "scale": 1
       },
@@ -1552,8 +1549,8 @@
       },
       "transform": {
         "translate": {
-          "x": -111.10476190476183,
-          "y": -155.7645238095239
+          "x": -120,
+          "y": -160
         },
         "scale": 1
       },
@@ -1572,8 +1569,8 @@
       },
       "transform": {
         "translate": {
-          "x": -54.93892045454547,
-          "y": -164.4353693181817
+          "x": -120,
+          "y": -160
         },
         "scale": 1
       },
@@ -1594,8 +1591,8 @@
       },
       "transform": {
         "translate": {
-          "x": -188,
-          "y": -195
+          "x": -120,
+          "y": -160
         },
         "scale": 1
       },
@@ -1614,8 +1611,8 @@
       },
       "transform": {
         "translate": {
-          "x": -46.97656250000006,
-          "y": -162.078125
+          "x": -120,
+          "y": -160
         },
         "scale": 1
       },

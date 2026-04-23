@@ -832,6 +832,21 @@ uint8_t get_throttle_brake_ble_value(void) {
     brake_factor = powf(brake_factor, brake_curve_exponent);
   }
 
+// VESC ignores ble_value within ~14% of neutral (nunchuck dead zone).
+// Remap so any physical input past noise floor clears that dead zone
+// immediately:
+//   0..2%  -> 0.0  (noise floor, no braking)
+//   2%+    -> 15%..100%  (braking starts right away)
+#define BRAKE_NOISE_FLOOR 0.02f
+#define BRAKE_DZ_COMP 0.15f
+  if (brake_factor > BRAKE_NOISE_FLOOR) {
+    brake_factor = BRAKE_DZ_COMP + brake_factor * (1.0f - BRAKE_DZ_COMP);
+    if (brake_factor > 1.0f)
+      brake_factor = 1.0f;
+  } else {
+    brake_factor = 0.0f;
+  }
+
   // Calculate throttle factor
   float throttle_factor =
       (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
