@@ -14,7 +14,7 @@
 
 // Button timing definitions
 #define BUTTON_LONG_PRESS_TIME_MS 500
-#define BUTTON_DOUBLE_PRESS_TIME_MS 300
+#define BUTTON_DOUBLE_PRESS_TIME_MS 20
 #define POWER_OFF_ARM_WINDOW_MS 2000
 
 // Button states
