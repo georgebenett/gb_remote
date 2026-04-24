@@ -51,6 +51,11 @@ for file in $staged_files; do
             ;;
     esac
 
+    # Skip EEZ generated UI files
+    if echo "$file" | grep -qE '/(ui_lite|ui_dual_throttle)/'; then
+        continue
+    fi
+
     # Save original file state
     original_hash=$(git hash-object "$file" 2>/dev/null || echo "")
 
@@ -81,6 +86,7 @@ fi
 # Run clang-format on staged C/C++ files
 for file in $staged_files; do
     [ ! -f "$file" ] && continue
+    if echo "$file" | grep -qE '/(ui_lite|ui_dual_throttle)/'; then continue; fi
     case "$file" in
         *.c|*.h|*.cpp|*.cc|*.cxx|*.hpp)
             if command -v clang-format >/dev/null 2>&1; then
