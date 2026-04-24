@@ -50,6 +50,9 @@ void ui_start_update_tasks(void);
 void ui_force_config_reload(void);
 void ui_update_speed_unit(bool is_mph);
 
+// Throttle calibration status
+void ui_hide_throttle_not_calibrated_text(void);
+
 // Aux output indicator
 void ui_create_aux_output_indicator(void);
 void ui_update_aux_output_indicator(void);

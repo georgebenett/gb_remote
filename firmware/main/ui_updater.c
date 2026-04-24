@@ -545,6 +545,15 @@ void ui_create_aux_output_indicator(void) {
   ui_update_aux_output_indicator();
 }
 
+void ui_hide_throttle_not_calibrated_text(void) {
+  if (objects.throttle_not_calibrated_text == NULL)
+    return;
+  if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    lv_obj_add_flag(objects.throttle_not_calibrated_text, LV_OBJ_FLAG_HIDDEN);
+    xSemaphoreGive(lvgl_mutex);
+  }
+}
+
 void ui_update_aux_output_indicator(void) {
   if (objects.aux_output == NULL)
     return;
@@ -559,6 +568,10 @@ void ui_update_aux_output_indicator(void) {
 static void splash_timer_cb(lv_timer_t *timer) {
   lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
   lv_disp_load_scr(objects.home_screen);
+  if (objects.throttle_not_calibrated_text != NULL &&
+      !throttle_is_calibrated()) {
+    lv_obj_clear_flag(objects.throttle_not_calibrated_text, LV_OBJ_FLAG_HIDDEN);
+  }
   lv_obj_invalidate(objects.home_screen);
 }
 

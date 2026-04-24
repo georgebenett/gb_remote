@@ -645,6 +645,7 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t *packet) {
       throttle_calibrate(calibration_progress_handler);
 
   if (result == CAL_OK) {
+    ui_hide_throttle_not_calibrated_text();
     // Build calibration response
     uint8_t payload[32];
     uint16_t idx = 0;
