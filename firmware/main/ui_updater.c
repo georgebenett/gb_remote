@@ -578,8 +578,6 @@ static void splash_timer_cb(lv_timer_t *timer) {
 /** Show splash and schedule transition to home after 4s. Caller must hold LVGL
  * mutex. */
 void ui_show_splash_then_home(void) {
-  viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
-
   if (objects.firmware_text != NULL) {
     char version_str[64];
     snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,
@@ -592,8 +590,6 @@ void ui_show_splash_then_home(void) {
 }
 
 void ui_show_splash_screen(void) {
-  viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
-
   // Set firmware version label now, just before showing the splash screen
   if (objects.firmware_text != NULL) {
     char version_str[64];

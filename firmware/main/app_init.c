@@ -67,9 +67,6 @@ void app_init_early(void) {
   ESP_ERROR_CHECK(button_init_main());
   power_init();
   init_system();
-  if (power_woke_from_sleep_with_long_press()) {
-    viber_play_pattern(VIBER_PATTERN_VERY_SHORT);
-  }
   ESP_ERROR_CHECK(adc_init());
   adc_start_task();
   button_start_monitoring();

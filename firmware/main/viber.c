@@ -62,11 +62,47 @@ typedef struct {
 static viber_task_params_t task_params = {0};
 
 static void viber_task(void *pvParameters);
+static void buzzer_off(void);
 
 static void buzzer_on(uint32_t freq_hz) {
   ledc_set_freq(BUZZER_LEDC_MODE, BUZZER_LEDC_TIMER, freq_hz);
   ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, BUZZER_DUTY);
   ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
+}
+
+esp_err_t viber_play_early_boot_ack(void) {
+  ledc_timer_config_t timer_conf = {
+      .speed_mode = BUZZER_LEDC_MODE,
+      .timer_num = BUZZER_LEDC_TIMER,
+      .duty_resolution = BUZZER_DUTY_RES,
+      .freq_hz = BUZZER_HAPTIC_FREQ,
+      .clk_cfg = LEDC_AUTO_CLK,
+  };
+  esp_err_t err = ledc_timer_config(&timer_conf);
+  if (err != ESP_OK) {
+    return err;
+  }
+
+  ledc_channel_config_t channel_conf = {
+      .speed_mode = BUZZER_LEDC_MODE,
+      .channel = BUZZER_LEDC_CHANNEL,
+      .timer_sel = BUZZER_LEDC_TIMER,
+      .intr_type = LEDC_INTR_DISABLE,
+      .gpio_num = VIBER_PIN,
+      .duty = 0,
+      .hpoint = 0,
+  };
+  err = ledc_channel_config(&channel_conf);
+  if (err != ESP_OK) {
+    return err;
+  }
+
+  ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, BUZZER_DUTY_FULL);
+  ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
+  vTaskDelay(pdMS_TO_TICKS(VERY_SHORT_DURATION));
+  buzzer_off();
+
+  return ESP_OK;
 }
 
 static void haptic_on(void) {

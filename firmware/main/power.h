@@ -22,7 +22,6 @@ typedef enum {
 
 bool power_is_entering_off_mode(void);
 power_mode_t power_get_mode(void);
-bool power_woke_from_sleep_with_long_press(void);
 
 /** Must be called first. Handles wake-from-sleep; holds power on. */
 void power_init(void);

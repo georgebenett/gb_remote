@@ -41,9 +41,6 @@ static volatile bool charging_mode_usb_boot_requested = false;
 
 bool power_is_entering_off_mode(void) { return entering_power_off_mode; }
 power_mode_t power_get_mode(void) { return current_mode; }
-bool power_woke_from_sleep_with_long_press(void) {
-  return woke_from_sleep_with_long_press;
-}
 
 /* --------------------------------------------------------------------------
  * Forward declarations
@@ -358,6 +355,15 @@ void power_init(void) {
                                         .intr_type = GPIO_INTR_DISABLE};
   ESP_ERROR_CHECK(gpio_config(&POWER_HOLD_GPIO_conf));
   ESP_ERROR_CHECK(gpio_set_level(POWER_HOLD_GPIO, 1));
+
+  bool button_still_pressed = (gpio_get_level(MAIN_BUTTON_GPIO) == 0);
+  if (woke_from_sleep_with_long_press || button_still_pressed) {
+    esp_err_t ack_err = viber_play_early_boot_ack();
+    if (ack_err != ESP_OK) {
+      ESP_LOGW(TAG, "Early boot haptic ack failed: %s",
+               esp_err_to_name(ack_err));
+    }
+  }
 
   button_register_callback(power_button_callback, NULL);
 
