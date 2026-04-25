@@ -587,7 +587,7 @@ void ui_show_splash_then_home(void) {
     lv_label_set_text(objects.firmware_text, version_str);
   }
   lv_disp_load_scr(objects.splash_screen);
-  lv_timer_t *t = lv_timer_create(splash_timer_cb, 4000, NULL);
+  lv_timer_t *t = lv_timer_create(splash_timer_cb, 1200, NULL);
   lv_timer_set_repeat_count(t, 1);
 }
 
@@ -604,7 +604,7 @@ void ui_show_splash_screen(void) {
 
   lv_disp_load_scr(objects.splash_screen);
 
-  lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);
+  lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 1200, NULL);
   lv_timer_set_repeat_count(splash_timer, 1);
   vTaskDelay(pdMS_TO_TICKS(SPLASH_SCREEN_DELAY_MS));
 }

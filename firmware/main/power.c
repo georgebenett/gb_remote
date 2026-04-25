@@ -30,6 +30,7 @@ static bool arc_animation_active = false;
 static volatile bool entering_power_off_mode = false;
 static bool button_released_since_boot = false;
 static bool shutdown_armed = false;
+static bool woke_from_sleep_with_long_press = false;
 
 /** Set by button callback when long-press in charging mode; breaks charging
  * loop. */
@@ -40,6 +41,9 @@ static volatile bool charging_mode_usb_boot_requested = false;
 
 bool power_is_entering_off_mode(void) { return entering_power_off_mode; }
 power_mode_t power_get_mode(void) { return current_mode; }
+bool power_woke_from_sleep_with_long_press(void) {
+  return woke_from_sleep_with_long_press;
+}
 
 /* --------------------------------------------------------------------------
  * Forward declarations
@@ -246,6 +250,7 @@ static bool power_check_wake_from_sleep(void) {
       }
 
       // Button was held for long press duration
+      woke_from_sleep_with_long_press = true;
       ESP_LOGI(TAG, "Long press detected - turning device on");
       // Restore button to interrupt mode for when button task starts later
       gpio_config_t button_restore = {.pin_bit_mask =
@@ -335,6 +340,8 @@ void power_request_full_boot(void) { charging_mode_usb_boot_requested = true; }
  * ----------------------------------------------------------------------- */
 
 void power_init(void) {
+  woke_from_sleep_with_long_press = false;
+
   // Check wake reason first - go back to sleep if button wasn't held long
   // enough
   if (!power_check_wake_from_sleep()) {
