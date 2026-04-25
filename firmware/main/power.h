@@ -13,12 +13,12 @@ typedef enum {
 #define RESET_DEBOUNCE_TIME_MS 2000
 #define INACTIVITY_TIMEOUT_MS (5 * 60 * 1000) /* 5 minutes */
 
-#define SHUTDOWN_ANIMATION_TIME 1000
-#define SHUTDOWN_FEEDBACK_DELAY_MS 100
+#define SHUTDOWN_ANIMATION_TIME 350
+#define SHUTDOWN_FEEDBACK_DELAY_MS 0
 #define BUTTON_DEBOUNCE_DELAY_MS 50
 #define BUTTON_POLL_INTERVAL_MS 10
 #define NVS_RETRY_DELAY_MS 50
-#define NVS_FLUSH_DELAY_MS 200
+#define NVS_FLUSH_DELAY_MS 50
 
 bool power_is_entering_off_mode(void);
 power_mode_t power_get_mode(void);
