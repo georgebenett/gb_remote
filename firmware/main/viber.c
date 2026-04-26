@@ -99,7 +99,7 @@ esp_err_t viber_play_early_boot_ack(void) {
 
   ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, BUZZER_DUTY_FULL);
   ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
-  vTaskDelay(pdMS_TO_TICKS(VERY_SHORT_DURATION));
+  vTaskDelay(pdMS_TO_TICKS(SHORT_DURATION));
   buzzer_off();
 
   return ESP_OK;

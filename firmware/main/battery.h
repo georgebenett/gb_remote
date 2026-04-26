@@ -16,12 +16,12 @@
 #define BATTERY_VOLTAGE_SAMPLES 10
 
 // Timing constants
-#define ADC_SAMPLE_MS 2                 // Delay between ADC samples
-#define TASK_STARTUP_DELAY_MS 100       // Delay for task initialization
-#define BATTERY_MONITOR_INTERVAL_MS 500 // Battery monitoring poll rate
-#define LOW_BATTERY_ALERT_DELAY_MS 500  // Haptic feedback delay
-#define LOW_BATTERY_WARNING_MS 2000     // Show warning before shutdown
-#define POWER_OFF_SETTLE_MS 100         // Delay after power pin toggle
+#define ADC_SAMPLE_MS 2                   // Delay between ADC samples
+#define BATTERY_TASK_STARTUP_DELAY_MS 100 // Delay for task initialization
+#define BATTERY_MONITOR_INTERVAL_MS 500   // Battery monitoring poll rate
+#define LOW_BATTERY_ALERT_DELAY_MS 500    // Haptic feedback delay
+#define LOW_BATTERY_WARNING_MS 2000       // Show warning before shutdown
+#define POWER_OFF_SETTLE_MS 100           // Delay after power pin toggle
 
 esp_err_t battery_init(void);
 void battery_start_monitoring(void);

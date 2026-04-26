@@ -525,17 +525,17 @@ static void ui_cmd_processor_task(void *pvParameters) {
 }
 
 void ui_start_update_tasks(void) {
-  vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
+  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
 
   // Start the UI command processor task first (highest priority for UI
   // responsiveness)
   xTaskCreate(ui_cmd_processor_task, "ui_cmd_proc", 3072, NULL, 5, NULL);
-  vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
+  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
 
   xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4, NULL);
-  vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
+  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
   xTaskCreate(battery_update_task, "battery_update", 4096, NULL, 2, NULL);
-  vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
+  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
   xTaskCreate(connection_update_task, "conn_update", 4096, NULL, 2, NULL);
 }
 

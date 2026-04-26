@@ -211,7 +211,7 @@ void battery_start_monitoring(void) {
 
 float battery_read_voltage(void) {
   gpio_set_level(BATTERY_PROBE_PIN, 1);
-  vTaskDelay(pdMS_TO_TICKS(TASK_STARTUP_DELAY_MS));
+  vTaskDelay(pdMS_TO_TICKS(BATTERY_TASK_STARTUP_DELAY_MS));
 
   int32_t adc_value = adc_read_battery_voltage(BATTERY_VOLTAGE_PIN);
 

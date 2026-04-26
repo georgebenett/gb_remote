@@ -67,8 +67,7 @@ static void shutdown_completion_timer_cb(lv_timer_t *timer) {
     current_mode = POWER_MODE_CHARGING;
     ble_enter_charging_mode();
     lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
-    lcd_fade_backlight(lcd_get_backlight(), 0,
-                       LCD_BACKLIGHT_FADE_DURATION_MS);
+    lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
     lv_disp_load_scr(objects.charging_screen);
     lv_obj_invalidate(objects.charging_screen);
     /* One-shot timer: let LVGL draw the charging screen, then fade up */
@@ -166,6 +165,7 @@ static void power_button_callback(button_event_t event, void *user_data) {
       current_mode = POWER_MODE_FULL;
       power_reset_inactivity_timer();
       ble_leave_charging_mode();
+      viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
       if (take_lvgl_mutex()) {
         ui_show_splash_then_home();
         give_lvgl_mutex();
