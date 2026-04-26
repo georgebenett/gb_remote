@@ -560,6 +560,11 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_reset_odometer(const binary_packet_t *packet) {
+  esp_err_t err = ble_send_reset_odometer();
+  if (err != ESP_OK) {
+    usb_serial_send_ack(CMD_RESET_ODOMETER, ERR_NOT_SUPPORTED);
+    return;
+  }
   ui_reset_trip_distance();
   usb_serial_send_ack(CMD_RESET_ODOMETER, ERR_OK);
 }

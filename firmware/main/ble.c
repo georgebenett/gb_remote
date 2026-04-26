@@ -142,6 +142,8 @@ static float bms_cell_voltages[16] = {0};
 static float latest_temp_mos = 0.0f;
 static float latest_temp_motor = 0.0f;
 
+#define BLE_CMD_RESET_ODOMETER 0x01
+
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
 static int8_t ble_trim_offset = 0; // Trim offset for BLE output (-127 to +127)
@@ -155,6 +157,25 @@ float get_latest_temp_mos(void) { return latest_temp_mos; }
 float get_latest_temp_motor(void) { return latest_temp_motor; }
 
 float ble_get_latest_trip_km(void) { return latest_trip_km; }
+
+esp_err_t ble_send_reset_odometer(void) {
+  if (!ble_is_connected() || db == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (!((db + SPP_IDX_SPP_COMMAND_VAL)->properties &
+        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+  uint8_t cmd[1] = {BLE_CMD_RESET_ODOMETER};
+  esp_err_t ret = esp_ble_gattc_write_char(
+      spp_gattc_if, spp_conn_id,
+      (db + SPP_IDX_SPP_COMMAND_VAL)->attribute_handle, sizeof(cmd), cmd,
+      ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+  if (ret == ESP_OK) {
+    ESP_LOGI(GATTC_TAG, "Reset odometer command sent to receiver");
+  }
+  return ret;
+}
 
 static void aux_output_save_state(void) {
   nvs_handle_t nvs_handle;
@@ -264,6 +285,19 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   handle = p_data->notify.handle;
   if (db == NULL) {
     ESP_LOGE(GATTC_TAG, " %s db is NULL", __func__);
+    return;
+  }
+
+  if (handle == db[SPP_IDX_SPP_STATUS_VAL].attribute_handle) {
+    if (p_data->notify.value_len >= 2 &&
+        p_data->notify.value[0] == BLE_CMD_RESET_ODOMETER) {
+      if (p_data->notify.value[1] == 0x00) {
+        latest_trip_km = 0.0f;
+        ui_update_trip_distance(0.0f);
+        ESP_LOGI(GATTC_TAG, "Odometer reset ACK received from receiver");
+        printf("#>DATA odometer_reset=ok\n");
+      }
+    }
     return;
   }
 
