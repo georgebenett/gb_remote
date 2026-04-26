@@ -14,9 +14,10 @@
 #define CONNECTION_UPDATE_MS 3000 // 0.33Hz for connection icon
 
 // Timing constants
-#define TASK_STARTUP_DELAY_MS 20   // Staggered task startup delay
-#define MUTEX_RETRY_DELAY_MS 5     // Delay when mutex unavailable
-#define SPLASH_SCREEN_DELAY_MS 50  // Post-splash delay
+#define TASK_STARTUP_DELAY_MS 20    // Staggered task startup delay
+#define MUTEX_RETRY_DELAY_MS 5      // Delay when mutex unavailable
+#define SPLASH_SCREEN_DELAY_MS 50   // Post-splash delay
+#define SPLASH_FADE_UP_DELAY_MS 120 // Allow first splash frame to render
 
 // UI Command Queue for thread-safe UI updates
 #define UI_CMD_QUEUE_SIZE 32

@@ -93,6 +93,5 @@ void app_init_after_charging(void) {
   ESP_LOGI(TAG, "BLE initialization complete");
   button_start_monitoring();
   ui_show_splash_screen();
-  lcd_fade_to_saved_brightness();
   viber_play_startup_song();
 }

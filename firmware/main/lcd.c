@@ -69,14 +69,6 @@ void lcd_init(void) {
 
   ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
   ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-  vTaskDelay(pdMS_TO_TICKS(50));
-  ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
-
-  ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0, 0));
-  ESP_ERROR_CHECK(
-      esp_lcd_panel_mirror(panel_handle, true, true)); // 180 degree rotation
-  ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
-  ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
 
   ledc_timer_config_t ledc_timer = {.speed_mode = LEDC_MODE,
                                     .timer_num = LEDC_TIMER,
@@ -93,6 +85,18 @@ void lcd_init(void) {
                                         .duty = 0,
                                         .hpoint = 0};
   ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+  current_backlight_pwm = 0;
+  ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 0));
+  ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+
+  vTaskDelay(pdMS_TO_TICKS(50));
+  ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+
+  ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0, 0));
+  ESP_ERROR_CHECK(
+      esp_lcd_panel_mirror(panel_handle, true, true)); // 180 degree rotation
+  ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
+  ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
 
   lv_init();
 
