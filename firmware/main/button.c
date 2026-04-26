@@ -82,6 +82,7 @@ static void button_monitor_task(void *pvParameters) {
   bool button_pressed = false;
   bool long_press_sent = false;
   bool power_off_armed = false;
+  bool second_press_candidate = false;
   TickType_t arm_start_time = 0;
 
   // On startup, if button is already pressed, wait for it to be released first
@@ -138,15 +139,13 @@ static void button_monitor_task(void *pvParameters) {
 
     bool current_state_pressed = read_button_state();
 
-    // Check if double-press window expired → confirm single tap, arm power-off
+    // Double-press window expired: stop treating the next press as a double tap.
+    // Power-off was already armed immediately on first release.
     if (first_press_registered && !current_state_pressed) {
       uint32_t elapsed_ms =
           (xTaskGetTickCount() - last_release_time) * portTICK_PERIOD_MS;
       if (elapsed_ms >= button_cfg.double_press_time_ms) {
         first_press_registered = false;
-        power_off_armed = true;
-        arm_start_time = xTaskGetTickCount();
-        notify_callbacks(BUTTON_EVENT_POWER_OFF_ARMED);
       }
     }
 
@@ -161,9 +160,21 @@ static void button_monitor_task(void *pvParameters) {
     }
 
     if (current_state_pressed && !button_pressed) {
-      // Button just pressed - clear armed state (user is performing step 2)
+      TickType_t current_time = xTaskGetTickCount();
+      bool within_double_press_window =
+          first_press_registered &&
+          ((current_time - last_release_time) * portTICK_PERIOD_MS <
+           button_cfg.double_press_time_ms);
+
+      // A press inside the double-press window may become either:
+      // 1) a quick second tap => double press on release
+      // 2) a hold => shutdown long-press
+      // So do not cancel the already-sent shutdown arm yet. Only stop the
+      // local arm timeout while this press is active.
+      second_press_candidate = within_double_press_window;
       power_off_armed = false;
-      press_start_time = xTaskGetTickCount();
+
+      press_start_time = current_time;
       button_pressed = true;
       long_press_sent = false;
       current_state = BUTTON_PRESSED;
@@ -176,6 +187,11 @@ static void button_monitor_task(void *pvParameters) {
       if (!long_press_sent && press_duration >= button_cfg.long_press_time_ms) {
         current_state = BUTTON_LONG_PRESS;
         long_press_sent = true;
+
+        // This press is no longer a double-press candidate; treat it as a hold.
+        second_press_candidate = false;
+        first_press_registered = false;
+
         notify_callbacks(BUTTON_EVENT_LONG_PRESS);
       }
 
@@ -185,16 +201,28 @@ static void button_monitor_task(void *pvParameters) {
 
       if (!long_press_sent) {
         TickType_t current_time = xTaskGetTickCount();
-        if (first_press_registered &&
-            (current_time - last_release_time) * portTICK_PERIOD_MS <
-                button_cfg.double_press_time_ms) {
+        if (second_press_candidate) {
           current_state = BUTTON_DOUBLE_PRESS;
           first_press_registered = false;
+          second_press_candidate = false;
+          notify_callbacks(BUTTON_EVENT_POWER_OFF_CANCELLED);
           notify_callbacks(BUTTON_EVENT_DOUBLE_PRESS);
         } else {
           first_press_registered = true;
           last_release_time = current_time;
+          second_press_candidate = false;
+
+          // Arm power-off immediately on first short press release. If a second
+          // tap arrives inside the double-press window, it will cancel this arm
+          // and become a double press instead.
+          if (!power_off_armed) {
+            power_off_armed = true;
+            arm_start_time = current_time;
+            notify_callbacks(BUTTON_EVENT_POWER_OFF_ARMED);
+          }
         }
+      } else {
+        second_press_candidate = false;
       }
 
       notify_callbacks(BUTTON_EVENT_RELEASED);

@@ -13,9 +13,9 @@
 #define WDT_RESET_INTERVAL_MS 4000
 
 // Button timing definitions
-#define BUTTON_LONG_PRESS_TIME_MS 500
-#define BUTTON_DOUBLE_PRESS_TIME_MS 250
-#define POWER_OFF_ARM_WINDOW_MS 2000
+#define BUTTON_LONG_PRESS_TIME_MS 300
+#define BUTTON_DOUBLE_PRESS_TIME_MS 150
+#define POWER_OFF_ARM_WINDOW_MS 1200
 
 // Button states
 typedef enum {

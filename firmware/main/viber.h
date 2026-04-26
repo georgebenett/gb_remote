@@ -23,6 +23,8 @@ typedef enum {
 
 esp_err_t viber_init(void);
 
+esp_err_t viber_play_early_boot_ack(void);
+
 esp_err_t viber_play_pattern(viber_pattern_t pattern);
 
 esp_err_t viber_vibrate(uint32_t duration_ms);

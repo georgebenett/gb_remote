@@ -30,6 +30,7 @@ static bool arc_animation_active = false;
 static volatile bool entering_power_off_mode = false;
 static bool button_released_since_boot = false;
 static bool shutdown_armed = false;
+static bool woke_from_sleep_with_long_press = false;
 
 /** Set by button callback when long-press in charging mode; breaks charging
  * loop. */
@@ -54,6 +55,35 @@ static void charging_screen_fade_up_timer_cb(lv_timer_t *timer) {
   lcd_fade_to_saved_brightness();
 }
 
+/* One-shot timer callback: after the shutdown bar visibly reaches 100%,
+ * perform the final transition to charging mode or deep sleep. */
+static void shutdown_completion_timer_cb(lv_timer_t *timer) {
+  (void)timer;
+
+  bool usb_connected = (gpio_get_level(USB_DETECT_GPIO) == 1);
+
+  if (usb_connected) {
+    arc_animation_active = false;
+    current_mode = POWER_MODE_CHARGING;
+    ble_enter_charging_mode();
+    lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
+    lcd_fade_backlight(lcd_get_backlight(), 0,
+                       LCD_BACKLIGHT_FADE_DURATION_MS);
+    lv_disp_load_scr(objects.charging_screen);
+    lv_obj_invalidate(objects.charging_screen);
+    /* One-shot timer: let LVGL draw the charging screen, then fade up */
+    lv_timer_t *t =
+        lv_timer_create(charging_screen_fade_up_timer_cb, 300, NULL);
+    lv_timer_set_repeat_count(t, 1);
+    entering_power_off_mode = false;
+    return;
+  }
+
+  ESP_LOGI(TAG, "Bar filled - USB not connected - Shutting down");
+  arc_animation_active = false;
+  power_shutdown();
+}
+
 /* --------------------------------------------------------------------------
  * Shutdown bar animation (full mode): USB connected → charging screen
  * ----------------------------------------------------------------------- */
@@ -65,30 +95,16 @@ static void set_bar_value(void *obj, int32_t v) {
   lv_bar_set_value(obj, v, LV_ANIM_OFF);
 
   if (v >= 100) {
-
-    viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
-    bool usb_connected = (gpio_get_level(USB_DETECT_GPIO) == 1);
-    if (usb_connected) {
-
-      arc_animation_active = false;
-      current_mode = POWER_MODE_CHARGING;
-      ble_enter_charging_mode();
-      vTaskDelay(pdMS_TO_TICKS(1000));
-      lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
-      lcd_fade_backlight(lcd_get_backlight(), 0,
-                         LCD_BACKLIGHT_FADE_DURATION_MS);
-      lv_disp_load_scr(objects.charging_screen);
-      lv_obj_invalidate(objects.charging_screen);
-      /* One-shot timer: let LVGL draw the charging screen, then fade up */
-      lv_timer_t *t =
-          lv_timer_create(charging_screen_fade_up_timer_cb, 300, NULL);
-      lv_timer_set_repeat_count(t, 1);
-      return;
-    }
-    ESP_LOGI(TAG, "Bar filled - USB not connected - Shutting down");
+    /* Give haptic feedback when the bar completes. The old shutdown song would
+     * immediately stop any running haptic pattern, so completion feedback could
+     * be lost. We now keep a short vibration here and defer the final shutdown
+     * transition to a timer so LVGL has time to paint 100%. */
     entering_power_off_mode = true;
-    vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_FEEDBACK_DELAY_MS));
-    power_shutdown();
+    viber_play_pattern(VIBER_PATTERN_DOUBLE_SHORT);
+
+    lv_timer_t *t = lv_timer_create(shutdown_completion_timer_cb,
+                                    SHUTDOWN_FEEDBACK_DELAY_MS + 50, NULL);
+    lv_timer_set_repeat_count(t, 1);
   }
 }
 
@@ -103,7 +119,7 @@ static void power_button_callback(button_event_t event, void *user_data) {
   case BUTTON_EVENT_RELEASED:
     button_released_since_boot = true;
 
-    if (arc_animation_active) {
+    if (arc_animation_active && !entering_power_off_mode) {
       if (take_lvgl_mutex()) {
         lv_anim_del(objects.shutting_down_bar, set_bar_value);
         lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
@@ -231,6 +247,7 @@ static bool power_check_wake_from_sleep(void) {
       }
 
       // Button was held for long press duration
+      woke_from_sleep_with_long_press = true;
       ESP_LOGI(TAG, "Long press detected - turning device on");
       // Restore button to interrupt mode for when button task starts later
       gpio_config_t button_restore = {.pin_bit_mask =
@@ -320,6 +337,8 @@ void power_request_full_boot(void) { charging_mode_usb_boot_requested = true; }
  * ----------------------------------------------------------------------- */
 
 void power_init(void) {
+  woke_from_sleep_with_long_press = false;
+
   // Check wake reason first - go back to sleep if button wasn't held long
   // enough
   if (!power_check_wake_from_sleep()) {
@@ -336,6 +355,15 @@ void power_init(void) {
                                         .intr_type = GPIO_INTR_DISABLE};
   ESP_ERROR_CHECK(gpio_config(&POWER_HOLD_GPIO_conf));
   ESP_ERROR_CHECK(gpio_set_level(POWER_HOLD_GPIO, 1));
+
+  bool button_still_pressed = (gpio_get_level(MAIN_BUTTON_GPIO) == 0);
+  if (woke_from_sleep_with_long_press || button_still_pressed) {
+    esp_err_t ack_err = viber_play_early_boot_ack();
+    if (ack_err != ESP_OK) {
+      ESP_LOGW(TAG, "Early boot haptic ack failed: %s",
+               esp_err_to_name(ack_err));
+    }
+  }
 
   button_register_callback(power_button_callback, NULL);
 
@@ -408,8 +436,6 @@ static void power_enter_sleep(void) {
 
 void power_shutdown(void) {
   ESP_LOGI(TAG, "Preparing for shutdown");
-
-  viber_play_shutdown_song();
 
   uint8_t current_pwm = lcd_get_backlight();
   uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;

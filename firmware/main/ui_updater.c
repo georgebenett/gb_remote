@@ -9,6 +9,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "hw_config.h"
+#include "lcd.h"
 #include "power.h"
 #include "target_config.h"
 #include "throttle.h"
@@ -64,6 +65,11 @@ static volatile bool speed_unit_mph = false;
 static volatile float total_trip_km = 0.0f;
 
 static lv_obj_t *get_current_screen(void) { return lv_scr_act(); }
+
+static void splash_fade_up_timer_cb(lv_timer_t *timer) {
+  (void)timer;
+  lcd_fade_to_saved_brightness();
+}
 
 void ui_updater_init(void) {
   lvgl_mutex = xSemaphoreCreateMutex();
@@ -578,8 +584,6 @@ static void splash_timer_cb(lv_timer_t *timer) {
 /** Show splash and schedule transition to home after 4s. Caller must hold LVGL
  * mutex. */
 void ui_show_splash_then_home(void) {
-  viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
-
   if (objects.firmware_text != NULL) {
     char version_str[64];
     snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,
@@ -587,13 +591,12 @@ void ui_show_splash_then_home(void) {
     lv_label_set_text(objects.firmware_text, version_str);
   }
   lv_disp_load_scr(objects.splash_screen);
-  lv_timer_t *t = lv_timer_create(splash_timer_cb, 4000, NULL);
+  lv_obj_invalidate(objects.splash_screen);
+  lv_timer_t *t = lv_timer_create(splash_timer_cb, 1200, NULL);
   lv_timer_set_repeat_count(t, 1);
 }
 
 void ui_show_splash_screen(void) {
-  viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
-
   // Set firmware version label now, just before showing the splash screen
   if (objects.firmware_text != NULL) {
     char version_str[64];
@@ -602,9 +605,15 @@ void ui_show_splash_screen(void) {
     lv_label_set_text(objects.firmware_text, version_str);
   }
 
+  lcd_set_backlight(0);
   lv_disp_load_scr(objects.splash_screen);
+  lv_obj_invalidate(objects.splash_screen);
 
-  lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 4000, NULL);
+  lv_timer_t *fade_timer =
+      lv_timer_create(splash_fade_up_timer_cb, SPLASH_FADE_UP_DELAY_MS, NULL);
+  lv_timer_set_repeat_count(fade_timer, 1);
+
+  lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 1200, NULL);
   lv_timer_set_repeat_count(splash_timer, 1);
   vTaskDelay(pdMS_TO_TICKS(SPLASH_SCREEN_DELAY_MS));
 }
