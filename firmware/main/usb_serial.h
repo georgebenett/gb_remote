@@ -49,13 +49,8 @@ typedef enum {
   CMD_DECREASE_BLE_TRIM = 0x14,    // Decrease BLE output trim offset by 1
   CMD_GET_BLE_TRIM = 0x15,         // Get current BLE trim offset value
   CMD_CHECK_COREDUMP = 0x16,       // Check if coredump exists
-  CMD_GET_COREDUMP = 0x17, // Get coredump data (payload: chunk_offset uint16)
-  CMD_GET_THROTTLE_CURVE = 0x1A, // Get throttle curve index (0-3)
-  CMD_SET_THROTTLE_CURVE =
-      0x1B,                   // Set throttle curve index (payload: uint8 0-3)
-  CMD_GET_BRAKE_CURVE = 0x1C, // Get brake curve index (0-3, dual throttle)
-  CMD_SET_BRAKE_CURVE = 0x1D, // Set brake curve index (payload: uint8 0-3)
-  CMD_BOOT_FULL_MODE = 0x1E,  // Boot into full mode from charging screen
+  CMD_GET_COREDUMP = 0x17,   // Get coredump data (payload: chunk_offset uint16)
+  CMD_BOOT_FULL_MODE = 0x1E, // Boot into full mode from charging screen
   CMD_SET_HAPTIC_INTENSITY =
       0x1F, // Set haptic feedback intensity (payload: uint8 0-100)
 
@@ -66,8 +61,6 @@ typedef enum {
   RSP_CONFIG = 0x83,               // Configuration data
   RSP_CALIBRATION = 0x84,          // Calibration data
   RSP_BLE_TRIM = 0x85,             // BLE trim offset data
-  RSP_THROTTLE_CURVE = 0x89,       // Throttle curve index (1 byte, 0-3)
-  RSP_BRAKE_CURVE = 0x8A,          // Brake curve index (1 byte, 0-3)
   RSP_COREDUMP_INFO = 0x86,        // Coredump info (exists flag, size)
   RSP_COREDUMP_CHUNK = 0x87,       // Coredump data chunk
   RSP_CALIBRATION_PROGRESS = 0x88, // Real-time calibration progress update

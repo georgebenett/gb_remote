@@ -35,16 +35,6 @@
 #define NVS_KEY_BRAKE_MIN "brake_min_val"
 #define NVS_KEY_BRAKE_MAX "brake_max_val"
 #define NVS_KEY_CALIBRATED "cal_done"
-#define NVS_KEY_CURVE_EXP "curve_exp"
-#define NVS_KEY_CURVE_INDEX "curve_idx"
-#define NVS_KEY_BRAKE_CURVE_INDEX "brake_curve_idx"
-
-// Four throttle curve presets: output = (input/255)^exponent; 1.0=linear,
-// higher=gentler start
-#define THROTTLE_CURVE_COUNT 4
-#define THROTTLE_CURVE_DEFAULT_INDEX                                           \
-  3 // Soft (4.0) - matches previous default exponent
-
 // Progress callback invoked periodically during calibration.
 // Parameters: sample index, total samples, throttle current/min/max, brake
 // current/min/max. Brake values are only meaningful for
@@ -85,19 +75,6 @@ void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 uint8_t
 map_adc_value(uint32_t adc_value); // Single throttle mapping for lite mode
 #endif
-
-// Throttle curve exponent: 1.0 = linear, higher = gentler low-end
-float throttle_get_curve_exponent(void);
-esp_err_t throttle_set_curve_exponent(float exponent);
-
-// Throttle curve preset (0..3): Linear, Gentle, Medium, Soft
-uint8_t throttle_get_curve_index(void);
-esp_err_t throttle_set_curve_index(uint8_t index);
-
-// Brake curve preset (0..3), dual throttle only; lite get returns 0, set
-// returns ERR_NOT_SUPPORTED
-uint8_t throttle_get_brake_curve_index(void);
-esp_err_t throttle_set_brake_curve_index(uint8_t index);
 
 // ADC handle accessors for other modules (e.g., battery)
 adc_oneshot_unit_handle_t adc_get_handle(void);
