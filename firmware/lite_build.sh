@@ -1,101 +1,42 @@
 #!/bin/bash
-# Build script for lite target
-
+# Build and flash script for lite target
 set -e
 
-# Detect OS for sed compatibility (macOS requires backup extension, Linux doesn't)
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed_inplace() { sed -i '' "$@"; }
-else
-    sed_inplace() { sed -i "$@"; }
-fi
+BUILD_DIR="build_lite"
+SDKCONFIG_FILE="sdkconfig.lite"
+SDKCONFIG_DEFAULTS_FILE="sdkconfig.defaults.lite"
 
-echo "Building for lite target ..."
+echo "Building for lite target..."
 
-# Create target-specific defaults if it doesn't exist
-if [ ! -f sdkconfig.defaults.lite ]; then
-    echo "# CONFIG_TARGET_DUAL_THROTTLE is not set" > sdkconfig.defaults.lite
-    echo "CONFIG_TARGET_LITE=y" >> sdkconfig.defaults.lite
-    echo "CONFIG_LCD_HOR_RES=240" >> sdkconfig.defaults.lite
-    echo "CONFIG_LCD_VER_RES=320" >> sdkconfig.defaults.lite
-    echo "CONFIG_LCD_OFFSET_X=0" >> sdkconfig.defaults.lite
-    echo "CONFIG_LCD_OFFSET_Y=0" >> sdkconfig.defaults.lite
-fi
-
-# Update sdkconfig if target changed
-if [ ! -f sdkconfig ]; then
-    # No sdkconfig exists, use defaults
-    cp sdkconfig.defaults.lite sdkconfig.defaults
-elif ! grep -q "^CONFIG_TARGET_LITE=y" sdkconfig 2>/dev/null; then
-    # Target is not set to LITE, update it
-    echo "Updating target configuration to LITE..."
-    cp sdkconfig.defaults.lite sdkconfig.defaults
-
-    # Update sdkconfig directly
-    sed_inplace 's/^CONFIG_TARGET_DUAL_THROTTLE=y/# CONFIG_TARGET_DUAL_THROTTLE is not set/' sdkconfig
-    sed_inplace 's/^# CONFIG_TARGET_LITE is not set$/CONFIG_TARGET_LITE=y/' sdkconfig
-    sed_inplace 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=240/' sdkconfig
-    sed_inplace 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
-    sed_inplace 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=0/' sdkconfig
-    sed_inplace 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
-
-    # Ensure CONFIG_TARGET_LITE=y exists (add if missing)
-    if ! grep -q "^CONFIG_TARGET_LITE=y" sdkconfig; then
-        sed_inplace '/^# Hardware Target Configuration$/a\
-#\
-# CONFIG_TARGET_DUAL_THROTTLE is not set\
-CONFIG_TARGET_LITE=y' sdkconfig
-    fi
-else
-    echo "Target already configured for LITE..."
-fi
-
-# Enable ccache if available
 if command -v ccache &> /dev/null; then
     export IDF_CCACHE_ENABLE=1
-    echo "ccache enabled for faster builds"
-    # Show ccache stats before build
-    ccache -s > /dev/null 2>&1 && echo "ccache stats before build:" && ccache -s | head -5
-else
-    echo "ccache not found - install it for faster builds (brew install ccache on macOS)"
+    echo "ccache enabled"
 fi
 
-# Build (will auto-reconfigure if sdkconfig changed)
-echo "Starting build..."
 BUILD_START=$(date +%s)
-idf.py build
+idf.py -B "$BUILD_DIR" \
+    -D SDKCONFIG="$SDKCONFIG_FILE" \
+    -D SDKCONFIG_DEFAULTS="$SDKCONFIG_DEFAULTS_FILE" \
+    build
 BUILD_END=$(date +%s)
-BUILD_TIME=$((BUILD_END - BUILD_START))
-echo "Build completed in ${BUILD_TIME} seconds"
+echo "Build completed in $((BUILD_END - BUILD_START)) seconds"
 
-# Show ccache stats after build if available
-if command -v ccache &> /dev/null && [ "$IDF_CCACHE_ENABLE" = "1" ]; then
-    echo ""
-    echo "ccache stats after build:"
-    ccache -s | head -10
-fi
-
-# Flash function that tries multiple ports
 flash_firmware() {
     echo "Flashing firmware to device..."
 
-    # Detect OS and set priority ports accordingly
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS ports
         PRIORITY_PORTS=("/dev/tty.usbmodem101" "/dev/tty.usbmodem*" "/dev/tty.usbserial*")
         SCAN_PATTERNS=("/dev/tty.usbmodem*" "/dev/tty.usbserial*")
     else
-        # Linux ports
         PRIORITY_PORTS=("/dev/ttyACM0" "/dev/ttyACM1")
         SCAN_PATTERNS=("/dev/ttyACM*" "/dev/ttyUSB*")
     fi
 
-    # Function to try flashing to a specific port
     try_flash_port() {
         local port=$1
         echo "Trying to flash to $port..."
         if [ -c "$port" ]; then
-            if idf.py -p "$port" flash; then
+            if idf.py -B "$BUILD_DIR" -p "$port" flash; then
                 echo "Successfully flashed to $port"
                 return 0
             else
@@ -108,13 +49,9 @@ flash_firmware() {
         fi
     }
 
-    # Try priority ports first (expand globs for macOS)
     for port_pattern in "${PRIORITY_PORTS[@]}"; do
-        # Expand glob pattern if it contains wildcards
         if [[ "$port_pattern" == *"*"* ]]; then
-            # Expand glob and try each matching port
             for port in $port_pattern; do
-                # Check if port actually exists (not the literal pattern)
                 if [ "$port" != "$port_pattern" ] && [ -e "$port" ] && try_flash_port "$port"; then
                     return 0
                 fi
@@ -126,32 +63,24 @@ flash_firmware() {
         fi
     done
 
-    # If priority ports failed, try other available ports
     echo "Priority ports failed, scanning for other available ports..."
     OTHER_PORTS=""
     for pattern in "${SCAN_PATTERNS[@]}"; do
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            # For macOS, exclude already tried ports
             FOUND=$(ls $pattern 2>/dev/null | grep -v -E "(usbmodem101)$" || true)
         else
-            # For Linux, exclude priority ports
             FOUND=$(ls $pattern 2>/dev/null | grep -v -E "(ttyACM0|ttyACM1)$" || true)
         fi
-        if [ -n "$FOUND" ]; then
-            OTHER_PORTS="$OTHER_PORTS $FOUND"
-        fi
+        [ -n "$FOUND" ] && OTHER_PORTS="$OTHER_PORTS $FOUND"
     done
 
     if [ -n "$OTHER_PORTS" ]; then
         for port in $OTHER_PORTS; do
-            if try_flash_port "$port"; then
-                return 0
-            fi
+            try_flash_port "$port" && return 0
         done
     fi
 
     echo "ERROR: Failed to flash to any available port!"
-    echo "Available ports:"
     if [[ "$OSTYPE" == "darwin"* ]]; then
         ls -la /dev/tty.usbmodem* /dev/tty.usbserial* 2>/dev/null || echo "No macOS USB serial ports found"
     else
@@ -160,7 +89,6 @@ flash_firmware() {
     return 1
 }
 
-# Call the flash function
 if flash_firmware; then
     echo "Build and flash complete for lite target!"
 else
