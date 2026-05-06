@@ -5,6 +5,7 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "hw_config.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -76,8 +77,9 @@ uint8_t
 map_adc_value(uint32_t adc_value); // Single throttle mapping for lite mode
 #endif
 
-// ADC handle accessors for other modules (e.g., battery)
+// ADC handle and mutex accessors for other modules (e.g., battery)
 adc_oneshot_unit_handle_t adc_get_handle(void);
+SemaphoreHandle_t adc_get_mutex(void);
 bool adc_is_initialized(void);
 
 #endif // ADC_H
