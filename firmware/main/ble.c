@@ -337,7 +337,10 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       // voltage (bytes 12-13)
       int16_t voltage =
           p_data->notify.value[12] | ((int16_t)p_data->notify.value[13] << 8);
-      latest_voltage = voltage / 100.0f;
+      float decoded_voltage = voltage / 100.0f;
+      if (decoded_voltage > 1.0f) {
+        latest_voltage = decoded_voltage;
+      }
 
       // total_voltage (bytes 14-15)
       int16_t total_voltage =
