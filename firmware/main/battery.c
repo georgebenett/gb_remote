@@ -7,6 +7,7 @@
 #include "esp_sleep.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hw_config.h"
 #include "lcd.h"
@@ -105,6 +106,7 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
   }
 
   adc_oneshot_unit_handle_t adc1_handle = adc_get_handle();
+  SemaphoreHandle_t adc_mutex = adc_get_mutex();
 
   // Take multiple readings with outlier rejection
   const int NUM_SAMPLES = 10;
@@ -115,11 +117,13 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
 
   for (int i = 0; i < NUM_SAMPLES; i++) {
     int adc_raw = 0;
-    esp_err_t ret = adc_oneshot_read(adc1_handle, channel, &adc_raw);
-
-    if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
-      samples[valid_samples] = adc_raw;
-      valid_samples++;
+    if (adc_mutex && xSemaphoreTake(adc_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      esp_err_t ret = adc_oneshot_read(adc1_handle, channel, &adc_raw);
+      xSemaphoreGive(adc_mutex);
+      if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
+        samples[valid_samples] = adc_raw;
+        valid_samples++;
+      }
     }
 
     // Small delay between samples for ADC settling

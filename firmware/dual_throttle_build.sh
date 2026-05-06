@@ -8,6 +8,8 @@ SDKCONFIG_DEFAULTS_FILE="sdkconfig.defaults.dual_throttle"
 
 echo "Building for dual_throttle target..."
 
+export IDF_TARGET=esp32s3
+
 if command -v ccache &> /dev/null; then
     export IDF_CCACHE_ENABLE=1
     echo "ccache enabled"

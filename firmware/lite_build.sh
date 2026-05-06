@@ -8,6 +8,8 @@ SDKCONFIG_DEFAULTS_FILE="sdkconfig.defaults.lite"
 
 echo "Building for lite target..."
 
+export IDF_TARGET=esp32s3
+
 if command -v ccache &> /dev/null; then
     export IDF_CCACHE_ENABLE=1
     echo "ccache enabled"

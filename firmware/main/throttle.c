@@ -5,6 +5,7 @@
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -20,6 +21,7 @@ static adc_oneshot_unit_handle_t adc1_handle;
 static adc_oneshot_unit_init_cfg_t init_config1;
 static adc_oneshot_chan_cfg_t config;
 static QueueHandle_t adc_display_queue = NULL;
+static SemaphoreHandle_t adc_mutex = NULL;
 static uint32_t latest_adc_value = 0;
 static bool adc_initialized = false;
 static int error_count = 0;
@@ -39,6 +41,8 @@ void adc_deinit(void);
 // Getter function for battery module to access ADC handle
 adc_oneshot_unit_handle_t adc_get_handle(void) { return adc1_handle; }
 
+SemaphoreHandle_t adc_get_mutex(void) { return adc_mutex; }
+
 bool adc_is_initialized(void) { return adc_initialized; }
 
 esp_err_t adc_init(void) {
@@ -48,6 +52,15 @@ esp_err_t adc_init(void) {
   }
 
   esp_err_t ret;
+
+  // Create mutex to protect concurrent adc_oneshot_read calls
+  if (adc_mutex == NULL) {
+    adc_mutex = xSemaphoreCreateMutex();
+    if (adc_mutex == NULL) {
+      ESP_LOGE(TAG, "Failed to create ADC mutex");
+      return ESP_FAIL;
+    }
+  }
 
   // Create queue first
   adc_display_queue = xQueueCreate(10, sizeof(uint32_t));
@@ -102,12 +115,14 @@ int32_t throttle_read_value(void) {
 
   for (int i = 0; i < NUM_SAMPLES; i++) {
     int adc_raw = 0;
-    esp_err_t ret = adc_oneshot_read(adc1_handle, THROTTLE_PIN, &adc_raw);
-
-    if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
-      samples[valid_samples] = adc_raw;
-      sum += adc_raw;
-      valid_samples++;
+    if (xSemaphoreTake(adc_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      esp_err_t ret = adc_oneshot_read(adc1_handle, THROTTLE_PIN, &adc_raw);
+      xSemaphoreGive(adc_mutex);
+      if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
+        samples[valid_samples] = adc_raw;
+        sum += adc_raw;
+        valid_samples++;
+      }
     }
 
     // Small delay between samples for ADC settling
@@ -158,12 +173,14 @@ int32_t brake_read_value(void) {
 
   for (int i = 0; i < NUM_SAMPLES; i++) {
     int adc_raw = 0;
-    esp_err_t ret = adc_oneshot_read(adc1_handle, BRAKE_PIN, &adc_raw);
-
-    if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
-      samples[valid_samples] = adc_raw;
-      sum += adc_raw;
-      valid_samples++;
+    if (xSemaphoreTake(adc_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      esp_err_t ret = adc_oneshot_read(adc1_handle, BRAKE_PIN, &adc_raw);
+      xSemaphoreGive(adc_mutex);
+      if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
+        samples[valid_samples] = adc_raw;
+        sum += adc_raw;
+        valid_samples++;
+      }
     }
 
     // Small delay between samples for ADC settling
@@ -308,6 +325,11 @@ void adc_deinit(void) {
   if (adc_display_queue) {
     vQueueDelete(adc_display_queue);
     adc_display_queue = NULL;
+  }
+
+  if (adc_mutex) {
+    vSemaphoreDelete(adc_mutex);
+    adc_mutex = NULL;
   }
 
   adc_initialized = false;

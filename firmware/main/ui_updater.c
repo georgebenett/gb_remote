@@ -334,9 +334,6 @@ static void battery_update_task(void *pvParameters) {
       float bms_voltage = get_bms_total_voltage();
       bool bms_connected = (bms_voltage > 0.1f);
 
-      ESP_LOGI(TAG, "battery_update: bms_voltage=%.2fV bms_connected=%d",
-               bms_voltage, bms_connected);
-
       if (!bms_connected) {
         float vesc_voltage = get_latest_voltage();
 
