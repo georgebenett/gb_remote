@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "screens.h"
+#include "snake.h"
 #include "ui.h"
 #include <stdint.h>
 
@@ -63,5 +64,8 @@ void ui_show_splash_screen(void);
 /** Show splash then auto-switch to home after 4s (for mode 1→2 transition).
  * Call with LVGL mutex held. */
 void ui_show_splash_then_home(void);
+
+// Easter egg: consume power-button events for splash combo and snake controls.
+bool ui_handle_easter_egg_button_event(int event);
 
 #endif // UI_UPDATER_H

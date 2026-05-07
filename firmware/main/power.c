@@ -65,7 +65,7 @@ static void shutdown_completion_timer_cb(lv_timer_t *timer) {
   if (usb_connected) {
     arc_animation_active = false;
     current_mode = POWER_MODE_CHARGING;
-    ble_enter_charging_mode();
+    ble_suspend();
     lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
     lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
     lv_disp_load_scr(objects.charging_screen);
@@ -109,6 +109,10 @@ static void set_bar_value(void *obj, int32_t v) {
 
 static void power_button_callback(button_event_t event, void *user_data) {
   static bool long_press_triggered = false;
+
+  if (ui_handle_easter_egg_button_event((int)event)) {
+    return;
+  }
 
   switch (event) {
   case BUTTON_EVENT_PRESSED:
@@ -164,7 +168,7 @@ static void power_button_callback(button_event_t event, void *user_data) {
       charging_mode_long_press_received = true;
       current_mode = POWER_MODE_FULL;
       power_reset_inactivity_timer();
-      ble_leave_charging_mode();
+      // BLE will resume when home screen loads via splash_timer_cb
       viber_play_pattern(VIBER_PATTERN_SINGLE_SHORT);
       if (take_lvgl_mutex()) {
         ui_show_splash_then_home();

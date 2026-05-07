@@ -149,8 +149,9 @@ static bool receiver_aux_output_state = false;
 static int8_t ble_trim_offset = 0; // Trim offset for BLE output (-127 to +127)
 static float latest_trip_km = 0.0f;
 
-/** When true, we are on charging screen (from full mode); no BLE activity. */
-static volatile bool ble_charging_mode = false;
+/** When true, BLE is suspended (not on home screen). Starts true;
+ *  resumed only when the home screen is reached. */
+static volatile bool ble_suspended = true;
 
 float get_latest_temp_mos(void) { return latest_temp_mos; }
 
@@ -453,7 +454,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
       ESP_LOGE(GATTC_TAG, "Scan param set failed: %s", esp_err_to_name(err));
       break;
     }
-    if (ble_charging_mode) {
+    if (ble_suspended) {
       break;
     }
     // the unit of the duration is second
@@ -477,7 +478,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
       break;
     }
     ESP_LOGI(GATTC_TAG, "Scan stop successfully");
-    if (ble_charging_mode) {
+    if (ble_suspended) {
       break;
     }
     if (!ble_is_connected()) {
@@ -694,8 +695,8 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
 
     free_gattc_srv_db();
 
-    // Restart scanning for any receiver (skip when on charging screen)
-    if (!ble_charging_mode) {
+    // Restart scanning for any receiver (skip when BLE is suspended)
+    if (!ble_suspended) {
       esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
     }
     break;
@@ -1159,7 +1160,7 @@ static void adc_send_task(void *pvParameters) {
     esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
                           // connected
 
-    if (ble_charging_mode) {
+    if (ble_suspended) {
       vTaskDelay(pdMS_TO_TICKS(500));
       continue;
     }
@@ -1309,7 +1310,7 @@ float get_bms_cell_voltage(uint8_t cell_index) {
 
 static void log_rssi_task(void *pvParameters) {
   while (1) {
-    if (ble_charging_mode) {
+    if (ble_suspended) {
       vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
       continue;
     }
@@ -1337,7 +1338,10 @@ int get_bms_battery_percentage(void) {
   return (int)percentage;
 }
 
-void ble_enter_charging_mode(void) {
+void ble_suspend(void) {
+  if (ble_suspended) {
+    return; // already suspended
+  }
   bool was_connected = false;
   if (is_connect_mutex != NULL &&
       xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
@@ -1346,23 +1350,26 @@ void ble_enter_charging_mode(void) {
   } else {
     was_connected = is_connect;
   }
-  ble_charging_mode = true;
+  ble_suspended = true;
   esp_ble_gap_stop_scanning();
   if (was_connected && spp_gattc_if != 0xff &&
       gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
     esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if, spp_conn_id);
   }
-  ESP_LOGI(GATTC_TAG, "BLE charging mode: stopped scan and connection");
+  ESP_LOGI(GATTC_TAG, "BLE suspended: stopped scan and connection");
 }
 
-void ble_leave_charging_mode(void) {
-  ble_charging_mode = false;
-  ESP_LOGI(GATTC_TAG, "BLE charging mode: resuming scan");
+void ble_resume(void) {
+  if (!ble_suspended) {
+    return; // already active
+  }
+  ble_suspended = false;
+  ESP_LOGI(GATTC_TAG, "BLE resumed: starting scan");
   esp_ble_gap_set_scan_params(&ble_scan_params);
 }
 
 bool ble_is_connected(void) {
-  if (ble_charging_mode) {
+  if (ble_suspended) {
     return false;
   }
   bool result = false;
