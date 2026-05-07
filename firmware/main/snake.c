@@ -16,6 +16,7 @@
 #include "viber.h"
 
 #define TAG "SNAKE"
+#define SNAKE_RENDER_MS 16
 
 // Difficulty-based speed multipliers
 static const uint32_t DIFFICULTY_SPEED_MS[SNAKE_DIFFICULTY_TIERS] = {
@@ -47,6 +48,7 @@ static void snake_update_score_labels(void);
 static void snake_update_hud_labels(void);
 static void snake_set_hud_visible(bool visible);
 static void snake_input_poll_cb(lv_timer_t *timer);
+static void snake_render_cb(lv_timer_t *timer);
 
 static int8_t snake_read_turn_input(void) {
   uint32_t input = adc_get_latest_value();
@@ -206,8 +208,6 @@ static void snake_update_score_labels(void) {
 static void snake_set_hud_visible(bool visible) {
   lv_obj_t *hud[] = {
       snake.score_label,
-      snake.best_label,
-      snake.time_label,
   };
   for (int i = 0; i < (int)(sizeof(hud) / sizeof(hud[0])); i++) {
     if (hud[i] == NULL)
@@ -333,10 +333,6 @@ static void snake_rebuild_polyline(void) {
     snake.points[i].x = snake.cells[i].x * snake.cell_w + snake.cell_w / 2;
     snake.points[i].y = snake.cells[i].y * snake.cell_h + snake.cell_h / 2;
   }
-
-  if (snake.snake_line != NULL) {
-    lv_line_set_points(snake.snake_line, snake.points, snake.length);
-  }
 }
 
 static void snake_turn_relative(int8_t turn) {
@@ -389,12 +385,14 @@ static void snake_finish_game(void) {
   if (snake.input_poll_timer != NULL) {
     lv_timer_pause(snake.input_poll_timer);
   }
+  if (snake.render_timer != NULL) {
+    lv_timer_pause(snake.render_timer);
+  }
 
   if (snake.score > snake.high_score) {
     snake.high_score = snake.score;
-    snake_save_high_score();
   }
-
+  snake_save_high_score();
   snake_update_score_labels();
   snake_show_game_over_menu();
 
@@ -464,6 +462,60 @@ static void snake_input_poll_cb(lv_timer_t *timer) {
   snake.last_turn_input = turn_input;
 }
 
+static void snake_render_cb(lv_timer_t *timer) {
+  (void)timer;
+  if (!snake.running || snake.game_over || snake.paused) {
+    return;
+  }
+  if (snake.snake_line == NULL || snake.length == 0) {
+    return;
+  }
+
+  uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+  uint32_t elapsed = now_ms - snake.last_tick_wall_ms;
+  uint32_t period =
+      snake.tick_period_ms > 0 ? snake.tick_period_ms : SNAKE_TICK_MS_BASE;
+  if (elapsed > period) {
+    elapsed = period;
+  }
+
+  for (uint16_t i = 0; i < snake.length; i++) {
+    snake.interp_pts[i] = snake.points[i];
+  }
+
+  // Slide head forward from previous position to current
+  snake.interp_pts[0].x =
+      (int16_t)(snake.prev_head_px.x +
+                (int32_t)(snake.points[0].x - snake.prev_head_px.x) *
+                    (int32_t)elapsed / (int32_t)period);
+  snake.interp_pts[0].y =
+      (int16_t)(snake.prev_head_px.y +
+                (int32_t)(snake.points[0].y - snake.prev_head_px.y) *
+                    (int32_t)elapsed / (int32_t)period);
+
+  // Retract tail by adding an extra point beyond the current tail.
+  // interp_pts[length-1] stays at the corner (points[length-1]) so any
+  // 90-degree bend there is preserved. The extra interp_pts[length] slides from
+  // prev_tail_px toward that corner, retracting along the correct axis.
+  uint16_t render_len = snake.length;
+  if (!snake.last_move_grew && snake.length > 1 &&
+      snake.length < SNAKE_MAX_SEGMENTS) {
+    snake.interp_pts[snake.length].x =
+        (int16_t)(snake.prev_tail_px.x +
+                  (int32_t)(snake.points[snake.length - 1].x -
+                            snake.prev_tail_px.x) *
+                      (int32_t)elapsed / (int32_t)period);
+    snake.interp_pts[snake.length].y =
+        (int16_t)(snake.prev_tail_px.y +
+                  (int32_t)(snake.points[snake.length - 1].y -
+                            snake.prev_tail_px.y) *
+                      (int32_t)elapsed / (int32_t)period);
+    render_len = snake.length + 1;
+  }
+
+  lv_line_set_points(snake.snake_line, snake.interp_pts, render_len);
+}
+
 static void snake_tick_cb(lv_timer_t *timer) {
   (void)timer;
 
@@ -516,6 +568,14 @@ static void snake_tick_cb(lv_timer_t *timer) {
     return;
   }
 
+  // Save positions for smooth interpolation before cells shift
+  snake.prev_head_px = snake.points[0];
+  if (!grows && snake.length > 1) {
+    snake.prev_tail_px = snake.points[snake.length - 1];
+  }
+  snake.last_move_grew = grows;
+  snake.last_tick_wall_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+
   uint16_t move_length = snake.length;
   if (grows && snake.length < SNAKE_MAX_SEGMENTS) {
     snake.length++;
@@ -532,10 +592,6 @@ static void snake_tick_cb(lv_timer_t *timer) {
     uint16_t points = (snake.food_quality == SNAKE_FOOD_BONUS) ? 2 : 1;
     snake.score += points;
     snake.combo_counter++;
-
-    if (snake.score > snake.high_score) {
-      snake.high_score = snake.score;
-    }
 
     snake_update_score_labels();
     snake_spawn_food();
@@ -554,6 +610,7 @@ static void snake_tick_cb(lv_timer_t *timer) {
         next_period = SNAKE_TICK_MS_MIN;
       }
       lv_timer_set_period(snake.tick_timer, next_period);
+      snake.tick_period_ms = next_period;
     }
   }
 
@@ -694,6 +751,9 @@ static void snake_show_pause_menu(void) {
   snake.last_menu_turn_input = 0;
   snake_update_pause_selection();
 
+  if (snake.render_timer != NULL) {
+    lv_timer_pause(snake.render_timer);
+  }
   snake_set_hud_visible(false);
 
   if (snake.menu_input_timer != NULL) {
@@ -724,6 +784,10 @@ static void snake_hide_pause_menu(void) {
   }
   if (snake.input_poll_timer != NULL) {
     lv_timer_resume(snake.input_poll_timer);
+  }
+  snake.last_tick_wall_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+  if (snake.render_timer != NULL) {
+    lv_timer_resume(snake.render_timer);
   }
 }
 
@@ -768,17 +832,8 @@ static void snake_build_screen_if_needed(void) {
   snake.score_label = lv_label_create(snake.screen);
   lv_obj_set_style_text_color(snake.score_label, lv_color_hex(0x7BFF7A), 0);
   lv_obj_set_style_text_font(snake.score_label, &lv_font_montserrat_14, 0);
-  lv_obj_align(snake.score_label, LV_ALIGN_TOP_LEFT, 6, 32);
-
-  snake.best_label = lv_label_create(snake.screen);
-  lv_obj_set_style_text_color(snake.best_label, lv_color_hex(0xF9F9F9), 0);
-  lv_obj_align(snake.best_label, LV_ALIGN_TOP_RIGHT, -6, 32);
-
-  // Play time
-  snake.time_label = lv_label_create(snake.screen);
-  lv_obj_set_style_text_color(snake.time_label, lv_color_hex(0x87CEEB), 0);
-  lv_obj_set_style_text_font(snake.time_label, &lv_font_montserrat_14, 0);
-  lv_obj_align(snake.time_label, LV_ALIGN_TOP_LEFT, 6, 48);
+  lv_obj_set_style_text_align(snake.score_label, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(snake.score_label, LV_ALIGN_TOP_MID, 0, 32);
 
   snake.playfield = lv_obj_create(snake.screen);
   lv_obj_set_style_bg_color(snake.playfield, lv_color_hex(0x111111), 0);
@@ -797,7 +852,7 @@ static void snake_build_screen_if_needed(void) {
                       (2 * SNAKE_BORDER_INSET_PX));
 
   snake.snake_line = lv_line_create(snake.playfield);
-  lv_obj_set_style_line_color(snake.snake_line, lv_color_hex(0x7BFF7A), 0);
+  lv_obj_set_style_line_color(snake.snake_line, lv_color_hex(0xFFFFFF), 0);
   lv_obj_set_style_line_opa(snake.snake_line, LV_OPA_COVER, 0);
   lv_obj_set_style_line_rounded(snake.snake_line, true, 0);
 
@@ -896,7 +951,6 @@ static void snake_build_screen_if_needed(void) {
       snake.snake_line, LV_MAX(2, LV_MIN(snake.cell_w, snake.cell_h) - 2), 0);
 
   lv_obj_move_foreground(snake.score_label);
-  lv_obj_move_foreground(snake.best_label);
 
   if (snake.menu_input_timer == NULL) {
     snake.menu_input_timer = lv_timer_create(snake_menu_input_timer_cb,
@@ -926,6 +980,12 @@ static void snake_build_screen_if_needed(void) {
         lv_timer_create(snake_input_poll_cb, SNAKE_INPUT_POLL_MS, NULL);
   }
   lv_timer_pause(snake.input_poll_timer);
+
+  if (snake.render_timer == NULL) {
+    snake.render_timer =
+        lv_timer_create(snake_render_cb, SNAKE_RENDER_MS, NULL);
+  }
+  lv_timer_pause(snake.render_timer);
 }
 
 static void snake_begin_round_locked(void) {
@@ -968,6 +1028,15 @@ static void snake_begin_round_locked(void) {
 
   uint32_t base_speed = DIFFICULTY_SPEED_MS[snake.difficulty];
 
+  // Init interpolation state so render timer starts at rest
+  snake.tick_period_ms = base_speed;
+  snake.last_tick_wall_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+  snake.last_move_grew = false;
+  if (snake.length > 0) {
+    snake.prev_head_px = snake.points[0];
+    snake.prev_tail_px = snake.points[snake.length - 1];
+  }
+
   if (snake.tick_timer != NULL) {
     lv_timer_set_period(snake.tick_timer, base_speed);
     lv_timer_resume(snake.tick_timer);
@@ -983,6 +1052,10 @@ static void snake_begin_round_locked(void) {
 
   if (snake.input_poll_timer != NULL) {
     lv_timer_resume(snake.input_poll_timer);
+  }
+
+  if (snake.render_timer != NULL) {
+    lv_timer_resume(snake.render_timer);
   }
 }
 
@@ -1010,6 +1083,9 @@ static void snake_exit_to_home_locked(void) {
   }
   if (snake.menu_input_timer != NULL) {
     lv_timer_pause(snake.menu_input_timer);
+  }
+  if (snake.render_timer != NULL) {
+    lv_timer_pause(snake.render_timer);
   }
 
   snake_hide_game_over_menu();
