@@ -76,11 +76,13 @@ static void snake_menu_input_timer_cb(lv_timer_t *timer) {
   int8_t turn_input = snake_read_turn_input();
   if (turn_input != 0 && snake.last_menu_turn_input == 0) {
     if (snake.state == SNAKE_STATE_DIFFICULTY_SELECT) {
-      // 3-way toggle for difficulty: 0=EASY, 1=NORMAL, 2=HARD
+      // 4-way toggle for difficulty: 0=EASY, 1=NORMAL, 2=HARD, 3=EXIT
       if (turn_input > 0) {
-        if (snake.menu_selected < 2) snake.menu_selected++;
+        if (snake.menu_selected < 3)
+          snake.menu_selected++;
       } else {
-        if (snake.menu_selected > 0) snake.menu_selected--;
+        if (snake.menu_selected > 0)
+          snake.menu_selected--;
       }
       snake_update_difficulty_selection();
     } else if (snake.state == SNAKE_STATE_PAUSED) {
@@ -102,15 +104,15 @@ static void snake_show_game_over_menu(void) {
     if (snake.high_score > 0) {
       percent_of_best = (snake.score * 100) / snake.high_score;
     }
-    
+
     uint32_t secs = snake.play_time_ms / 1000;
     uint32_t mins = secs / 60;
     secs = secs % 60;
-    
-    lv_label_set_text_fmt(snake.status_label, 
-                          "Score %u\nBest %u (%u%%)\nTime %02u:%02u",
-                          snake.score, snake.high_score, (unsigned int)percent_of_best, 
-                          (unsigned int)mins, (unsigned int)secs);
+
+    lv_label_set_text_fmt(
+        snake.status_label, "Score %u\nBest %u (%u%%)\nTime %02u:%02u",
+        snake.score, snake.high_score, (unsigned int)percent_of_best,
+        (unsigned int)mins, (unsigned int)secs);
     lv_obj_clear_flag(snake.status_label, LV_OBJ_FLAG_HIDDEN);
   }
 
@@ -150,18 +152,18 @@ static void snake_update_menu_selection(void) {
 
   if (snake.menu_selected == 0) {
     lv_label_set_text(snake.menu_retry_label, "> RETRY");
-    lv_obj_set_style_text_color(snake.menu_retry_label,
-                                lv_color_hex(0x7BFF7A), 0);
+    lv_obj_set_style_text_color(snake.menu_retry_label, lv_color_hex(0x7BFF7A),
+                                0);
     lv_label_set_text(snake.menu_exit_label, "  EXIT");
-    lv_obj_set_style_text_color(snake.menu_exit_label,
-                                lv_color_hex(0xE2E2E2), 0);
+    lv_obj_set_style_text_color(snake.menu_exit_label, lv_color_hex(0xE2E2E2),
+                                0);
   } else {
     lv_label_set_text(snake.menu_retry_label, "  RETRY");
-    lv_obj_set_style_text_color(snake.menu_retry_label,
-                                lv_color_hex(0xE2E2E2), 0);
+    lv_obj_set_style_text_color(snake.menu_retry_label, lv_color_hex(0xE2E2E2),
+                                0);
     lv_label_set_text(snake.menu_exit_label, "> EXIT");
-    lv_obj_set_style_text_color(snake.menu_exit_label,
-                                lv_color_hex(0x7BFF7A), 0);
+    lv_obj_set_style_text_color(snake.menu_exit_label, lv_color_hex(0x7BFF7A),
+                                0);
   }
 }
 
@@ -197,18 +199,19 @@ static void snake_update_score_labels(void) {
     lv_label_set_text_fmt(snake.score_label, "SCORE %u", snake.score);
   }
   if (snake.best_label != NULL) {
-    lv_label_set_text_fmt(snake.best_label, "Best: %u",
-                          snake.high_score);
+    lv_label_set_text_fmt(snake.best_label, "Best: %u", snake.high_score);
   }
 }
 
 static void snake_set_hud_visible(bool visible) {
   lv_obj_t *hud[] = {
-    snake.score_label, snake.best_label,
-    snake.time_label,
+      snake.score_label,
+      snake.best_label,
+      snake.time_label,
   };
   for (int i = 0; i < (int)(sizeof(hud) / sizeof(hud[0])); i++) {
-    if (hud[i] == NULL) continue;
+    if (hud[i] == NULL)
+      continue;
     if (visible) {
       lv_obj_clear_flag(hud[i], LV_OBJ_FLAG_HIDDEN);
       lv_obj_move_foreground(hud[i]);
@@ -225,16 +228,18 @@ static void snake_update_hud_labels(void) {
     if (current_speed < SNAKE_TICK_MS_MIN) {
       current_speed = SNAKE_TICK_MS_MIN;
     }
-    lv_label_set_text_fmt(snake.speed_label, "SPD %ums", (unsigned int)current_speed);
+    lv_label_set_text_fmt(snake.speed_label, "SPD %ums",
+                          (unsigned int)current_speed);
   }
-  
+
   if (snake.time_label != NULL) {
     uint32_t secs = snake.play_time_ms / 1000;
     uint32_t mins = secs / 60;
     secs = secs % 60;
-    lv_label_set_text_fmt(snake.time_label, "%02u:%02u", (unsigned int)mins, (unsigned int)secs);
+    lv_label_set_text_fmt(snake.time_label, "%02u:%02u", (unsigned int)mins,
+                          (unsigned int)secs);
   }
-  
+
   if (snake.combo_label != NULL && snake.combo_counter > 0) {
     lv_label_set_text_fmt(snake.combo_label, "Combo x%u", snake.combo_counter);
   }
@@ -262,10 +267,10 @@ static bool snake_cell_in_corner(int16_t gx, int16_t gy) {
   int16_t cy = gy * snake.cell_h + snake.cell_h / 2;
 
   // Only cells near a corner need the circle test
-  bool near_left  = (cx < r);
+  bool near_left = (cx < r);
   bool near_right = (cx > fw - r);
-  bool near_top   = (cy < r);
-  bool near_bot   = (cy > fh - r);
+  bool near_top = (cy < r);
+  bool near_bot = (cy > fh - r);
 
   if (!(near_left || near_right) || !(near_top || near_bot)) {
     return false; // not in any corner zone
@@ -273,7 +278,7 @@ static bool snake_cell_in_corner(int16_t gx, int16_t gy) {
 
   // Find the circle center for this corner
   int16_t ox = near_left ? r : (fw - r);
-  int16_t oy = near_top  ? r : (fh - r);
+  int16_t oy = near_top ? r : (fh - r);
 
   int32_t dx = cx - ox;
   int32_t dy = cy - oy;
@@ -298,7 +303,8 @@ static void snake_spawn_food(void) {
   }
 
   // 10% chance for bonus food
-  snake.food_quality = (esp_random() % 10 == 0) ? SNAKE_FOOD_BONUS : SNAKE_FOOD_NORMAL;
+  snake.food_quality =
+      (esp_random() % 10 == 0) ? SNAKE_FOOD_BONUS : SNAKE_FOOD_NORMAL;
   snake.food_pulse_offset = 0;
   snake.food_pulse_growing = true;
 
@@ -310,11 +316,9 @@ static void snake_spawn_food(void) {
     }
     lv_obj_set_size(snake.food_obj, dot_size, dot_size);
     lv_obj_set_pos(snake.food_obj,
-                   snake.food.x * snake.cell_w +
-                       (snake.cell_w - dot_size) / 2,
-                   snake.food.y * snake.cell_h +
-                       (snake.cell_h - dot_size) / 2);
-    
+                   snake.food.x * snake.cell_w + (snake.cell_w - dot_size) / 2,
+                   snake.food.y * snake.cell_h + (snake.cell_h - dot_size) / 2);
+
     // Bonus food is gold, normal is red
     if (snake.food_quality == SNAKE_FOOD_BONUS) {
       lv_obj_set_style_bg_color(snake.food_obj, lv_color_hex(0xFFD700), 0);
@@ -326,10 +330,8 @@ static void snake_spawn_food(void) {
 
 static void snake_rebuild_polyline(void) {
   for (uint16_t i = 0; i < snake.length; i++) {
-    snake.points[i].x =
-        snake.cells[i].x * snake.cell_w + snake.cell_w / 2;
-    snake.points[i].y =
-        snake.cells[i].y * snake.cell_h + snake.cell_h / 2;
+    snake.points[i].x = snake.cells[i].x * snake.cell_w + snake.cell_w / 2;
+    snake.points[i].y = snake.cells[i].y * snake.cell_h + snake.cell_h / 2;
   }
 
   if (snake.snake_line != NULL) {
@@ -443,10 +445,8 @@ static void snake_food_pulse_cb(lv_timer_t *timer) {
 
   // Center food with new size
   int16_t offset = (snake.cell_w - new_size) / 2;
-  lv_obj_set_x(snake.food_obj,
-               snake.food.x * snake.cell_w + offset);
-  lv_obj_set_y(snake.food_obj,
-               snake.food.y * snake.cell_h + offset);
+  lv_obj_set_x(snake.food_obj, snake.food.x * snake.cell_w + offset);
+  lv_obj_set_y(snake.food_obj, snake.food.y * snake.cell_h + offset);
 }
 
 static void snake_input_poll_cb(lv_timer_t *timer) {
@@ -503,8 +503,7 @@ static void snake_tick_cb(lv_timer_t *timer) {
   }
 
   if (next_x < 0 || next_x >= (int16_t)snake.grid_w || next_y < 0 ||
-      next_y >= (int16_t)snake.grid_h ||
-      snake_cell_in_corner(next_x, next_y)) {
+      next_y >= (int16_t)snake.grid_h || snake_cell_in_corner(next_x, next_y)) {
     snake_finish_game();
     return;
   }
@@ -533,11 +532,11 @@ static void snake_tick_cb(lv_timer_t *timer) {
     uint16_t points = (snake.food_quality == SNAKE_FOOD_BONUS) ? 2 : 1;
     snake.score += points;
     snake.combo_counter++;
-    
+
     if (snake.score > snake.high_score) {
       snake.high_score = snake.score;
     }
-    
+
     snake_update_score_labels();
     snake_spawn_food();
 
@@ -562,23 +561,25 @@ static void snake_tick_cb(lv_timer_t *timer) {
 }
 
 static void snake_update_difficulty_selection(void) {
-  if (snake.diff_easy_label == NULL ||
-      snake.diff_normal_label == NULL ||
-      snake.diff_hard_label == NULL) {
+  if (snake.diff_easy_label == NULL || snake.diff_normal_label == NULL ||
+      snake.diff_hard_label == NULL || snake.diff_exit_label == NULL) {
     return;
   }
 
-  static const char *labels[] = {"EASY", "NORMAL", "HARD"};
+  static const char *labels[] = {"EASY", "NORMAL", "HARD", "EXIT"};
   lv_obj_t *label_objs[] = {
-    snake.diff_easy_label,
-    snake.diff_normal_label,
-    snake.diff_hard_label,
+      snake.diff_easy_label,
+      snake.diff_normal_label,
+      snake.diff_hard_label,
+      snake.diff_exit_label,
   };
 
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 4; i++) {
     if (i == snake.menu_selected) {
       lv_label_set_text_fmt(label_objs[i], "> %s", labels[i]);
-      lv_obj_set_style_text_color(label_objs[i], lv_color_hex(0x7BFF7A), 0);
+      lv_color_t color =
+          (i == 3) ? lv_color_hex(0xFF6B6B) : lv_color_hex(0x7BFF7A);
+      lv_obj_set_style_text_color(label_objs[i], color, 0);
     } else {
       lv_label_set_text_fmt(label_objs[i], "  %s", labels[i]);
       lv_obj_set_style_text_color(label_objs[i], lv_color_hex(0xE2E2E2), 0);
@@ -589,12 +590,14 @@ static void snake_update_difficulty_selection(void) {
 static void snake_show_difficulty_menu(void) {
   if (snake.difficulty_panel == NULL) {
     snake.difficulty_panel = lv_obj_create(snake.screen);
-    lv_obj_set_size(snake.difficulty_panel, LV_PCT(78), LV_PCT(50));
+    lv_obj_set_size(snake.difficulty_panel, LV_PCT(78), LV_PCT(60));
     lv_obj_align(snake.difficulty_panel, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_bg_color(snake.difficulty_panel, lv_color_hex(0x111111), 0);
+    lv_obj_set_style_bg_color(snake.difficulty_panel, lv_color_hex(0x111111),
+                              0);
     lv_obj_set_style_bg_opa(snake.difficulty_panel, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(snake.difficulty_panel, 2, 0);
-    lv_obj_set_style_border_color(snake.difficulty_panel, lv_color_hex(0x7BFF7A), 0);
+    lv_obj_set_style_border_color(snake.difficulty_panel,
+                                  lv_color_hex(0x7BFF7A), 0);
     lv_obj_set_style_radius(snake.difficulty_panel, 6, 0);
     lv_obj_set_style_pad_all(snake.difficulty_panel, 8, 0);
     lv_obj_clear_flag(snake.difficulty_panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -607,16 +610,19 @@ static void snake_show_difficulty_menu(void) {
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
     snake.diff_easy_label = lv_label_create(snake.difficulty_panel);
-    lv_obj_align(snake.diff_easy_label, LV_ALIGN_LEFT_MID, 14, -16);
+    lv_obj_align(snake.diff_easy_label, LV_ALIGN_LEFT_MID, 14, -24);
 
     snake.diff_normal_label = lv_label_create(snake.difficulty_panel);
-    lv_obj_align(snake.diff_normal_label, LV_ALIGN_LEFT_MID, 14, 4);
+    lv_obj_align(snake.diff_normal_label, LV_ALIGN_LEFT_MID, 14, -4);
 
     snake.diff_hard_label = lv_label_create(snake.difficulty_panel);
-    lv_obj_align(snake.diff_hard_label, LV_ALIGN_LEFT_MID, 14, 24);
+    lv_obj_align(snake.diff_hard_label, LV_ALIGN_LEFT_MID, 14, 16);
+
+    snake.diff_exit_label = lv_label_create(snake.difficulty_panel);
+    lv_obj_align(snake.diff_exit_label, LV_ALIGN_LEFT_MID, 14, 36);
 
     lv_obj_t *hint = lv_label_create(snake.difficulty_panel);
-    lv_label_set_text(hint, "Throttle/Brake: Select  Power: Start");
+    lv_label_set_text(hint, "Throttle/Brake: Select  Power: Confirm");
     lv_obj_set_style_text_color(hint, lv_color_hex(0xCFCFCF), 0);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(hint, LV_PCT(100));
@@ -671,11 +677,13 @@ static void snake_show_pause_menu(void) {
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
     snake.pause_resume_label = lv_label_create(snake.pause_panel);
-    lv_obj_set_style_text_color(snake.pause_resume_label, lv_color_hex(0x7BFF7A), 0);
+    lv_obj_set_style_text_color(snake.pause_resume_label,
+                                lv_color_hex(0x7BFF7A), 0);
     lv_obj_align(snake.pause_resume_label, LV_ALIGN_BOTTOM_MID, 0, -16);
 
     snake.pause_quit_label = lv_label_create(snake.pause_panel);
-    lv_obj_set_style_text_color(snake.pause_quit_label, lv_color_hex(0xE2E2E2), 0);
+    lv_obj_set_style_text_color(snake.pause_quit_label, lv_color_hex(0xE2E2E2),
+                                0);
     lv_obj_align(snake.pause_quit_label, LV_ALIGN_BOTTOM_MID, 0, -2);
   }
 
@@ -729,15 +737,15 @@ static void snake_update_pause_selection(void) {
     lv_obj_set_style_text_color(snake.pause_resume_label,
                                 lv_color_hex(0x7BFF7A), 0);
     lv_label_set_text(snake.pause_quit_label, "  QUIT");
-    lv_obj_set_style_text_color(snake.pause_quit_label,
-                                lv_color_hex(0xE2E2E2), 0);
+    lv_obj_set_style_text_color(snake.pause_quit_label, lv_color_hex(0xE2E2E2),
+                                0);
   } else {
     lv_label_set_text(snake.pause_resume_label, "  RESUME");
     lv_obj_set_style_text_color(snake.pause_resume_label,
                                 lv_color_hex(0xE2E2E2), 0);
     lv_label_set_text(snake.pause_quit_label, "> QUIT");
-    lv_obj_set_style_text_color(snake.pause_quit_label,
-                                lv_color_hex(0x7BFF7A), 0);
+    lv_obj_set_style_text_color(snake.pause_quit_label, lv_color_hex(0x7BFF7A),
+                                0);
   }
 }
 
@@ -776,8 +784,7 @@ static void snake_build_screen_if_needed(void) {
   lv_obj_set_style_bg_color(snake.playfield, lv_color_hex(0x111111), 0);
   lv_obj_set_style_bg_opa(snake.playfield, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(snake.playfield, 2, 0);
-  lv_obj_set_style_border_color(snake.playfield, lv_color_hex(0xFFFFFF),
-                                0);
+  lv_obj_set_style_border_color(snake.playfield, lv_color_hex(0xFFFFFF), 0);
   lv_obj_set_style_border_opa(snake.playfield, LV_OPA_COVER, 0);
   lv_obj_set_style_radius(snake.playfield, 35, 0);
   lv_obj_set_style_pad_all(snake.playfield, 0, 0);
@@ -786,7 +793,8 @@ static void snake_build_screen_if_needed(void) {
   lv_obj_set_style_clip_corner(snake.playfield, true, 0);
   lv_obj_set_pos(snake.playfield, 0, SNAKE_BORDER_INSET_PX);
   lv_obj_set_size(snake.playfield, lv_obj_get_width(snake.screen),
-                  lv_obj_get_height(snake.screen) - (2 * SNAKE_BORDER_INSET_PX));
+                  lv_obj_get_height(snake.screen) -
+                      (2 * SNAKE_BORDER_INSET_PX));
 
   snake.snake_line = lv_line_create(snake.playfield);
   lv_obj_set_style_line_color(snake.snake_line, lv_color_hex(0x7BFF7A), 0);
@@ -841,8 +849,7 @@ static void snake_build_screen_if_needed(void) {
   snake.menu_hint_label = lv_label_create(snake.menu_panel);
   lv_label_set_text(snake.menu_hint_label,
                     "Throttle/Brake: Select\nPower: Enter");
-  lv_obj_set_style_text_color(snake.menu_hint_label, lv_color_hex(0xCFCFCF),
-                              0);
+  lv_obj_set_style_text_color(snake.menu_hint_label, lv_color_hex(0xCFCFCF), 0);
   lv_obj_set_style_text_align(snake.menu_hint_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_width(snake.menu_hint_label, LV_PCT(100));
   lv_obj_align(snake.menu_hint_label, LV_ALIGN_BOTTOM_MID, 0, -2);
@@ -860,8 +867,7 @@ static void snake_build_screen_if_needed(void) {
     snake.grid_h = SNAKE_GRID_MIN_H;
   }
 
-  while ((uint32_t)snake.grid_w * (uint32_t)snake.grid_h >
-         SNAKE_MAX_SEGMENTS) {
+  while ((uint32_t)snake.grid_w * (uint32_t)snake.grid_h > SNAKE_MAX_SEGMENTS) {
     if (snake.grid_h > snake.grid_w) {
       snake.grid_h--;
     } else {
@@ -887,15 +893,14 @@ static void snake_build_screen_if_needed(void) {
 
   lv_obj_set_size(snake.snake_line, field_w, field_h);
   lv_obj_set_style_line_width(
-      snake.snake_line,
-      LV_MAX(2, LV_MIN(snake.cell_w, snake.cell_h) - 2), 0);
+      snake.snake_line, LV_MAX(2, LV_MIN(snake.cell_w, snake.cell_h) - 2), 0);
 
   lv_obj_move_foreground(snake.score_label);
   lv_obj_move_foreground(snake.best_label);
 
   if (snake.menu_input_timer == NULL) {
-    snake.menu_input_timer =
-        lv_timer_create(snake_menu_input_timer_cb, SNAKE_MENU_INPUT_POLL_MS, NULL);
+    snake.menu_input_timer = lv_timer_create(snake_menu_input_timer_cb,
+                                             SNAKE_MENU_INPUT_POLL_MS, NULL);
   }
   lv_timer_pause(snake.menu_input_timer);
 
@@ -967,7 +972,7 @@ static void snake_begin_round_locked(void) {
     lv_timer_set_period(snake.tick_timer, base_speed);
     lv_timer_resume(snake.tick_timer);
   }
-  
+
   if (snake.time_update_timer != NULL) {
     lv_timer_resume(snake.time_update_timer);
   }
@@ -1013,7 +1018,8 @@ static void snake_exit_to_home_locked(void) {
 
   lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
   lv_disp_load_scr(objects.home_screen);
-  if (objects.throttle_not_calibrated_text != NULL && !throttle_is_calibrated()) {
+  if (objects.throttle_not_calibrated_text != NULL &&
+      !throttle_is_calibrated()) {
     lv_obj_clear_flag(objects.throttle_not_calibrated_text, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_invalidate(objects.home_screen);
@@ -1023,9 +1029,7 @@ static void snake_exit_to_home_locked(void) {
 }
 
 // Public API
-bool snake_is_running(void) {
-  return snake.running;
-}
+bool snake_is_running(void) { return snake.running; }
 
 bool ui_handle_easter_egg_button_event(int event_raw) {
   button_event_t event = (button_event_t)event_raw;
@@ -1040,10 +1044,14 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
   if (snake.state == SNAKE_STATE_DIFFICULTY_SELECT) {
     if (event == BUTTON_EVENT_PRESSED) {
       if (take_lvgl_mutex()) {
-        snake.difficulty = (snake_difficulty_t)snake.menu_selected;
-        snake_hide_difficulty_menu();
-        snake.game_over = false;
-        snake_begin_round_locked();
+        if (snake.menu_selected == 3) {
+          snake_exit_to_home_locked();
+        } else {
+          snake.difficulty = (snake_difficulty_t)snake.menu_selected;
+          snake_hide_difficulty_menu();
+          snake.game_over = false;
+          snake_begin_round_locked();
+        }
         give_lvgl_mutex();
       }
     }
@@ -1080,7 +1088,7 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
       // Pause game on long-press
       if (take_lvgl_mutex()) {
         snake_show_pause_menu();
-        
+
         if (snake.tick_timer != NULL) {
           lv_timer_pause(snake.tick_timer);
         }
@@ -1093,7 +1101,7 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
         if (snake.input_poll_timer != NULL) {
           lv_timer_pause(snake.input_poll_timer);
         }
-        
+
         give_lvgl_mutex();
       }
     }
@@ -1127,14 +1135,14 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
         lv_disp_load_scr(snake.screen);
         lv_obj_invalidate(snake.screen);
         snake_show_difficulty_menu();
-        
+
         // Cancel splash transition
         if (splash_transition_timer != NULL) {
           lv_timer_del(splash_transition_timer);
           splash_transition_timer = NULL;
         }
         splash_transition_active = false;
-        
+
         give_lvgl_mutex();
       }
       splash_combo_count = 0;

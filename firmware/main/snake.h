@@ -2,8 +2,9 @@
 #define SNAKE_H
 
 #include "lvgl.h"
-#include <stdint.h>
+#include "sdkconfig.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #define SNAKE_CELL_TARGET_PX 8
 #define SNAKE_GRID_MIN_W 12
@@ -15,7 +16,11 @@
 #define SNAKE_TURN_DEADBAND 10
 #define SNAKE_COMBO_MAX_GAP_MS 450
 #define SNAKE_MENU_INPUT_POLL_MS 80
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+#define SNAKE_BORDER_INSET_PX 0
+#else
 #define SNAKE_BORDER_INSET_PX 25
+#endif
 #define SNAKE_FOOD_PULSE_FREQ_MS 200
 #define SNAKE_TIME_UPDATE_MS 500
 #define SNAKE_DIFFICULTY_TIERS 3
@@ -77,7 +82,7 @@ typedef struct {
   uint16_t food_pulse_offset;
   bool food_pulse_growing;
   snake_food_quality_t food_quality;
-  
+
   snake_cell_t cells[SNAKE_MAX_SEGMENTS];
   lv_point_t points[SNAKE_MAX_SEGMENTS];
   snake_cell_t food;
@@ -100,6 +105,7 @@ typedef struct {
   lv_obj_t *diff_easy_label;
   lv_obj_t *diff_normal_label;
   lv_obj_t *diff_hard_label;
+  lv_obj_t *diff_exit_label;
   lv_obj_t *pause_panel;
   lv_obj_t *pause_resume_label;
   lv_obj_t *pause_quit_label;

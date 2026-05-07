@@ -255,9 +255,9 @@ static void adc_task(void *pvParameters) {
 #elif defined(CONFIG_TARGET_LITE)
     // Single throttle mapping (lite mode)
     uint8_t mapped_value = map_adc_value(adc_value);
-    // Update latest_adc_value for BLE transmission
-    latest_adc_value = mapped_value;
 #endif
+    // Update latest_adc_value so modules like snake can read current input
+    latest_adc_value = mapped_value;
 
     if (!ble_is_connected()) {
       // Only monitor value changes and reset timer when BLE is not connected
