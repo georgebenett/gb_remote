@@ -85,7 +85,14 @@ typedef struct {
 
   snake_cell_t cells[SNAKE_MAX_SEGMENTS];
   lv_point_t points[SNAKE_MAX_SEGMENTS];
+  lv_point_t interp_pts[SNAKE_MAX_SEGMENTS + 1];
   snake_cell_t food;
+
+  lv_point_t prev_head_px;
+  lv_point_t prev_tail_px;
+  bool last_move_grew;
+  uint32_t last_tick_wall_ms;
+  uint32_t tick_period_ms;
 
   lv_obj_t *screen;
   lv_obj_t *playfield;
@@ -114,6 +121,7 @@ typedef struct {
   lv_timer_t *time_update_timer;
   lv_timer_t *food_pulse_timer;
   lv_timer_t *input_poll_timer;
+  lv_timer_t *render_timer;
 
   int8_t turn_queue[SNAKE_TURN_QUEUE_SIZE];
   uint8_t turn_queue_len;
