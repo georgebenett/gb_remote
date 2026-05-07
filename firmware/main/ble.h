@@ -62,9 +62,11 @@ int8_t ble_get_trim_offset(void);
 esp_err_t ble_increase_trim_offset(void);
 esp_err_t ble_decrease_trim_offset(void);
 
-/** Enter charging screen from full mode: stop BLE (disconnect, stop scan). */
-void ble_enter_charging_mode(void);
-/** Leave charging screen: resume BLE scanning. */
-void ble_leave_charging_mode(void);
+/** Suspend BLE: disconnect and stop scanning.
+ *  Called when leaving home screen (charging, snake, splash, etc.). */
+void ble_suspend(void);
+/** Resume BLE: restart scanning.
+ *  Called when arriving at home screen. */
+void ble_resume(void);
 
 #endif // SPP_CLIENT_DEMO_H

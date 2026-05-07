@@ -1,6 +1,7 @@
 #include "ui_updater.h"
 #include "battery.h"
 #include "ble.h"
+#include "button.h"
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -11,6 +12,7 @@
 #include "hw_config.h"
 #include "lcd.h"
 #include "power.h"
+#include "snake.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "version.h"
@@ -56,6 +58,8 @@ typedef struct {
 static QueueHandle_t ui_cmd_queue = NULL;
 static SemaphoreHandle_t lvgl_mutex = NULL;
 static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(50);
+volatile lv_timer_t *splash_transition_timer = NULL;
+volatile bool splash_transition_active = false;
 
 static volatile bool force_config_reload = false;
 
@@ -406,14 +410,14 @@ static void ui_cmd_processor_task(void *pvParameters) {
               objects.controller_battery_text != NULL) {
             if (cmd.data.battery.is_charging) {
               lv_img_set_src(objects.controller_battery, &img_battery_charging);
-              lv_label_set_text_fmt(objects.controller_battery_text, "%d",
+              lv_label_set_text_fmt(objects.controller_battery_text, "%d%%",
                                     cmd.data.battery.percentage);
               lv_obj_set_style_text_color(objects.controller_battery_text,
                                           lv_color_hex(0xFFFFFF),
                                           LV_PART_MAIN | LV_STATE_DEFAULT);
             } else {
               lv_img_set_src(objects.controller_battery, &img_battery);
-              lv_label_set_text_fmt(objects.controller_battery_text, "%d",
+              lv_label_set_text_fmt(objects.controller_battery_text, "%d%%",
                                     cmd.data.battery.percentage);
               lv_obj_set_style_text_color(objects.controller_battery_text,
                                           lv_color_hex(0x000000),
@@ -437,7 +441,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
 
         case UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE:
           if (on_home && objects.skate_battery_text != NULL) {
-            lv_label_set_text_fmt(objects.skate_battery_text, "%d",
+            lv_label_set_text_fmt(objects.skate_battery_text, "%d%%",
                                   cmd.data.skate_percentage);
           }
           break;
@@ -450,7 +454,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
               tenths = 0;
               volts++;
             }
-            snprintf(str_buf, sizeof(str_buf), "%d.%d", volts, tenths);
+            snprintf(str_buf, sizeof(str_buf), "%d.%dV", volts, tenths);
             lv_label_set_text(objects.skate_battery_text, str_buf);
           }
           break;
@@ -573,13 +577,34 @@ void ui_update_aux_output_indicator(void) {
 }
 
 static void splash_timer_cb(lv_timer_t *timer) {
+  if (timer == splash_transition_timer) {
+    splash_transition_timer = NULL;
+  }
+  splash_transition_active = false;
+
+  if (snake_is_running()) {
+    return;
+  }
+
   lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
   lv_disp_load_scr(objects.home_screen);
+
+  // Home screen reached — activate BLE scanning and connection
+  ble_resume();
   if (objects.throttle_not_calibrated_text != NULL &&
       !throttle_is_calibrated()) {
     lv_obj_clear_flag(objects.throttle_not_calibrated_text, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_invalidate(objects.home_screen);
+}
+
+/** Cancel any pending splash transition. Caller must hold LVGL mutex. */
+static void ui_cancel_splash_transition_locked(void) {
+  if (splash_transition_timer != NULL) {
+    lv_timer_del((lv_timer_t *)splash_transition_timer);
+    splash_transition_timer = NULL;
+  }
+  splash_transition_active = false;
 }
 
 /** Show splash and schedule transition to home after 4s. Caller must hold LVGL
@@ -591,10 +616,12 @@ void ui_show_splash_then_home(void) {
              TARGET_NAME);
     lv_label_set_text(objects.firmware_text, version_str);
   }
+  ui_cancel_splash_transition_locked();
+  splash_transition_active = true;
   lv_disp_load_scr(objects.splash_screen);
   lv_obj_invalidate(objects.splash_screen);
-  lv_timer_t *t = lv_timer_create(splash_timer_cb, 1200, NULL);
-  lv_timer_set_repeat_count(t, 1);
+  splash_transition_timer = lv_timer_create(splash_timer_cb, 1200, NULL);
+  lv_timer_set_repeat_count((lv_timer_t *)splash_transition_timer, 1);
 }
 
 void ui_show_splash_screen(void) {
@@ -607,6 +634,8 @@ void ui_show_splash_screen(void) {
   }
 
   lcd_set_backlight(0);
+  ui_cancel_splash_transition_locked();
+  splash_transition_active = true;
   lv_disp_load_scr(objects.splash_screen);
   lv_obj_invalidate(objects.splash_screen);
 
@@ -614,7 +643,7 @@ void ui_show_splash_screen(void) {
       lv_timer_create(splash_fade_up_timer_cb, SPLASH_FADE_UP_DELAY_MS, NULL);
   lv_timer_set_repeat_count(fade_timer, 1);
 
-  lv_timer_t *splash_timer = lv_timer_create(splash_timer_cb, 1200, NULL);
-  lv_timer_set_repeat_count(splash_timer, 1);
+  splash_transition_timer = lv_timer_create(splash_timer_cb, 1200, NULL);
+  lv_timer_set_repeat_count((lv_timer_t *)splash_transition_timer, 1);
   vTaskDelay(pdMS_TO_TICKS(SPLASH_SCREEN_DELAY_MS));
 }
