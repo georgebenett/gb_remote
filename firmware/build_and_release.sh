@@ -45,6 +45,24 @@ fi
 
 print_info "Building firmware version: $VERSION"
 
+# Refuse to run with a dirty working tree — the tag we create must point at a
+# commit whose source actually contains $VERSION, otherwise the released binary
+# won't match the code at v$VERSION.
+if ! git diff --quiet HEAD -- 2>/dev/null || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    print_error "Working tree is dirty. Commit your version bump (and any other changes) before releasing."
+    print_error "Run: git status"
+    exit 1
+fi
+
+# Also require the current commit to be pushed, so origin has the commit the tag will reference.
+if ! git diff --quiet "@{upstream}"..HEAD 2>/dev/null; then
+    print_warn "Local commits are ahead of upstream. Push them before tagging so the release tag references a pushed commit."
+    read -p "Continue anyway? [y/N]: " confirm_unpushed
+    if [[ ! "$confirm_unpushed" =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
 # Check for required tools
 if ! command -v gh &> /dev/null; then
     print_error "GitHub CLI (gh) is not installed. Install it from https://cli.github.com/"
@@ -243,6 +261,29 @@ fi
 # Create GitHub release
 print_info "Creating GitHub release v$VERSION..."
 
+# Build changelog from commits since the previous v* tag.
+# At this point in the script we just created v$VERSION, so look one step back
+# from it to find the prior release tag.
+PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' "v$VERSION^" 2>/dev/null || echo "")
+if [ -n "$PREV_TAG" ]; then
+    print_info "Generating changelog from $PREV_TAG..v$VERSION"
+    CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges "$PREV_TAG..v$VERSION")
+    CHANGELOG_HEADER="## Changes since $PREV_TAG"
+else
+    print_info "No prior v* tag found; including full history in changelog"
+    CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges "v$VERSION")
+    CHANGELOG_HEADER="## Changes"
+fi
+if [ -z "$CHANGELOG" ]; then
+    CHANGELOG="_No commits found between tags._"
+fi
+
+# Build the full release notes body once and reuse it for both create paths.
+RELEASE_NOTES="Firmware release v$VERSION
+
+${CHANGELOG_HEADER}
+${CHANGELOG}"
+
 # Check if release already exists
 if gh release view "v$VERSION" --repo "$REPO" &> /dev/null; then
     print_warn "Release v$VERSION already exists. Do you want to:"
@@ -258,7 +299,7 @@ if gh release view "v$VERSION" --repo "$REPO" &> /dev/null; then
             gh release create "v$VERSION" \
                 --repo "$REPO" \
                 --title "v$VERSION" \
-                --notes "Firmware release v$VERSION" \
+                --notes "$RELEASE_NOTES" \
                 "$ARTIFACTS_DIR"/*.zip
             ;;
         2)
@@ -279,15 +320,21 @@ if gh release view "v$VERSION" --repo "$REPO" &> /dev/null; then
     esac
 else
     # Create new release
+    ARTIFACT_LIST=""
+    for zip_file in "$ARTIFACTS_DIR"/*.zip; do
+        if [ -f "$zip_file" ]; then
+            filename=$(basename "$zip_file")
+            ARTIFACT_LIST="${ARTIFACT_LIST}- \`${filename}\` - Remote firmware build"$'\n'
+        fi
+    done
+
     gh release create "v$VERSION" \
         --repo "$REPO" \
         --title "v$VERSION" \
-        --notes "Firmware release v$VERSION
+        --notes "${RELEASE_NOTES}
 
 ## Artifacts
-- \`lite_v${VERSION}.zip\` - Lite firmware build
-- \`dual_throttle_v${VERSION}.zip\` - Dual throttle firmware build
-
+${ARTIFACT_LIST}
 Each zip contains:
 - \`bootloader.bin\` - Bootloader binary
 - \`partition-table.bin\` - Partition table
