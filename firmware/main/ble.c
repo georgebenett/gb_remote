@@ -171,7 +171,7 @@ esp_err_t ble_send_reset_odometer(void) {
   esp_err_t ret = esp_ble_gattc_write_char(
       spp_gattc_if, spp_conn_id,
       (db + SPP_IDX_SPP_COMMAND_VAL)->attribute_handle, sizeof(cmd), cmd,
-      ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+      ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_MITM);
   if (ret == ESP_OK) {
     ESP_LOGI(GATTC_TAG, "Reset odometer command sent to receiver");
   }
@@ -684,7 +684,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
           spp_gattc_if, spp_conn_id,
           (db + SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle,
           sizeof(neutral_buffer), neutral_buffer, ESP_GATT_WRITE_TYPE_NO_RSP,
-          ESP_GATT_AUTH_REQ_NONE);
+          ESP_GATT_AUTH_REQ_MITM);
       if (ret != ESP_OK) {
         ESP_LOGW(GATTC_TAG, "Failed to send neutral value on disconnect: %s",
                  esp_err_to_name(ret));
@@ -726,7 +726,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     esp_ble_gattc_write_char_descr(
         spp_gattc_if, spp_conn_id, (db + cmd + 1)->attribute_handle,
         sizeof(notify_en), (uint8_t *)&notify_en, ESP_GATT_WRITE_TYPE_NO_RSP,
-        ESP_GATT_AUTH_REQ_NONE);
+        ESP_GATT_AUTH_REQ_MITM);
 
     break;
   }
@@ -791,7 +791,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
       db = NULL;
     }
 
-    db = (esp_gattc_db_elem_t *)malloc(count * sizeof(esp_gattc_db_elem_t));
+    db = (esp_gattc_db_elem_t *)calloc(count, sizeof(esp_gattc_db_elem_t));
     if (db == NULL) {
       ESP_LOGE(GATTC_TAG, "%s:malloc db failed", __func__);
       break;
@@ -936,7 +936,7 @@ void spp_heart_beat_task(void *arg) {
               spp_gattc_if, spp_conn_id,
               (db + SPP_IDX_SPP_HEARTBEAT_VAL)->attribute_handle,
               sizeof(heartbeat_s), (uint8_t *)heartbeat_s,
-              ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+              ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_MITM);
           // Reset watchdog before long delay
           esp_task_wdt_reset();
           vTaskDelay(5000 / portTICK_PERIOD_MS);
@@ -1036,7 +1036,7 @@ void uart_task(void *pvParameters) {
              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
               ESP_GATT_CHAR_PROP_BIT_WRITE))) {
           uint8_t *temp = NULL;
-          temp = (uint8_t *)malloc(sizeof(uint8_t) * event.size);
+          temp = (uint8_t *)malloc(event.size);
           if (temp == NULL) {
             ESP_LOGE(GATTC_TAG, "malloc failed,%s L#%d", __func__, __LINE__);
             break;
@@ -1046,7 +1046,7 @@ void uart_task(void *pvParameters) {
           esp_ble_gattc_write_char(
               spp_gattc_if, spp_conn_id,
               (db + SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle, event.size,
-              temp, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+              temp, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_MITM);
           free(temp);
         }
         break;
@@ -1266,7 +1266,7 @@ static void adc_send_task(void *pvParameters) {
         esp_err_t ret = esp_ble_gattc_write_char(
             spp_gattc_if, spp_conn_id, data_handle,
             sizeof(data_buffer), // 3 bytes
-            data_buffer, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+            data_buffer, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_MITM);
         if (ret != ESP_OK) {
           ESP_LOGW(GATTC_TAG, "Failed to send throttle value: %s",
                    esp_err_to_name(ret));
