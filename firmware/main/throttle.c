@@ -671,33 +671,18 @@ bool throttle_should_use_neutral(void) {
 }
 
 uint8_t map_throttle_value(uint32_t adc_value) {
-  // Protection against invalid calibration
   uint32_t range = adc_input_max_value - adc_input_min_value;
   if (range == 0) {
-    return VESC_NEUTRAL_VALUE; // Return neutral on invalid calibration
+    return VESC_NEUTRAL_VALUE;
   }
 
-  // Constrain input value to the calibrated range
-  if (adc_value < adc_input_min_value) {
+  if (adc_value < adc_input_min_value)
     adc_value = adc_input_min_value;
-  }
-  if (adc_value > adc_input_max_value) {
+  if (adc_value > adc_input_max_value)
     adc_value = adc_input_max_value;
-  }
 
-  // Perform the linear mapping
-  uint8_t mapped =
-      (uint8_t)((adc_value - adc_input_min_value) *
-                    (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) / range +
-                ADC_OUTPUT_MIN_VALUE);
-
-  // Apply dead zone around neutral (±3 units)
-  if (mapped >= (VESC_NEUTRAL_VALUE - 3) &&
-      mapped <= (VESC_NEUTRAL_VALUE + 3)) {
-    mapped = VESC_NEUTRAL_VALUE;
-  }
-
-  return mapped;
+  return (uint8_t)((adc_value - adc_input_min_value) *
+                   (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) / range);
 }
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
@@ -758,31 +743,11 @@ uint8_t get_throttle_brake_ble_value(void) {
     return VESC_NEUTRAL_VALUE; // Avoid division by zero
   }
 
-  // Calculate brake factor
   float brake_factor =
       (float)(brake_raw - brake_input_min_value) / (float)brake_range;
 
-// VESC ignores ble_value within ~14% of neutral (nunchuck dead zone).
-// Remap so any physical input past noise floor clears that dead zone
-// immediately:
-//   0..2%  -> 0.0  (noise floor, no braking)
-//   2%+    -> 15%..100%  (braking starts right away)
-#define BRAKE_NOISE_FLOOR 0.02f
-#define BRAKE_DZ_COMP 0.15f
-  if (brake_factor > BRAKE_NOISE_FLOOR) {
-    brake_factor = BRAKE_DZ_COMP + brake_factor * (1.0f - BRAKE_DZ_COMP);
-    if (brake_factor > 1.0f)
-      brake_factor = 1.0f;
-  } else {
-    brake_factor = 0.0f;
-  }
-
-  // Calculate throttle factor
   float throttle_factor =
       (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
-
-  // Throttle mapping: throttle MAX (factor=1.0) = 255, throttle MIN
-  // (factor=0.0) = 128 (neutral)
   uint8_t throttle_ble_value =
       VESC_NEUTRAL_VALUE + (uint8_t)(throttle_factor * 127.0f);
 
