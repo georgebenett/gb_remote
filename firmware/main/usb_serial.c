@@ -540,7 +540,11 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
 static void handle_cmd_reset_odometer(const binary_packet_t *packet) {
   esp_err_t err = ble_send_reset_odometer();
   if (err != ESP_OK) {
-    usb_serial_send_ack(CMD_RESET_ODOMETER, ERR_NOT_SUPPORTED);
+    // Distinguish "no receiver" from "GATT char doesn't support write" so the
+    // UI can show something other than the catch-all NOT_SUPPORTED.
+    error_code_t code =
+        (err == ESP_ERR_INVALID_STATE) ? ERR_NO_RECEIVER : ERR_NOT_SUPPORTED;
+    usb_serial_send_ack(CMD_RESET_ODOMETER, code);
     return;
   }
   ui_reset_trip_distance();

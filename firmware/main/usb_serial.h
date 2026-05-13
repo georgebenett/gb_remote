@@ -85,6 +85,7 @@ typedef enum {
   ERR_CAL_THROTTLE_NO_READINGS = 0x0C, // No valid throttle readings
   ERR_CAL_BRAKE_RANGE = 0x0D,          // Brake range too small (dual throttle)
   ERR_CAL_BRAKE_NO_READINGS = 0x0E, // No valid brake readings (dual throttle)
+  ERR_NO_RECEIVER = 0x0F,           // BLE link to receiver is not connected
 } error_code_t;
 
 // Packet state machine
