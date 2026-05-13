@@ -96,6 +96,24 @@ static esp_ble_scan_params_t ble_scan_params = {
     .scan_window = 0x30,
     .scan_duplicate = BLE_SCAN_DUPLICATE_DISABLE};
 
+// Pairing advert: receiver scans for this so the user can pick a remote by MAC.
+static const uint8_t pairing_adv_data[11] = {
+    0x02, 0x01, 0x06, 0x07, 0x09, 'G', 'S', '-', 'R', 'E', 'M',
+};
+
+static esp_ble_adv_params_t pairing_adv_params = {
+    .adv_int_min = 0x40,
+    .adv_int_max = 0x80,
+    .adv_type = ADV_TYPE_NONCONN_IND,
+    .own_addr_type = BLE_ADDR_TYPE_PUBLIC,
+    .channel_map = ADV_CHNL_ALL,
+    .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
+};
+
+static bool pairing_adv_active = false;
+
+static void pairing_adv_apply(void);
+
 static bool is_connect = false;
 static SemaphoreHandle_t is_connect_mutex = NULL;
 static const char device_name[] = DEVICE_NAME;
@@ -419,6 +437,18 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   }
 }
 
+// Advertise while we're idle, stop while connected/suspended.
+static void pairing_adv_apply(void) {
+  bool want = !is_connect && !ble_suspended;
+  if (want && !pairing_adv_active) {
+    esp_ble_gap_start_advertising(&pairing_adv_params);
+    pairing_adv_active = true;
+  } else if (!want && pairing_adv_active) {
+    esp_ble_gap_stop_advertising();
+    pairing_adv_active = false;
+  }
+}
+
 static void free_gattc_srv_db(void) {
   if (is_connect_mutex != NULL &&
       xSemaphoreTake(is_connect_mutex, portMAX_DELAY) == pdTRUE) {
@@ -519,6 +549,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
     } else {
       ESP_LOGI(GATTC_TAG, "Stop adv successfully");
     }
+    pairing_adv_active = false;
     break;
   case ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT:
     if (param->read_rssi_cmpl.status == ESP_BT_STATUS_SUCCESS) {
@@ -571,6 +602,18 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
   case ESP_GAP_BLE_KEY_EVT:
     ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_KEY_EVT, key_type: %d",
              param->ble_security.ble_key.key_type);
+    break;
+
+  case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
+    pairing_adv_apply();
+    break;
+
+  case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
+    if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
+      ESP_LOGE(GATTC_TAG, "Pairing adv start failed: %d",
+               param->adv_start_cmpl.status);
+      pairing_adv_active = false;
+    }
     break;
 
   default:
@@ -633,6 +676,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     } else {
       is_connect = true;
     }
+    pairing_adv_apply();
     spp_conn_id = p_data->connect.conn_id;
     memcpy(gl_profile_tab[PROFILE_APP_ID].remote_bda,
            p_data->connect.remote_bda, sizeof(esp_bd_addr_t));
@@ -694,6 +738,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     ui_update_skate_battery_percentage(0);
 
     free_gattc_srv_db();
+    pairing_adv_apply();
 
     // Restart scanning for any receiver (skip when BLE is suspended)
     if (!ble_suspended) {
@@ -976,6 +1021,9 @@ void ble_client_appRegister(void) {
     return;
   }
   esp_ble_gattc_app_register(PROFILE_APP_ID);
+
+  esp_ble_gap_config_adv_data_raw((uint8_t *)pairing_adv_data,
+                                  sizeof(pairing_adv_data));
 
   esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(200);
   if (local_mtu_ret) {
@@ -1352,6 +1400,7 @@ void ble_suspend(void) {
   }
   ble_suspended = true;
   esp_ble_gap_stop_scanning();
+  pairing_adv_apply();
   if (was_connected && spp_gattc_if != 0xff &&
       gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
     esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if, spp_conn_id);
@@ -1366,6 +1415,7 @@ void ble_resume(void) {
   ble_suspended = false;
   ESP_LOGI(GATTC_TAG, "BLE resumed: starting scan");
   esp_ble_gap_set_scan_params(&ble_scan_params);
+  pairing_adv_apply();
 }
 
 bool ble_is_connected(void) {
