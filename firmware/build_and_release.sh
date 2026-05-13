@@ -93,6 +93,22 @@ trap "rm -rf $ARTIFACTS_DIR" EXIT
 
 print_info "Artifacts will be stored in: $ARTIFACTS_DIR"
 
+# ESP chip IDs as they appear at byte offset 12 of an ESP-IDF image header
+# (esp_app_format/esp_image_format.h: esp_chip_id_t). Add new chips here as
+# we support them.
+chip_id_for_target() {
+    case "$1" in
+        esp32)    echo "00" ;;
+        esp32s2)  echo "02" ;;
+        esp32c3)  echo "05" ;;
+        esp32s3)  echo "09" ;;
+        esp32c2)  echo "0c" ;;
+        esp32c6)  echo "0d" ;;
+        esp32h2)  echo "10" ;;
+        *)        echo "" ;;
+    esac
+}
+
 # Function to build a target
 build_target() {
     local target=$1
@@ -120,26 +136,55 @@ build_target() {
         fi
     fi
 
-    # Update sdkconfig
-    if [ ! -f sdkconfig ]; then
-        cp "$config_file" sdkconfig.defaults
+    # Read the IDF chip target from this target's defaults file. This is the
+    # source of truth — if it ever diverges from a stale sdkconfig, set-target
+    # below will force-regenerate sdkconfig from defaults.
+    local idf_target
+    idf_target=$(grep -E '^CONFIG_IDF_TARGET="' "$config_file" | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "$idf_target" ]; then
+        print_error "Could not determine CONFIG_IDF_TARGET from $config_file"
+        exit 1
+    fi
+
+    local expected_chip_id
+    expected_chip_id=$(chip_id_for_target "$idf_target")
+    if [ -z "$expected_chip_id" ]; then
+        print_error "Unknown chip target '$idf_target' — extend chip_id_for_target() in this script"
+        exit 1
+    fi
+
+    # Force a clean sdkconfig regeneration from defaults. Without this, a stale
+    # sdkconfig pointing at a different chip (e.g. esp32c3) silently overrides
+    # the defaults file and we ship a bootloader for the wrong SoC — exactly
+    # what happened in v2.1.15. Removing sdkconfig + invoking set-target makes
+    # idf.py regenerate everything from sdkconfig.defaults.
+    rm -f sdkconfig
+    cp "$config_file" sdkconfig.defaults
+    print_info "Setting IDF target to $idf_target (from $config_file)..."
+    idf.py set-target "$idf_target"
+
+    # set-target rewrites sdkconfig from defaults; apply the LCD/feature flags
+    # for this target on top. (No CONFIG_TARGET_* sed is needed — defaults
+    # already encode them, and set-target picked them up.)
+    if [ "$target" == "lite" ]; then
+        sed_inplace 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=240/' sdkconfig
+        sed_inplace 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
+        sed_inplace 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=0/' sdkconfig
+        sed_inplace 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
     else
-        cp "$config_file" sdkconfig.defaults
-        if [ "$target" == "lite" ]; then
-            sed_inplace 's/^CONFIG_TARGET_DUAL_THROTTLE=y/# CONFIG_TARGET_DUAL_THROTTLE is not set/' sdkconfig
-            sed_inplace 's/^# CONFIG_TARGET_LITE is not set$/CONFIG_TARGET_LITE=y/' sdkconfig || true
-            sed_inplace 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=240/' sdkconfig
-            sed_inplace 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
-            sed_inplace 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=0/' sdkconfig
-            sed_inplace 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
-        else
-            sed_inplace 's/^# CONFIG_TARGET_DUAL_THROTTLE is not set$/CONFIG_TARGET_DUAL_THROTTLE=y/' sdkconfig || true
-            sed_inplace 's/^CONFIG_TARGET_LITE=y/# CONFIG_TARGET_LITE is not set/' sdkconfig
-            sed_inplace 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=172/' sdkconfig
-            sed_inplace 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
-            sed_inplace 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=34/' sdkconfig
-            sed_inplace 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
-        fi
+        sed_inplace 's/^CONFIG_LCD_HOR_RES=.*/CONFIG_LCD_HOR_RES=172/' sdkconfig
+        sed_inplace 's/^CONFIG_LCD_VER_RES=.*/CONFIG_LCD_VER_RES=320/' sdkconfig
+        sed_inplace 's/^CONFIG_LCD_OFFSET_X=.*/CONFIG_LCD_OFFSET_X=34/' sdkconfig
+        sed_inplace 's/^CONFIG_LCD_OFFSET_Y=.*/CONFIG_LCD_OFFSET_Y=0/' sdkconfig
+    fi
+
+    # Belt-and-braces: confirm sdkconfig now points at the expected chip before
+    # we burn 90 seconds compiling for the wrong one.
+    local actual_idf_target
+    actual_idf_target=$(grep -E '^CONFIG_IDF_TARGET="' sdkconfig | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ "$actual_idf_target" != "$idf_target" ]; then
+        print_error "sdkconfig target is '$actual_idf_target', expected '$idf_target' after set-target"
+        exit 1
     fi
 
     # Enable ccache if available
@@ -153,6 +198,21 @@ build_target() {
     BUILD_END=$(date +%s)
     BUILD_TIME=$((BUILD_END - BUILD_START))
     print_info "Build completed in ${BUILD_TIME} seconds"
+
+    # Verify the bootloader carries the chip ID we expect. ESP-IDF image header
+    # places the chip_id at byte offset 12; the device-side recovery flow checks
+    # the same byte, so catching a mismatch here means we never ship a bricked
+    # build to GitHub in the first place.
+    local actual_chip_id
+    actual_chip_id=$(xxd -p -s 12 -l 1 build/bootloader/bootloader.bin)
+    if [ "$actual_chip_id" != "$expected_chip_id" ]; then
+        print_error "Bootloader chip ID mismatch for $target:"
+        print_error "  expected 0x$expected_chip_id ($idf_target)"
+        print_error "  found    0x$actual_chip_id in build/bootloader/bootloader.bin"
+        print_error "Refusing to package — sdkconfig and built binary disagree on the SoC."
+        exit 1
+    fi
+    print_info "Bootloader chip ID 0x$actual_chip_id matches $idf_target — OK"
 
     # Find the main app binary (ESP-IDF creates it with the project name)
     # The project name is gb_controller_lite, so the binary should be gb_controller_lite.bin
