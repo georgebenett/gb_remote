@@ -94,28 +94,52 @@ void create_screen_splash_screen() {
             lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
         }
         {
-            // firmware_version
+            // mac_addr_text
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.firmware_version = obj;
-            lv_obj_set_pos(obj, 0, 100);
+            objects.mac_addr_text = obj;
+            lv_obj_set_pos(obj, -1, 76);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_font(obj, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text(obj, "firmware version:");
+            lv_label_set_text(obj, "mac addr");
         }
         {
             // firmware_text
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.firmware_text = obj;
-            lv_obj_set_pos(obj, 0, 120);
+            lv_obj_set_pos(obj, -1, 120);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_font(obj, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text(obj, "unknown");
+            lv_label_set_text(obj, "fw vers");
+        }
+        {
+            // mac
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.mac = obj;
+            lv_obj_set_pos(obj, 0, 54);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_font(obj, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "mac address:");
+        }
+        {
+            // firmware
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.firmware = obj;
+            lv_obj_set_pos(obj, -1, 98);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_font(obj, &ui_font_bebas20, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_align(obj, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "fw version:");
         }
     }
     

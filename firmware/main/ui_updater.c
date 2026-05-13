@@ -5,6 +5,7 @@
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/queue.h"
@@ -616,6 +617,14 @@ void ui_show_splash_then_home(void) {
              TARGET_NAME);
     lv_label_set_text(objects.firmware_text, version_str);
   }
+  if (objects.mac_addr_text != NULL) {
+    uint8_t mac[6] = {0};
+    char mac_str[18];
+    esp_read_mac(mac, ESP_MAC_BT);
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0],
+             mac[1], mac[2], mac[3], mac[4], mac[5]);
+    lv_label_set_text(objects.mac_addr_text, mac_str);
+  }
   ui_cancel_splash_transition_locked();
   splash_transition_active = true;
   lv_disp_load_scr(objects.splash_screen);
@@ -625,12 +634,21 @@ void ui_show_splash_then_home(void) {
 }
 
 void ui_show_splash_screen(void) {
-  // Set firmware version label now, just before showing the splash screen
+  // Set firmware version + MAC labels now, just before showing the splash
+  // screen
   if (objects.firmware_text != NULL) {
     char version_str[64];
     snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,
              TARGET_NAME);
     lv_label_set_text(objects.firmware_text, version_str);
+  }
+  if (objects.mac_addr_text != NULL) {
+    uint8_t mac[6] = {0};
+    char mac_str[18];
+    esp_read_mac(mac, ESP_MAC_BT);
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0],
+             mac[1], mac[2], mac[3], mac[4], mac[5]);
+    lv_label_set_text(objects.mac_addr_text, mac_str);
   }
 
   lcd_set_backlight(0);

@@ -15,8 +15,10 @@ typedef struct _objects_t {
     lv_obj_t *low_battery_screen;
     lv_obj_t *charging_screen_percentage;
     lv_obj_t *charging_arc;
-    lv_obj_t *firmware_version;
+    lv_obj_t *mac_addr_text;
     lv_obj_t *firmware_text;
+    lv_obj_t *mac;
+    lv_obj_t *firmware;
     lv_obj_t *skate_battery;
     lv_obj_t *skate_battery_text;
     lv_obj_t *controller_battery;
