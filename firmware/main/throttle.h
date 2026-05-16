@@ -16,7 +16,7 @@
 #define ADC_SAMPLE_MS 2               // Delay between ADC samples for settling
 #define CALIBRATION_STEP_DELAY_MS 100 // Delay between calibration steps
 #define CALIBRATE_THROTTLE 0
-#define ADC_SAMPLING_TICKS 30
+#define ADC_SAMPLING_TICKS 15
 // Initial values that will be updated by calibration
 #define ADC_INITIAL_MAX_VALUE 4095 // 12-bit ADC max
 #define ADC_INITIAL_MIN_VALUE 0

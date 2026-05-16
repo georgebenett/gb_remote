@@ -688,6 +688,17 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
 
     esp_ble_gattc_search_service(spp_gattc_if, spp_conn_id, &spp_service_uuid);
 
+    // Request 20 ms connection interval so throttle packets are delivered
+    // at the same rate we send them.
+    esp_ble_conn_update_params_t conn_params = {
+        .min_int = 16, // 16 * 1.25 ms = 20 ms
+        .max_int = 16,
+        .latency = 0,
+        .timeout = 400, // 400 * 10 ms = 4 s supervision timeout
+    };
+    memcpy(conn_params.bda, p_data->connect.remote_bda, sizeof(esp_bd_addr_t));
+    esp_ble_gap_update_conn_params(&conn_params);
+
     // Send serial notification for config tool
     printf("#>DATA ble_status=connected\n");
     break;
@@ -1204,6 +1215,18 @@ static void adc_send_task(void *pvParameters) {
   bool was_connected = false;
   uint32_t connection_time = 0;
 
+#ifdef CONFIG_TARGET_LITE
+  // Load once — invert_throttle only changes via USB config tool, never
+  // mid-ride.
+  bool invert_throttle = false;
+  {
+    vesc_config_t cfg;
+    if (vesc_config_load(&cfg) == ESP_OK) {
+      invert_throttle = cfg.invert_throttle;
+    }
+  }
+#endif
+
   while (1) {
     esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
                           // connected
@@ -1250,7 +1273,7 @@ static void adc_send_task(void *pvParameters) {
         ESP_LOGW(GATTC_TAG, "Low battery - throttle blocked, sending neutral");
       } else {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-        adc_value = get_throttle_brake_ble_value();
+        adc_value = adc_get_latest_value();
 #elif defined(CONFIG_TARGET_LITE)
         if (throttle_should_use_neutral()) {
           adc_value = VESC_NEUTRAL_VALUE;
@@ -1258,14 +1281,9 @@ static void adc_send_task(void *pvParameters) {
           adc_value = adc_get_latest_value();
         }
 
-        vesc_config_t config;
-        esp_err_t err = vesc_config_load(&config);
-
-        if (err == ESP_OK) {
-          if (config.invert_throttle) {
-            adc_value = 255 - adc_value;
-            throttle_inverted = true;
-          }
+        if (invert_throttle) {
+          adc_value = 255 - adc_value;
+          throttle_inverted = true;
         }
 #endif
       }

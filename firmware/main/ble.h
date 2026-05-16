@@ -13,7 +13,7 @@
 #define BLE_TRIM_NVS_NAMESPACE "ble_cfg"
 #define BLE_TRIM_NVS_KEY_OFFSET "trim_offset"
 // Task timing constants
-#define ADC_SEND_INTERVAL_MS 75    // Throttle data send rate
+#define ADC_SEND_INTERVAL_MS 20    // Throttle data send rate (50 Hz)
 #define RSSI_READ_INTERVAL_MS 1000 // RSSI polling rate
 #define NEUTRAL_HOLD_MS 1000       // Hold neutral after connection
 
