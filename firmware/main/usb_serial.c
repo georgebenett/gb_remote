@@ -844,6 +844,12 @@ static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
 // Apply trim offset with range compensation to maintain full 0-255 span
 static uint8_t apply_trim_with_compensation(uint8_t adc_value,
                                             int8_t trim_offset) {
+  uint8_t dist = (adc_value > VESC_NEUTRAL_VALUE)
+                     ? (adc_value - VESC_NEUTRAL_VALUE)
+                     : (VESC_NEUTRAL_VALUE - adc_value);
+  if (dist <= THROTTLE_NEUTRAL_DEADBAND)
+    adc_value = VESC_NEUTRAL_VALUE;
+
   int32_t new_center = VESC_NEUTRAL_VALUE + trim_offset;
 
   // Clamp new center to valid range

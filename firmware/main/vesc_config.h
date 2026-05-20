@@ -14,6 +14,8 @@
 #endif
 
 #define VESC_NEUTRAL_VALUE 128
+#define THROTTLE_NEUTRAL_DEADBAND                                              \
+  15 // ADC units around neutral (0-255 scale) that snap to exact neutral
 
 // Motor configuration from VESC (received via BLE, NOT persisted)
 typedef struct {

@@ -1288,6 +1288,12 @@ static void adc_send_task(void *pvParameters) {
 #endif
       }
 
+      uint32_t dist = (adc_value > VESC_NEUTRAL_VALUE)
+                          ? (adc_value - VESC_NEUTRAL_VALUE)
+                          : (VESC_NEUTRAL_VALUE - adc_value);
+      if (dist <= THROTTLE_NEUTRAL_DEADBAND)
+        adc_value = VESC_NEUTRAL_VALUE;
+
       uint8_t final_ble_value;
       int8_t effective_trim =
           throttle_inverted ? -ble_trim_offset : ble_trim_offset;
