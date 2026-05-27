@@ -128,7 +128,6 @@ static void power_button_callback(button_event_t event, void *user_data) {
         lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
         arc_animation_active = false;
         shutdown_armed = false;
-        lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
         lv_disp_load_scr(objects.home_screen);
         lv_obj_invalidate(objects.home_screen);
         give_lvgl_mutex();
@@ -141,25 +140,15 @@ static void power_button_callback(button_event_t event, void *user_data) {
     break;
 
   case BUTTON_EVENT_POWER_OFF_ARMED:
-    // Step 1: single tap confirmed — arm and show power lock icon
     if (current_mode == POWER_MODE_CHARGING)
       break;
     if (!button_released_since_boot)
       break;
     shutdown_armed = true;
-    if (take_lvgl_mutex()) {
-      lv_obj_clear_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
-      give_lvgl_mutex();
-    }
     break;
 
   case BUTTON_EVENT_POWER_OFF_CANCELLED:
-    // Arm window expired without hold — disarm and hide power lock icon
     shutdown_armed = false;
-    if (take_lvgl_mutex()) {
-      lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
-      give_lvgl_mutex();
-    }
     break;
 
   case BUTTON_EVENT_LONG_PRESS:

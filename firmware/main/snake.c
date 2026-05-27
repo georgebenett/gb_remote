@@ -1092,7 +1092,6 @@ static void snake_exit_to_home_locked(void) {
   snake_hide_pause_menu();
   snake_hide_difficulty_menu();
 
-  lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
   lv_disp_load_scr(objects.home_screen);
   if (objects.throttle_not_calibrated_text != NULL &&
       !throttle_is_calibrated()) {

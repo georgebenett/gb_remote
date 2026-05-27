@@ -188,7 +188,7 @@ void create_screen_home_screen() {
         {
             // controller_battery
             lv_obj_t *obj = lv_img_create(parent_obj);
-            objects.controller_battery = obj;
+            objects.controller_battery_text = obj;
             lv_obj_set_pos(obj, 55, -130);
             lv_obj_set_size(obj, 50, 50);
             lv_img_set_src(obj, &img_battery);
@@ -270,7 +270,6 @@ void create_screen_home_screen() {
         {
             // power_lock
             lv_obj_t *obj = lv_img_create(parent_obj);
-            objects.power_lock = obj;
             lv_obj_set_pos(obj, 60, 136);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_img_set_src(obj, &img_power_lock);

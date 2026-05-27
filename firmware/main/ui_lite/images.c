@@ -1,6 +1,6 @@
 #include "images.h"
 
-const ext_img_desc_t images[11] = {
+const ext_img_desc_t images[16] = {
     { "splash", &img_splash },
     { "battery", &img_battery },
     { "battery charging", &img_battery_charging },
@@ -12,4 +12,9 @@ const ext_img_desc_t images[11] = {
     { "lightning", &img_lightning },
     { "empty_battery", &img_empty_battery },
     { "power lock", &img_power_lock },
+    { "skateboard_icon_connected", &img_skateboard_icon_connected },
+    { "remote_icon", &img_remote_icon },
+    { "skateboard_no_connection", &img_skateboard_no_connection },
+    { "charging", &img_charging },
+    { "power", &img_power },
 };

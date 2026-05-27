@@ -71,6 +71,18 @@ static volatile float total_trip_km = 0.0f;
 
 static lv_obj_t *get_current_screen(void) { return lv_scr_act(); }
 
+static void set_arc_indicator_color_for_pct(lv_obj_t *arc, int pct) {
+  lv_color_t color;
+  if (pct <= 15) {
+    color = lv_color_make(255, 59, 48);
+  } else if (pct <= 35) {
+    color = lv_color_make(255, 149, 0);
+  } else {
+    color = lv_color_hex(0x04de71);
+  }
+  lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
+}
+
 static void splash_fade_up_timer_cb(lv_timer_t *timer) {
   (void)timer;
   lcd_fade_to_saved_brightness();
@@ -147,7 +159,7 @@ void ui_update_battery_percentage(int percentage) {
   if (power_is_entering_off_mode())
     return;
   if (objects.controller_battery_text == NULL ||
-      objects.controller_battery == NULL)
+      objects.controller_battery_text == NULL)
     return;
 
   int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
@@ -407,23 +419,19 @@ static void ui_cmd_processor_task(void *pvParameters) {
           break;
 
         case UI_CMD_UPDATE_BATTERY_PERCENTAGE:
-          if (on_home && objects.controller_battery != NULL &&
+          if (on_home && objects.controller_battery_text != NULL &&
               objects.controller_battery_text != NULL) {
-            if (cmd.data.battery.is_charging) {
-              lv_img_set_src(objects.controller_battery, &img_battery_charging);
-              lv_label_set_text_fmt(objects.controller_battery_text, "%d%%",
-                                    cmd.data.battery.percentage);
-              lv_obj_set_style_text_color(objects.controller_battery_text,
-                                          lv_color_hex(0xFFFFFF),
-                                          LV_PART_MAIN | LV_STATE_DEFAULT);
-            } else {
-              lv_img_set_src(objects.controller_battery, &img_battery);
-              lv_label_set_text_fmt(objects.controller_battery_text, "%d%%",
-                                    cmd.data.battery.percentage);
-              lv_obj_set_style_text_color(objects.controller_battery_text,
-                                          lv_color_hex(0x000000),
-                                          LV_PART_MAIN | LV_STATE_DEFAULT);
-            }
+            lv_label_set_text_fmt(objects.controller_battery_text, "%d%%",
+                                  cmd.data.battery.percentage);
+          }
+          if (on_home && objects.remote_arc != NULL) {
+            int pct = cmd.data.battery.percentage;
+            if (pct < 0)
+              pct = 0;
+            if (pct > 100)
+              pct = 100;
+            lv_arc_set_value(objects.remote_arc, (int16_t)pct);
+            set_arc_indicator_color_for_pct(objects.remote_arc, pct);
           }
           if (get_current_screen() == objects.charging_screen &&
               objects.charging_screen_percentage != NULL) {
@@ -444,6 +452,20 @@ static void ui_cmd_processor_task(void *pvParameters) {
           if (on_home && objects.skate_battery_text != NULL) {
             lv_label_set_text_fmt(objects.skate_battery_text, "%d%%",
                                   cmd.data.skate_percentage);
+            lv_obj_set_style_text_color(objects.skate_battery_text,
+                                        ble_is_connected()
+                                            ? lv_color_white()
+                                            : lv_color_make(48, 48, 48),
+                                        LV_PART_MAIN);
+          }
+          if (on_home && objects.skateboard_arc != NULL) {
+            int pct = cmd.data.skate_percentage;
+            if (pct < 0)
+              pct = 0;
+            if (pct > 100)
+              pct = 100;
+            lv_arc_set_value(objects.skateboard_arc, (int16_t)pct);
+            set_arc_indicator_color_for_pct(objects.skateboard_arc, pct);
           }
           break;
 
@@ -457,6 +479,11 @@ static void ui_cmd_processor_task(void *pvParameters) {
             }
             snprintf(str_buf, sizeof(str_buf), "%d.%dV", volts, tenths);
             lv_label_set_text(objects.skate_battery_text, str_buf);
+            lv_obj_set_style_text_color(objects.skate_battery_text,
+                                        ble_is_connected()
+                                            ? lv_color_white()
+                                            : lv_color_make(48, 48, 48),
+                                        LV_PART_MAIN);
           }
           break;
 
@@ -475,6 +502,11 @@ static void ui_cmd_processor_task(void *pvParameters) {
               icon_src = &img_connection_0;
             }
             lv_img_set_src(objects.connection_icon, icon_src);
+          }
+          if (on_home && objects.skateboard_icon != NULL) {
+            lv_img_set_src(objects.skateboard_icon,
+                           ble_is_connected() ? &img_skateboard_icon_connected
+                                              : &img_skateboard_no_connection);
           }
           break;
 
@@ -512,6 +544,9 @@ static void ui_cmd_processor_task(void *pvParameters) {
         case UI_CMD_RESET_SKATE_DISPLAY:
           if (on_home && objects.skate_battery_text != NULL) {
             lv_label_set_text(objects.skate_battery_text, "--");
+            lv_obj_set_style_text_color(objects.skate_battery_text,
+                                        lv_color_make(48, 48, 48),
+                                        LV_PART_MAIN);
           }
           if (objects.aux_output != NULL) {
             lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
@@ -587,7 +622,6 @@ static void splash_timer_cb(lv_timer_t *timer) {
     return;
   }
 
-  lv_obj_add_flag(objects.power_lock, LV_OBJ_FLAG_HIDDEN);
   lv_disp_load_scr(objects.home_screen);
 
   // Home screen reached — activate BLE scanning and connection
