@@ -4,7 +4,7 @@
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
-    "selectedFontObject": "[eezproject.eez-project]:/fonts/8",
+    "selectedFontObject": "[eezproject.eez-project]:/fonts/1",
     "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/13",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
@@ -195,10 +195,20 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 47.584420055520035,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
+                {
+                  "type": "tab",
+                  "id": "#ea925713-1a81-4ee9-a90a-e65f3c2de1e3",
+                  "name": "satoshi16",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[eezproject.eez-project]:/fonts/1",
+                    "permanent": false
+                  },
+                  "icon": "material:font_download"
+                },
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
@@ -1570,11 +1580,6 @@
           "5": {
             "0": {},
             "1": {}
-          },
-          "6": {
-            "1": {},
-            "2": {},
-            "3": {}
           }
         }
       },

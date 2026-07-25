@@ -421,8 +421,10 @@ static void ui_cmd_processor_task(void *pvParameters) {
         case UI_CMD_UPDATE_BATTERY_PERCENTAGE:
           if (on_home && objects.controller_battery_text != NULL &&
               objects.controller_battery_text != NULL) {
-            lv_label_set_text_fmt(objects.controller_battery_text, "%d%%",
-                                  cmd.data.battery.percentage);
+            lv_label_set_text_fmt(
+                objects.controller_battery_text, "%s%d%%",
+                cmd.data.battery.is_charging ? LV_SYMBOL_CHARGE " " : "",
+                cmd.data.battery.percentage);
           }
           if (on_home && objects.remote_arc != NULL) {
             int pct = cmd.data.battery.percentage;

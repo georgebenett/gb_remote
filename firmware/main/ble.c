@@ -76,6 +76,9 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
                                         esp_ble_gattc_cb_param_t *param);
 static void adc_send_task(void *pvParameters);
 static void log_rssi_task(void *pvParameters);
+static int link_count_connected(void);
+static int desired_link_count(void);
+static void resume_scan_if_needed(void);
 
 /* One gatt-based profile one app_id and one gattc_if, this array will store the
  * gattc_if returned by ESP_GATTS_REG_EVT */
@@ -114,28 +117,48 @@ static bool pairing_adv_active = false;
 
 static void pairing_adv_apply(void);
 
-static bool is_connect = false;
+// One link per receiver. Only the first slot is used unless the
+// dual_connection user preference is enabled.
+#define MAX_RECEIVER_LINKS 2
+
+typedef struct {
+  bool in_use; // Slot claimed (connection opening or open)
+  bool ready;  // Service discovery done, db[] valid, throttle may be sent
+  uint16_t conn_id;
+  esp_bd_addr_t bda;
+  uint16_t srv_start_handle;
+  uint16_t srv_end_handle;
+  uint16_t mtu;
+  esp_gattc_db_elem_t db[SPP_IDX_NB];
+  uint32_t connect_ms; // Connection timestamp for the neutral hold period
+  int8_t rssi;
+  bool rssi_valid;
+} receiver_link_t;
+
+static receiver_link_t links[MAX_RECEIVER_LINKS];
+
+static receiver_link_t *link_by_conn_id(uint16_t conn_id);
+static receiver_link_t *link_by_bda(const esp_bd_addr_t bda);
+
+static bool is_connect = false; // True while at least one link is connected
 static SemaphoreHandle_t is_connect_mutex = NULL;
 static const char device_name[] = DEVICE_NAME;
-static uint16_t spp_conn_id = 0;
-static uint16_t spp_mtu_size = 23;
-static uint16_t cmd = 0;
-static uint16_t spp_srv_start_handle = 0;
-static uint16_t spp_srv_end_handle = 0;
 static uint16_t spp_gattc_if = 0xff;
-static char *notify_value_p = NULL;
-static int notify_value_offset = 0;
-static int notify_value_count = 0;
-static uint16_t count = SPP_IDX_NB;
-static esp_gattc_db_elem_t *db = NULL;
-static esp_ble_gap_cb_param_t scan_rst;
+static bool dual_connection_enabled = false;
+static bool scan_active = false;
+// Stop-scan-then-open handshake: set when a matching receiver is found,
+// consumed in ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT.
+static bool connect_pending = false;
+static esp_bd_addr_t pending_connect_bda;
+static esp_ble_addr_type_t pending_connect_addr_type;
 static QueueHandle_t cmd_reg_queue = NULL;
 QueueHandle_t spp_uart_queue = NULL;
 
-#ifdef SUPPORT_HEARTBEAT
-static uint8_t heartbeat_s[9] = {'E', 's', 'p', 'r', 'e', 's', 's', 'i', 'f'};
-static QueueHandle_t cmd_heartbeat_queue = NULL;
-#endif
+// Notify-registration work item processed by spp_client_reg_task
+typedef struct {
+  uint8_t link_idx;
+  uint16_t attr_idx; // SPP_IDX_SPP_DATA_NTY_VAL or SPP_IDX_SPP_STATUS_VAL
+} reg_work_t;
 
 static esp_bt_uuid_t spp_service_uuid = {
     .len = ESP_UUID_LEN_16,
@@ -178,22 +201,31 @@ float get_latest_temp_motor(void) { return latest_temp_motor; }
 float ble_get_latest_trip_km(void) { return latest_trip_km; }
 
 esp_err_t ble_send_reset_odometer(void) {
-  if (!ble_is_connected() || db == NULL) {
+  if (!ble_is_connected()) {
     return ESP_ERR_INVALID_STATE;
   }
-  if (!((db + SPP_IDX_SPP_COMMAND_VAL)->properties &
-        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+  uint8_t cmd[1] = {BLE_CMD_RESET_ODOMETER};
+  bool sent = false;
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    receiver_link_t *link = &links[i];
+    if (!link->ready)
+      continue;
+    if (!(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
+          (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
+      continue;
+    if (esp_ble_gattc_write_char(
+            spp_gattc_if, link->conn_id,
+            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle, sizeof(cmd),
+            cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
+            ESP_GATT_AUTH_REQ_NONE) == ESP_OK) {
+      sent = true;
+    }
+  }
+  if (!sent) {
     return ESP_ERR_NOT_SUPPORTED;
   }
-  uint8_t cmd[1] = {BLE_CMD_RESET_ODOMETER};
-  esp_err_t ret = esp_ble_gattc_write_char(
-      spp_gattc_if, spp_conn_id,
-      (db + SPP_IDX_SPP_COMMAND_VAL)->attribute_handle, sizeof(cmd), cmd,
-      ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
-  if (ret == ESP_OK) {
-    ESP_LOGI(GATTC_TAG, "Reset odometer command sent to receiver");
-  }
-  return ret;
+  ESP_LOGI(GATTC_TAG, "Reset odometer command sent to receiver(s)");
+  return ESP_OK;
 }
 
 static void aux_output_save_state(void) {
@@ -290,6 +322,9 @@ bool ble_get_receiver_aux_output_state(void) {
   return receiver_aux_output_state;
 }
 
+// Telemetry from all connected receivers lands in the same globals
+// (last-write-wins): both receivers ride the same vehicle, so their
+// readings are expected to be near-identical.
 static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   uint8_t handle = 0;
 
@@ -302,10 +337,13 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   }
 
   handle = p_data->notify.handle;
-  if (db == NULL) {
-    ESP_LOGE(GATTC_TAG, " %s db is NULL", __func__);
+  receiver_link_t *link = link_by_conn_id(p_data->notify.conn_id);
+  if (link == NULL || !link->ready) {
+    ESP_LOGE(GATTC_TAG, " %s no ready link for conn_id %d", __func__,
+             p_data->notify.conn_id);
     return;
   }
+  const esp_gattc_db_elem_t *db = link->db;
 
   if (handle == db[SPP_IDX_SPP_STATUS_VAL].attribute_handle) {
     if (p_data->notify.value_len >= 2 &&
@@ -437,9 +475,10 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   }
 }
 
-// Advertise while we're idle, stop while connected/suspended.
+// Advertise while we still have receiver capacity (so a second receiver can
+// pair while the first is connected), stop when full or suspended.
 static void pairing_adv_apply(void) {
-  bool want = !is_connect && !ble_suspended;
+  bool want = !ble_suspended && link_count_connected() < desired_link_count();
   if (want && !pairing_adv_active) {
     esp_ble_gap_start_advertising(&pairing_adv_params);
     pairing_adv_active = true;
@@ -449,27 +488,74 @@ static void pairing_adv_apply(void) {
   }
 }
 
-static void free_gattc_srv_db(void) {
+static void set_is_connect(bool value) {
   if (is_connect_mutex != NULL &&
       xSemaphoreTake(is_connect_mutex, portMAX_DELAY) == pdTRUE) {
-    is_connect = false;
+    is_connect = value;
     xSemaphoreGive(is_connect_mutex);
   } else {
-    is_connect = false;
+    is_connect = value;
   }
-  spp_gattc_if = 0xff;
-  spp_conn_id = 0;
-  spp_mtu_size = 23;
-  cmd = 0;
-  spp_srv_start_handle = 0;
-  spp_srv_end_handle = 0;
-  notify_value_p = NULL;
-  notify_value_offset = 0;
-  notify_value_count = 0;
-  if (db) {
-    free(db);
-    db = NULL;
+}
+
+static int link_count_connected(void) {
+  int n = 0;
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    if (links[i].in_use)
+      n++;
   }
+  return n;
+}
+
+static bool link_any_ready(void) {
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    if (links[i].ready)
+      return true;
+  }
+  return false;
+}
+
+static receiver_link_t *link_by_conn_id(uint16_t conn_id) {
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    if (links[i].in_use && links[i].conn_id == conn_id)
+      return &links[i];
+  }
+  return NULL;
+}
+
+static receiver_link_t *link_by_bda(const esp_bd_addr_t bda) {
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    if (links[i].in_use &&
+        memcmp(links[i].bda, bda, sizeof(esp_bd_addr_t)) == 0)
+      return &links[i];
+  }
+  return NULL;
+}
+
+static receiver_link_t *link_alloc(const esp_bd_addr_t bda) {
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    if (!links[i].in_use) {
+      memset(&links[i], 0, sizeof(links[i]));
+      links[i].in_use = true;
+      memcpy(links[i].bda, bda, sizeof(esp_bd_addr_t));
+      return &links[i];
+    }
+  }
+  return NULL;
+}
+
+static void link_free(receiver_link_t *link) { memset(link, 0, sizeof(*link)); }
+
+static int desired_link_count(void) { return dual_connection_enabled ? 2 : 1; }
+
+/** Start scanning when below the desired receiver count and no
+ *  stop-scan-then-open handshake is in flight. */
+static void resume_scan_if_needed(void) {
+  if (ble_suspended || scan_active || connect_pending)
+    return;
+  if (link_count_connected() >= desired_link_count())
+    return;
+  esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
 }
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event,
@@ -497,25 +583,29 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
   case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
     // scan start complete event to indicate scan start successfully or failed
     if ((err = param->scan_start_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
+      scan_active = false;
       ESP_LOGE(GATTC_TAG, "Scan start failed: %s", esp_err_to_name(err));
       break;
     }
+    scan_active = true;
     ESP_LOGI(GATTC_TAG, "Scan start successfully");
     break;
   case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
+    scan_active = false;
     if ((err = param->scan_stop_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
       ESP_LOGE(GATTC_TAG, "Scan stop failed: %s", esp_err_to_name(err));
       break;
     }
     ESP_LOGI(GATTC_TAG, "Scan stop successfully");
     if (ble_suspended) {
+      connect_pending = false;
       break;
     }
-    if (!ble_is_connected()) {
+    if (connect_pending) {
+      connect_pending = false;
       ESP_LOGI(GATTC_TAG, "Connect to the remote device.");
       esp_ble_gattc_open(gl_profile_tab[PROFILE_APP_ID].gattc_if,
-                         scan_rst.scan_rst.bda, scan_rst.scan_rst.ble_addr_type,
-                         true);
+                         pending_connect_bda, pending_connect_addr_type, true);
     }
     break;
   case ESP_GAP_BLE_SCAN_RESULT_EVT: {
@@ -529,10 +619,19 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
       // Check if device name matches
       if (adv_name != NULL &&
           strncmp((char *)adv_name, device_name, adv_name_len) == 0) {
+        // Ignore while a connect is in flight, when the receiver is already
+        // connected, or when we have all the links we want
+        if (connect_pending || link_by_bda(scan_result->scan_rst.bda) != NULL ||
+            link_count_connected() >= desired_link_count()) {
+          break;
+        }
         ESP_LOGI(GATTC_TAG, "Found device %s (" BT_BD_ADDR_STR "), RSSI: %d",
                  device_name, BT_BD_ADDR_HEX(scan_result->scan_rst.bda),
                  scan_result->scan_rst.rssi);
-        memcpy(&scan_rst, scan_result, sizeof(esp_ble_gap_cb_param_t));
+        memcpy(pending_connect_bda, scan_result->scan_rst.bda,
+               sizeof(esp_bd_addr_t));
+        pending_connect_addr_type = scan_result->scan_rst.ble_addr_type;
+        connect_pending = true;
         esp_ble_gap_stop_scanning();
       }
       break;
@@ -553,10 +652,24 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
     break;
   case ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT:
     if (param->read_rssi_cmpl.status == ESP_BT_STATUS_SUCCESS) {
-      int rssi = param->read_rssi_cmpl.rssi;
-      ui_update_connection_quality(rssi);
-      // printf("Connection Quality: %d%% (RSSI: %d dBm)\n", connection_quality,
-      // rssi);
+      receiver_link_t *link = link_by_bda(param->read_rssi_cmpl.remote_addr);
+      if (link != NULL) {
+        link->rssi = param->read_rssi_cmpl.rssi;
+        link->rssi_valid = true;
+      }
+      // Report the weakest link so the UI reflects worst-case quality
+      int rssi = 0;
+      bool have_rssi = false;
+      for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+        if (links[i].in_use && links[i].rssi_valid &&
+            (!have_rssi || links[i].rssi < rssi)) {
+          rssi = links[i].rssi;
+          have_rssi = true;
+        }
+      }
+      if (have_rssi) {
+        ui_update_connection_quality(rssi);
+      }
     } else {
       ESP_LOGE(GATTC_TAG, "RSSI read failed: %d", param->read_rssi_cmpl.status);
     }
@@ -663,30 +776,33 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     ESP_LOGI(GATTC_TAG, "Scanning for any %s device...", device_name);
     esp_ble_gap_set_scan_params(&ble_scan_params);
     break;
-  case ESP_GATTC_CONNECT_EVT:
+  case ESP_GATTC_CONNECT_EVT: {
     ESP_LOGI(GATTC_TAG, "ESP_GATTC_CONNECT_EVT: conn_id=%d, gatt_if = %d",
-             spp_conn_id, gattc_if);
+             p_data->connect.conn_id, gattc_if);
     ESP_LOGI(GATTC_TAG, "REMOTE BDA: " BT_BD_ADDR_STR,
              BT_BD_ADDR_HEX(p_data->connect.remote_bda));
-    spp_gattc_if = gattc_if;
-    if (is_connect_mutex != NULL &&
-        xSemaphoreTake(is_connect_mutex, portMAX_DELAY) == pdTRUE) {
-      is_connect = true;
-      xSemaphoreGive(is_connect_mutex);
-    } else {
-      is_connect = true;
+    receiver_link_t *link = link_by_bda(p_data->connect.remote_bda);
+    if (link == NULL) {
+      link = link_alloc(p_data->connect.remote_bda);
     }
+    if (link == NULL) {
+      ESP_LOGW(GATTC_TAG, "No free receiver link slot, closing connection");
+      esp_ble_gattc_close(gattc_if, p_data->connect.conn_id);
+      break;
+    }
+    spp_gattc_if = gattc_if;
+    link->conn_id = p_data->connect.conn_id;
+    link->connect_ms = esp_timer_get_time() / 1000;
+    set_is_connect(true);
     pairing_adv_apply();
-    spp_conn_id = p_data->connect.conn_id;
-    memcpy(gl_profile_tab[PROFILE_APP_ID].remote_bda,
-           p_data->connect.remote_bda, sizeof(esp_bd_addr_t));
 
     // Initiate encryption/pairing
     ESP_LOGI(GATTC_TAG, "Initiating BLE encryption...");
     esp_ble_set_encryption(p_data->connect.remote_bda,
                            ESP_BLE_SEC_ENCRYPT_MITM);
 
-    esp_ble_gattc_search_service(spp_gattc_if, spp_conn_id, &spp_service_uuid);
+    esp_ble_gattc_search_service(spp_gattc_if, link->conn_id,
+                                 &spp_service_uuid);
 
     // Request 20 ms connection interval so throttle packets are delivered
     // at the same rate we send them.
@@ -699,93 +815,87 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     memcpy(conn_params.bda, p_data->connect.remote_bda, sizeof(esp_bd_addr_t));
     esp_ble_gap_update_conn_params(&conn_params);
 
+    // Keep hunting for another receiver while dual connection wants one
+    resume_scan_if_needed();
+
     // Send serial notification for config tool
     printf("#>DATA ble_status=connected\n");
     break;
-  case ESP_GATTC_DISCONNECT_EVT:
-    ESP_LOGI(GATTC_TAG, "disconnect");
-
-    // Send serial notification for config tool
-    printf("#>DATA ble_status=disconnected\n");
-
-    // Reset speed and battery values to 0 when disconnected
-    latest_erpm = 0;
-    latest_voltage = 0.0f;
-    latest_trip_km = 0.0f;
-    latest_current_motor = 0.0f;
-    latest_current_in = 0.0f;
-    latest_temp_mos = 0.0f;
-    latest_temp_motor = 0.0f;
-
-    // Reset BMS battery values to 0
-    bms_total_voltage = 0.0f;
-    bms_current = 0.0f;
-    bms_remaining_capacity = 0.0f;
-    bms_nominal_capacity = 0.0f;
-    bms_num_cells = 0;
-
-    // Clear cell voltages array
-    memset(bms_cell_voltages, 0, sizeof(bms_cell_voltages));
-
-    ESP_LOGI(GATTC_TAG,
-             "Speed and battery values reset to 0 due to disconnection");
-
-    if (db != NULL &&
-        ((db + SPP_IDX_SPP_DATA_RECV_VAL)->properties &
-         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
-      uint8_t neutral_buffer[3] = {VESC_NEUTRAL_VALUE & 0xFF,
-                                   (VESC_NEUTRAL_VALUE >> 8) & 0xFF, 0};
-      esp_err_t ret = esp_ble_gattc_write_char(
-          spp_gattc_if, spp_conn_id,
-          (db + SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle,
-          sizeof(neutral_buffer), neutral_buffer, ESP_GATT_WRITE_TYPE_NO_RSP,
-          ESP_GATT_AUTH_REQ_NONE);
-      if (ret != ESP_OK) {
-        ESP_LOGW(GATTC_TAG, "Failed to send neutral value on disconnect: %s",
-                 esp_err_to_name(ret));
-      }
+  }
+  case ESP_GATTC_DISCONNECT_EVT: {
+    receiver_link_t *link = link_by_conn_id(p_data->disconnect.conn_id);
+    if (link == NULL) {
+      link = link_by_bda(p_data->disconnect.remote_bda);
     }
-    ui_update_speed(0);
-    ui_update_skate_battery_percentage(0);
+    ESP_LOGI(GATTC_TAG, "disconnect (conn_id=%d)", p_data->disconnect.conn_id);
+    if (link != NULL) {
+      link_free(link);
+    }
 
-    free_gattc_srv_db();
+    if (link_count_connected() == 0) {
+      set_is_connect(false);
+
+      // Send serial notification for config tool
+      printf("#>DATA ble_status=disconnected\n");
+
+      // Reset speed and battery values to 0 when disconnected
+      latest_erpm = 0;
+      latest_voltage = 0.0f;
+      latest_trip_km = 0.0f;
+      latest_current_motor = 0.0f;
+      latest_current_in = 0.0f;
+      latest_temp_mos = 0.0f;
+      latest_temp_motor = 0.0f;
+
+      // Reset BMS battery values to 0
+      bms_total_voltage = 0.0f;
+      bms_current = 0.0f;
+      bms_remaining_capacity = 0.0f;
+      bms_nominal_capacity = 0.0f;
+      bms_num_cells = 0;
+
+      // Clear cell voltages array
+      memset(bms_cell_voltages, 0, sizeof(bms_cell_voltages));
+
+      ESP_LOGI(GATTC_TAG,
+               "Speed and battery values reset to 0 due to disconnection");
+
+      ui_update_speed(0);
+      ui_update_skate_battery_percentage(0);
+    }
+
     pairing_adv_apply();
 
-    // Restart scanning for any receiver (skip when BLE is suspended)
-    if (!ble_suspended) {
-      esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
-    }
+    // Restart scanning for a receiver (skip when BLE is suspended)
+    resume_scan_if_needed();
     break;
-  case ESP_GATTC_SEARCH_RES_EVT:
+  }
+  case ESP_GATTC_SEARCH_RES_EVT: {
     ESP_LOGI(GATTC_TAG,
              "ESP_GATTC_SEARCH_RES_EVT: start_handle = %d, end_handle = %d, "
              "UUID:0x%04x",
              p_data->search_res.start_handle, p_data->search_res.end_handle,
              p_data->search_res.srvc_id.uuid.uuid.uuid16);
-    spp_srv_start_handle = p_data->search_res.start_handle;
-    spp_srv_end_handle = p_data->search_res.end_handle;
+    receiver_link_t *link = link_by_conn_id(p_data->search_res.conn_id);
+    if (link != NULL) {
+      link->srv_start_handle = p_data->search_res.start_handle;
+      link->srv_end_handle = p_data->search_res.end_handle;
+    }
     break;
+  }
   case ESP_GATTC_SEARCH_CMPL_EVT:
-    ESP_LOGI(GATTC_TAG, "SEARCH_CMPL: conn_id = %x, status %d", spp_conn_id,
-             p_data->search_cmpl.status);
-    esp_ble_gattc_send_mtu_req(gattc_if, spp_conn_id);
+    ESP_LOGI(GATTC_TAG, "SEARCH_CMPL: conn_id = %x, status %d",
+             p_data->search_cmpl.conn_id, p_data->search_cmpl.status);
+    esp_ble_gattc_send_mtu_req(gattc_if, p_data->search_cmpl.conn_id);
     break;
-  case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
-    ESP_LOGI(GATTC_TAG, "Index = %d,status = %d,handle = %d", cmd,
-             p_data->reg_for_notify.status, p_data->reg_for_notify.handle);
+  case ESP_GATTC_REG_FOR_NOTIFY_EVT:
+    // CCCD writes are issued directly by spp_client_reg_task; this event
+    // only confirms the local registration.
     if (p_data->reg_for_notify.status != ESP_GATT_OK) {
       ESP_LOGE(GATTC_TAG, "ESP_GATTC_REG_FOR_NOTIFY_EVT, status = %d",
                p_data->reg_for_notify.status);
-      break;
     }
-    uint16_t notify_en = 1;
-    esp_ble_gattc_write_char_descr(
-        spp_gattc_if, spp_conn_id, (db + cmd + 1)->attribute_handle,
-        sizeof(notify_en), (uint8_t *)&notify_en, ESP_GATT_WRITE_TYPE_NO_RSP,
-        ESP_GATT_AUTH_REQ_NONE);
-
     break;
-  }
   case ESP_GATTC_NOTIFY_EVT:
     ESP_LOGI(GATTC_TAG, "ESP_GATTC_NOTIFY_EVT");
     notify_event_handler(p_data);
@@ -812,48 +922,23 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     if (p_data->write.status != ESP_GATT_OK) {
       ESP_LOGE(GATTC_TAG, "ESP_GATTC_WRITE_DESCR_EVT, error status = %d",
                p_data->write.status);
-      break;
     }
-    switch (cmd) {
-    case SPP_IDX_SPP_DATA_NTY_VAL:
-      cmd = SPP_IDX_SPP_STATUS_VAL;
-      xQueueSend(cmd_reg_queue, &cmd, 10 / portTICK_PERIOD_MS);
-      break;
-    case SPP_IDX_SPP_STATUS_VAL:
-#ifdef SUPPORT_HEARTBEAT
-      cmd = SPP_IDX_SPP_HEARTBEAT_VAL;
-      xQueueSend(cmd_reg_queue, &cmd, 10 / portTICK_PERIOD_MS);
-#endif
-      break;
-#ifdef SUPPORT_HEARTBEAT
-    case SPP_IDX_SPP_HEARTBEAT_VAL:
-      xQueueSend(cmd_heartbeat_queue, &cmd, 10 / portTICK_PERIOD_MS);
-      break;
-#endif
-    default:
-      break;
-    };
     break;
-  case ESP_GATTC_CFG_MTU_EVT:
+  case ESP_GATTC_CFG_MTU_EVT: {
     if (p_data->cfg_mtu.status != ESP_OK) {
       break;
     }
     ESP_LOGI(GATTC_TAG, "+MTU:%d", p_data->cfg_mtu.mtu);
-    spp_mtu_size = p_data->cfg_mtu.mtu;
-
-    // Free existing db if any (prevent memory leak on MTU reconfig)
-    if (db != NULL) {
-      free(db);
-      db = NULL;
-    }
-
-    db = (esp_gattc_db_elem_t *)malloc(count * sizeof(esp_gattc_db_elem_t));
-    if (db == NULL) {
-      ESP_LOGE(GATTC_TAG, "%s:malloc db failed", __func__);
+    receiver_link_t *link = link_by_conn_id(p_data->cfg_mtu.conn_id);
+    if (link == NULL) {
       break;
     }
-    if (esp_ble_gattc_get_db(spp_gattc_if, spp_conn_id, spp_srv_start_handle,
-                             spp_srv_end_handle, db, &count) != ESP_GATT_OK) {
+    link->mtu = p_data->cfg_mtu.mtu;
+
+    uint16_t count = SPP_IDX_NB;
+    if (esp_ble_gattc_get_db(gattc_if, link->conn_id, link->srv_start_handle,
+                             link->srv_end_handle, link->db,
+                             &count) != ESP_GATT_OK) {
       ESP_LOGE(GATTC_TAG, "%s:get db failed", __func__);
       break;
     }
@@ -864,68 +949,22 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
       break;
     }
     for (int i = 0; i < SPP_IDX_NB; i++) {
-      switch ((db + i)->type) {
-      case ESP_GATT_DB_PRIMARY_SERVICE:
-        ESP_LOGI(GATTC_TAG,
-                 "attr_type = "
-                 "PRIMARY_SERVICE,attribute_handle=%d,start_handle=%d,end_"
-                 "handle=%d,properties=0x%x,uuid=0x%04x",
-                 (db + i)->attribute_handle, (db + i)->start_handle,
-                 (db + i)->end_handle, (db + i)->properties,
-                 (db + i)->uuid.uuid.uuid16);
-        break;
-      case ESP_GATT_DB_SECONDARY_SERVICE:
-        ESP_LOGI(GATTC_TAG,
-                 "attr_type = "
-                 "SECONDARY_SERVICE,attribute_handle=%d,start_handle=%d,end_"
-                 "handle=%d,properties=0x%x,uuid=0x%04x",
-                 (db + i)->attribute_handle, (db + i)->start_handle,
-                 (db + i)->end_handle, (db + i)->properties,
-                 (db + i)->uuid.uuid.uuid16);
-        break;
-      case ESP_GATT_DB_CHARACTERISTIC:
-        ESP_LOGI(GATTC_TAG,
-                 "attr_type = "
-                 "CHARACTERISTIC,attribute_handle=%d,start_handle=%d,end_"
-                 "handle=%d,properties=0x%x,uuid=0x%04x",
-                 (db + i)->attribute_handle, (db + i)->start_handle,
-                 (db + i)->end_handle, (db + i)->properties,
-                 (db + i)->uuid.uuid.uuid16);
-        break;
-      case ESP_GATT_DB_DESCRIPTOR:
-        ESP_LOGI(GATTC_TAG,
-                 "attr_type = "
-                 "DESCRIPTOR,attribute_handle=%d,start_handle=%d,end_handle=%d,"
-                 "properties=0x%x,uuid=0x%04x",
-                 (db + i)->attribute_handle, (db + i)->start_handle,
-                 (db + i)->end_handle, (db + i)->properties,
-                 (db + i)->uuid.uuid.uuid16);
-        break;
-      case ESP_GATT_DB_INCLUDED_SERVICE:
-        ESP_LOGI(GATTC_TAG,
-                 "attr_type = "
-                 "INCLUDED_SERVICE,attribute_handle=%d,start_handle=%d,end_"
-                 "handle=%d,properties=0x%x,uuid=0x%04x",
-                 (db + i)->attribute_handle, (db + i)->start_handle,
-                 (db + i)->end_handle, (db + i)->properties,
-                 (db + i)->uuid.uuid.uuid16);
-        break;
-      case ESP_GATT_DB_ALL:
-        ESP_LOGI(GATTC_TAG,
-                 "attr_type = "
-                 "ESP_GATT_DB_ALL,attribute_handle=%d,start_handle=%d,end_"
-                 "handle=%d,properties=0x%x,uuid=0x%04x",
-                 (db + i)->attribute_handle, (db + i)->start_handle,
-                 (db + i)->end_handle, (db + i)->properties,
-                 (db + i)->uuid.uuid.uuid16);
-        break;
-      default:
-        break;
-      }
+      ESP_LOGI(GATTC_TAG,
+               "db[%d]: type=%d,attribute_handle=%d,start_handle=%d,"
+               "end_handle=%d,properties=0x%x,uuid=0x%04x",
+               i, link->db[i].type, link->db[i].attribute_handle,
+               link->db[i].start_handle, link->db[i].end_handle,
+               link->db[i].properties, link->db[i].uuid.uuid.uuid16);
     }
-    cmd = SPP_IDX_SPP_DATA_NTY_VAL;
-    xQueueSend(cmd_reg_queue, &cmd, 10 / portTICK_PERIOD_MS);
+    link->ready = true;
+
+    reg_work_t work = {.link_idx = (uint8_t)(link - links),
+                       .attr_idx = SPP_IDX_SPP_DATA_NTY_VAL};
+    xQueueSend(cmd_reg_queue, &work, 10 / portTICK_PERIOD_MS);
+    work.attr_idx = SPP_IDX_SPP_STATUS_VAL;
+    xQueueSend(cmd_reg_queue, &work, 10 / portTICK_PERIOD_MS);
     break;
+  }
   case ESP_GATTC_SRVC_CHG_EVT:
     break;
   default:
@@ -934,77 +973,34 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
 }
 
 void spp_client_reg_task(void *arg) {
-  uint16_t cmd_id;
+  reg_work_t work;
   for (;;) {
     vTaskDelay(100 / portTICK_PERIOD_MS);
-    if (xQueueReceive(cmd_reg_queue, &cmd_id, portMAX_DELAY)) {
-      if (db != NULL) {
-        if (cmd_id == SPP_IDX_SPP_DATA_NTY_VAL) {
-          ESP_LOGI(GATTC_TAG, "Index = %d,UUID = 0x%04x, handle = %d", cmd_id,
-                   (db + SPP_IDX_SPP_DATA_NTY_VAL)->uuid.uuid.uuid16,
-                   (db + SPP_IDX_SPP_DATA_NTY_VAL)->attribute_handle);
-          esp_ble_gattc_register_for_notify(
-              spp_gattc_if, gl_profile_tab[PROFILE_APP_ID].remote_bda,
-              (db + SPP_IDX_SPP_DATA_NTY_VAL)->attribute_handle);
-        } else if (cmd_id == SPP_IDX_SPP_STATUS_VAL) {
-          ESP_LOGI(GATTC_TAG, "Index = %d,UUID = 0x%04x, handle = %d", cmd_id,
-                   (db + SPP_IDX_SPP_STATUS_VAL)->uuid.uuid.uuid16,
-                   (db + SPP_IDX_SPP_STATUS_VAL)->attribute_handle);
-          esp_ble_gattc_register_for_notify(
-              spp_gattc_if, gl_profile_tab[PROFILE_APP_ID].remote_bda,
-              (db + SPP_IDX_SPP_STATUS_VAL)->attribute_handle);
-        }
-#ifdef SUPPORT_HEARTBEAT
-        else if (cmd_id == SPP_IDX_SPP_HEARTBEAT_VAL) {
-          ESP_LOGI(GATTC_TAG, "Index = %d,UUID = 0x%04x, handle = %d", cmd_id,
-                   (db + SPP_IDX_SPP_HEARTBEAT_VAL)->uuid.uuid.uuid16,
-                   (db + SPP_IDX_SPP_HEARTBEAT_VAL)->attribute_handle);
-          esp_ble_gattc_register_for_notify(
-              spp_gattc_if, gl_profile_tab[PROFILE_APP_ID].remote_bda,
-              (db + SPP_IDX_SPP_HEARTBEAT_VAL)->attribute_handle);
-        }
-#endif
+    if (xQueueReceive(cmd_reg_queue, &work, portMAX_DELAY)) {
+      if (work.link_idx >= MAX_RECEIVER_LINKS ||
+          (work.attr_idx != SPP_IDX_SPP_DATA_NTY_VAL &&
+           work.attr_idx != SPP_IDX_SPP_STATUS_VAL)) {
+        continue;
       }
+      receiver_link_t *link = &links[work.link_idx];
+      if (!link->ready) {
+        continue; // Link dropped before registration ran
+      }
+      ESP_LOGI(GATTC_TAG, "Index = %d,UUID = 0x%04x, handle = %d",
+               work.attr_idx, link->db[work.attr_idx].uuid.uuid.uuid16,
+               link->db[work.attr_idx].attribute_handle);
+      esp_ble_gattc_register_for_notify(
+          spp_gattc_if, link->bda, link->db[work.attr_idx].attribute_handle);
+      // Enable notifications on the server; the CCCD is the next attribute
+      uint16_t notify_en = 1;
+      esp_ble_gattc_write_char_descr(
+          spp_gattc_if, link->conn_id,
+          link->db[work.attr_idx + 1].attribute_handle, sizeof(notify_en),
+          (uint8_t *)&notify_en, ESP_GATT_WRITE_TYPE_NO_RSP,
+          ESP_GATT_AUTH_REQ_NONE);
     }
   }
 }
-
-#ifdef SUPPORT_HEARTBEAT
-void spp_heart_beat_task(void *arg) {
-  // Register with task watchdog
-  ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
-
-  uint16_t cmd_id;
-
-  for (;;) {
-    // Reset watchdog before delay
-    esp_task_wdt_reset();
-    vTaskDelay(50 / portTICK_PERIOD_MS);
-    if (xQueueReceive(cmd_heartbeat_queue, &cmd_id, portMAX_DELAY)) {
-      // Reset watchdog after receiving command
-      esp_task_wdt_reset();
-      while (1) {
-        if (ble_is_connected() && (db != NULL) &&
-            ((db + SPP_IDX_SPP_HEARTBEAT_VAL)->properties &
-             (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
-              ESP_GATT_CHAR_PROP_BIT_WRITE))) {
-          esp_ble_gattc_write_char(
-              spp_gattc_if, spp_conn_id,
-              (db + SPP_IDX_SPP_HEARTBEAT_VAL)->attribute_handle,
-              sizeof(heartbeat_s), (uint8_t *)heartbeat_s,
-              ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
-          // Reset watchdog before long delay
-          esp_task_wdt_reset();
-          vTaskDelay(5000 / portTICK_PERIOD_MS);
-        } else {
-          ESP_LOGI(GATTC_TAG, "disconnect");
-          break;
-        }
-      }
-    }
-  }
-}
-#endif
 
 void ble_client_appRegister(void) {
   esp_err_t status;
@@ -1072,13 +1068,8 @@ void ble_client_appRegister(void) {
   ESP_LOGI(GATTC_TAG, "BLE Security configured with passkey: %06lu",
            (unsigned long)passkey);
 
-  cmd_reg_queue = xQueueCreate(10, sizeof(uint32_t));
+  cmd_reg_queue = xQueueCreate(10, sizeof(reg_work_t));
   xTaskCreate(spp_client_reg_task, "spp_client_reg_task", 2048, NULL, 10, NULL);
-
-#ifdef SUPPORT_HEARTBEAT
-  cmd_heartbeat_queue = xQueueCreate(10, sizeof(uint32_t));
-  xTaskCreate(spp_heart_beat_task, "spp_heart_beat_task", 2048, NULL, 10, NULL);
-#endif
 }
 
 void uart_task(void *pvParameters) {
@@ -1090,10 +1081,7 @@ void uart_task(void *pvParameters) {
       switch (event.type) {
       // Event of UART receiving data
       case UART_DATA:
-        if (event.size && ble_is_connected() && (db != NULL) &&
-            ((db + SPP_IDX_SPP_DATA_RECV_VAL)->properties &
-             (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
-              ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+        if (event.size && ble_is_connected() && link_any_ready()) {
           uint8_t *temp = NULL;
           temp = (uint8_t *)malloc(sizeof(uint8_t) * event.size);
           if (temp == NULL) {
@@ -1102,10 +1090,20 @@ void uart_task(void *pvParameters) {
           }
           memset(temp, 0x0, event.size);
           uart_read_bytes(UART_NUM_0, temp, event.size, portMAX_DELAY);
-          esp_ble_gattc_write_char(
-              spp_gattc_if, spp_conn_id,
-              (db + SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle, event.size,
-              temp, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+          for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+            receiver_link_t *link = &links[i];
+            if (!link->ready ||
+                !(link->db[SPP_IDX_SPP_DATA_RECV_VAL].properties &
+                  (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
+                   ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+              continue;
+            }
+            esp_ble_gattc_write_char(
+                spp_gattc_if, link->conn_id,
+                link->db[SPP_IDX_SPP_DATA_RECV_VAL].attribute_handle,
+                event.size, temp, ESP_GATT_WRITE_TYPE_NO_RSP,
+                ESP_GATT_AUTH_REQ_NONE);
+          }
           free(temp);
         }
         break;
@@ -1172,6 +1170,16 @@ void spp_client_demo_init(void) {
   // Load BLE trim offset from NVS
   ble_trim_load_offset();
 
+  // Load dual connection preference (set via the USB config tool)
+  {
+    vesc_config_t cfg;
+    if (vesc_config_load(&cfg) == ESP_OK) {
+      dual_connection_enabled = cfg.dual_connection;
+    }
+    ESP_LOGI(GATTC_TAG, "Dual connection %s",
+             dual_connection_enabled ? "enabled" : "disabled");
+  }
+
   ret = esp_bt_controller_init(&bt_cfg);
   if (ret) {
     ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s", __func__,
@@ -1212,8 +1220,6 @@ static void adc_send_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint8_t data_buffer[3]; // throttle (2) + aux state (1)
-  bool was_connected = false;
-  uint32_t connection_time = 0;
 
 #ifdef CONFIG_TARGET_LITE
   // Load once — invert_throttle only changes via USB config tool, never
@@ -1236,39 +1242,12 @@ static void adc_send_task(void *pvParameters) {
       continue;
     }
 
-    bool is_connected = ble_is_connected();
-
-    // Detect connection state change
-    if (is_connected && !was_connected) {
-      connection_time = esp_timer_get_time() / 1000; // Convert to ms
-      ESP_LOGI(GATTC_TAG,
-               "BLE connection established, sending neutral for %dms",
-               NEUTRAL_HOLD_MS);
-      was_connected = true;
-    } else if (!is_connected && was_connected) {
-      was_connected = false;
-      connection_time = 0;
-    }
-
-    if (is_connected && db != NULL &&
-        ((db + SPP_IDX_SPP_DATA_RECV_VAL)->properties &
-         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE))) {
-
-      // Capture handle once; db can be set to NULL by disconnect callback
-      // before we use it
-      uint16_t data_handle = (db + SPP_IDX_SPP_DATA_RECV_VAL)->attribute_handle;
-
+    if (ble_is_connected() && link_any_ready()) {
       uint32_t adc_value;
       bool throttle_inverted = false;
 
-      // After connection, send neutral value for initial hold period
-      uint32_t time_since_connect =
-          (esp_timer_get_time() / 1000) - connection_time;
-      if (time_since_connect < NEUTRAL_HOLD_MS) {
-        adc_value = VESC_NEUTRAL_VALUE;
-      }
       // SAFETY: Block throttle on low battery - force neutral
-      else if (battery_is_low_voltage()) {
+      if (battery_is_low_voltage()) {
         adc_value = VESC_NEUTRAL_VALUE;
         ESP_LOGW(GATTC_TAG, "Low battery - throttle blocked, sending neutral");
       } else {
@@ -1304,6 +1283,10 @@ static void adc_send_task(void *pvParameters) {
       if (new_center > 255)
         new_center = 255;
 
+      // Trimmed neutral: what the mapping below yields for a centered stick.
+      // Sent to a link during its post-connect neutral hold period.
+      uint8_t neutral_ble_value = (uint8_t)new_center;
+
       if (adc_value <= VESC_NEUTRAL_VALUE) {
         if (VESC_NEUTRAL_VALUE > 0) {
           int32_t scaled = (int32_t)((float)adc_value * (float)new_center /
@@ -1330,13 +1313,25 @@ static void adc_send_task(void *pvParameters) {
         }
       }
 
-      data_buffer[0] = (uint8_t)(final_ble_value & 0xFF);
-      data_buffer[1] = (uint8_t)((final_ble_value >> 8) & 0xFF);
-      data_buffer[2] = aux_output_state ? 1 : 0;
+      uint32_t now_ms = esp_timer_get_time() / 1000;
+      for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+        receiver_link_t *link = &links[i];
+        if (!link->ready || !(link->db[SPP_IDX_SPP_DATA_RECV_VAL].properties &
+                              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
+                               ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+          continue;
+        }
+        // Hold neutral for the first NEUTRAL_HOLD_MS after this link connects
+        uint8_t out_value = (now_ms - link->connect_ms < NEUTRAL_HOLD_MS)
+                                ? neutral_ble_value
+                                : final_ble_value;
+        data_buffer[0] = out_value;
+        data_buffer[1] = 0;
+        data_buffer[2] = aux_output_state ? 1 : 0;
 
-      if (db != NULL) {
         esp_err_t ret = esp_ble_gattc_write_char(
-            spp_gattc_if, spp_conn_id, data_handle,
+            spp_gattc_if, link->conn_id,
+            link->db[SPP_IDX_SPP_DATA_RECV_VAL].attribute_handle,
             sizeof(data_buffer), // 3 bytes
             data_buffer, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
         if (ret != ESP_OK) {
@@ -1387,9 +1382,14 @@ static void log_rssi_task(void *pvParameters) {
       continue;
     }
     if (ble_is_connected() && spp_gattc_if != 0xff) {
-      esp_err_t ret = esp_ble_gap_read_rssi(scan_rst.scan_rst.bda);
-      if (ret != ESP_OK) {
-        ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));
+      for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+        if (!links[i].in_use) {
+          continue;
+        }
+        esp_err_t ret = esp_ble_gap_read_rssi(links[i].bda);
+        if (ret != ESP_OK) {
+          ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));
+        }
       }
     }
     vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
@@ -1414,22 +1414,19 @@ void ble_suspend(void) {
   if (ble_suspended) {
     return; // already suspended
   }
-  bool was_connected = false;
-  if (is_connect_mutex != NULL &&
-      xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-    was_connected = is_connect;
-    xSemaphoreGive(is_connect_mutex);
-  } else {
-    was_connected = is_connect;
-  }
   ble_suspended = true;
+  connect_pending = false;
   esp_ble_gap_stop_scanning();
   pairing_adv_apply();
-  if (was_connected && spp_gattc_if != 0xff &&
-      gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
-    esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if, spp_conn_id);
+  if (gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
+    for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+      if (links[i].in_use) {
+        esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if,
+                            links[i].conn_id);
+      }
+    }
   }
-  ESP_LOGI(GATTC_TAG, "BLE suspended: stopped scan and connection");
+  ESP_LOGI(GATTC_TAG, "BLE suspended: stopped scan and connections");
 }
 
 void ble_resume(void) {
@@ -1439,6 +1436,33 @@ void ble_resume(void) {
   ble_suspended = false;
   ESP_LOGI(GATTC_TAG, "BLE resumed: starting scan");
   esp_ble_gap_set_scan_params(&ble_scan_params);
+  pairing_adv_apply();
+}
+
+void ble_set_dual_connection(bool enabled) {
+  if (dual_connection_enabled == enabled) {
+    return;
+  }
+  dual_connection_enabled = enabled;
+  ESP_LOGI(GATTC_TAG, "Dual connection %s", enabled ? "enabled" : "disabled");
+  if (enabled) {
+    // Start looking for a second receiver right away
+    resume_scan_if_needed();
+  } else if (gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
+    // Keep the first connected link, drop any extra
+    bool kept = false;
+    for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+      if (!links[i].in_use) {
+        continue;
+      }
+      if (!kept) {
+        kept = true;
+        continue;
+      }
+      esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if,
+                          links[i].conn_id);
+    }
+  }
   pairing_adv_apply();
 }
 

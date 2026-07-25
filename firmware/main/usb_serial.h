@@ -53,6 +53,8 @@ typedef enum {
   CMD_BOOT_FULL_MODE = 0x1E, // Boot into full mode from charging screen
   CMD_SET_HAPTIC_INTENSITY =
       0x1F, // Set haptic feedback intensity (payload: uint8 0-100)
+  // 0x20-0x23 are reserved: lite_v1 legacy motor config commands
+  CMD_TOGGLE_DUAL_CONNECTION = 0x24, // Toggle dual receiver connection mode
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code

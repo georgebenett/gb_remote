@@ -9,6 +9,7 @@
 // NVS Storage keys (only user preferences are persisted)
 #define VESC_NVS_NAMESPACE "vesc_cfg"
 #define NVS_KEY_SPEED_UNIT "speed_unit"
+#define NVS_KEY_DUAL_CONNECTION "dual_conn"
 #ifdef CONFIG_TARGET_LITE
 #define NVS_KEY_INVERT_THROTTLE "inv_throttle"
 #endif
@@ -31,7 +32,8 @@ typedef struct {
   uint16_t gear_ratio_x1000;  // Gear ratio * 1000 (from VESC via BLE)
   uint16_t wheel_diameter_mm; // Wheel diameter in mm (from VESC via BLE)
   // User preferences (persisted to NVS)
-  bool speed_unit_mph; // Speed unit: false = km/h, true = mph
+  bool speed_unit_mph;  // Speed unit: false = km/h, true = mph
+  bool dual_connection; // Allow connecting to two receivers simultaneously
 #ifdef CONFIG_TARGET_LITE
   bool invert_throttle; // Whether to invert throttle direction
 #endif

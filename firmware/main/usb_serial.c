@@ -57,6 +57,7 @@ static void handle_cmd_set_speed_unit(const binary_packet_t *packet);
 static void handle_cmd_set_backlight(const binary_packet_t *packet);
 static void handle_cmd_set_haptic_intensity(const binary_packet_t *packet);
 static void handle_cmd_invert_throttle(const binary_packet_t *packet);
+static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet);
 static void handle_cmd_start_streaming(const binary_packet_t *packet);
 static void handle_cmd_stop_streaming(const binary_packet_t *packet);
 static void handle_cmd_set_stream_rate(const binary_packet_t *packet);
@@ -367,6 +368,9 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_INVERT_THROTTLE:
     handle_cmd_invert_throttle(packet);
     break;
+  case CMD_TOGGLE_DUAL_CONNECTION:
+    handle_cmd_toggle_dual_connection(packet);
+    break;
   case CMD_START_STREAMING:
     handle_cmd_start_streaming(packet);
     break;
@@ -465,6 +469,8 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     flags |= 0x04;
   if (throttle_is_calibrated())
     flags |= 0x08;
+  if (hand_controller_config.dual_connection)
+    flags |= 0x10;
   payload[idx++] = flags;
 
   // Get backlight brightness
@@ -837,6 +843,25 @@ static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
 #else
   usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_NOT_SUPPORTED);
 #endif
+}
+
+static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING) {
+    usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_NOT_SUPPORTED);
+    return;
+  }
+  hand_controller_config.dual_connection =
+      !hand_controller_config.dual_connection;
+  esp_err_t err = vesc_config_save(&hand_controller_config);
+
+  if (err == ESP_OK) {
+    // Takes effect immediately: starts scanning for a second receiver or
+    // drops the extra link.
+    ble_set_dual_connection(hand_controller_config.dual_connection);
+    usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_SAVE_FAILED);
+  }
 }
 
 // ========== STREAMING FUNCTIONS ==========

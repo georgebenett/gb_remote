@@ -62,6 +62,11 @@ int8_t ble_get_trim_offset(void);
 esp_err_t ble_increase_trim_offset(void);
 esp_err_t ble_decrease_trim_offset(void);
 
+/** Apply the dual connection preference at runtime (also loaded from NVS at
+ *  BLE init). Enabling starts scanning for a second receiver; disabling
+ *  drops any link beyond the first. */
+void ble_set_dual_connection(bool enabled);
+
 /** Suspend BLE: disconnect and stop scanning.
  *  Called when leaving home screen (charging, snake, splash, etc.). */
 void ble_suspend(void);
