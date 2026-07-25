@@ -23,6 +23,7 @@ extern const lv_img_dsc_t img_remote_icon;
 extern const lv_img_dsc_t img_skateboard_no_connection;
 extern const lv_img_dsc_t img_charging;
 extern const lv_img_dsc_t img_power;
+extern const lv_img_dsc_t img_no_connection;
 
 #ifndef EXT_IMG_DESC_T
 #define EXT_IMG_DESC_T
@@ -32,7 +33,7 @@ typedef struct _ext_img_desc_t {
 } ext_img_desc_t;
 #endif
 
-extern const ext_img_desc_t images[16];
+extern const ext_img_desc_t images[17];
 
 
 #ifdef __cplusplus

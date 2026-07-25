@@ -336,7 +336,7 @@ void create_screen_home_screen() {
                     lv_obj_set_style_text_font(obj, &ui_font_satoshi16, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_align(obj, LV_ALIGN_BOTTOM_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_label_set_text(obj, "0 km");
+                    lv_label_set_text(obj, "0.0");
                 }
             }
         }

@@ -493,7 +493,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
           if (on_home && objects.connection_icon != NULL) {
             const void *icon_src = NULL;
             if (!ble_is_connected()) {
-              icon_src = &img_connection_0;
+              icon_src = &img_no_connection;
             } else if (cmd.data.connection_quality >= 30) {
               icon_src = &img_100_connection;
             } else if (cmd.data.connection_quality >= 15) {
