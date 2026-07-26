@@ -856,8 +856,9 @@ static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
 
   if (err == ESP_OK) {
     // Takes effect immediately: starts scanning for a second receiver or
-    // drops the extra link.
+    // drops the extra link, and swaps the home screen to the matching layout.
     ble_set_dual_connection(hand_controller_config.dual_connection);
+    ui_set_dual_home_screen(hand_controller_config.dual_connection);
     usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_OK);
   } else {
     usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_SAVE_FAILED);

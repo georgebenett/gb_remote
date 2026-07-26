@@ -820,8 +820,8 @@ static void snake_build_screen_if_needed(void) {
 
   snake.screen = lv_obj_create(NULL);
   lv_obj_set_pos(snake.screen, 0, 0);
-  lv_obj_set_size(snake.screen, lv_obj_get_width(objects.home_screen),
-                  lv_obj_get_height(objects.home_screen));
+  lv_obj_set_size(snake.screen, lv_obj_get_width(ui_get_home_screen()),
+                  lv_obj_get_height(ui_get_home_screen()));
   lv_obj_set_style_bg_color(snake.screen, lv_color_hex(0x0A0A0A), 0);
   lv_obj_set_style_bg_opa(snake.screen, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(snake.screen, 0, 0);
@@ -1092,12 +1092,12 @@ static void snake_exit_to_home_locked(void) {
   snake_hide_pause_menu();
   snake_hide_difficulty_menu();
 
-  lv_disp_load_scr(objects.home_screen);
-  if (objects.throttle_not_calibrated_text != NULL &&
-      !throttle_is_calibrated()) {
-    lv_obj_clear_flag(objects.throttle_not_calibrated_text, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_t *home = ui_get_home_screen();
+  lv_disp_load_scr(home);
+  if (!throttle_is_calibrated()) {
+    ui_show_throttle_not_calibrated_text();
   }
-  lv_obj_invalidate(objects.home_screen);
+  lv_obj_invalidate(home);
 
   // Back on home screen — resume BLE
   ble_resume();

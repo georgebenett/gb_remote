@@ -119,7 +119,7 @@ static void pairing_adv_apply(void);
 
 // One link per receiver. Only the first slot is used unless the
 // dual_connection user preference is enabled.
-#define MAX_RECEIVER_LINKS 2
+#define MAX_RECEIVER_LINKS BLE_MAX_RECEIVERS
 
 typedef struct {
   bool in_use; // Slot claimed (connection opening or open)
@@ -133,6 +133,13 @@ typedef struct {
   uint32_t connect_ms; // Connection timestamp for the neutral hold period
   int8_t rssi;
   bool rssi_valid;
+  // Telemetry as reported by this receiver. Cleared with the slot on
+  // disconnect. The dual home screen shows one column per slot.
+  float vesc_voltage;
+  float bms_total_voltage;
+  float bms_remaining_capacity;
+  float bms_nominal_capacity;
+  float trip_km;
 } receiver_link_t;
 
 static receiver_link_t links[MAX_RECEIVER_LINKS];
@@ -322,9 +329,10 @@ bool ble_get_receiver_aux_output_state(void) {
   return receiver_aux_output_state;
 }
 
-// Telemetry from all connected receivers lands in the same globals
-// (last-write-wins): both receivers ride the same vehicle, so their
-// readings are expected to be near-identical.
+// Telemetry is stored twice: per link (used by the dual home screen, which
+// shows one battery arc and odometer per receiver) and in the aggregate
+// globals below (last-write-wins), which feed the single-receiver home
+// screen and the USB telemetry stream.
 static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   uint8_t handle = 0;
 
@@ -345,12 +353,15 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   }
   const esp_gattc_db_elem_t *db = link->db;
 
+  int link_idx = (int)(link - links);
+
   if (handle == db[SPP_IDX_SPP_STATUS_VAL].attribute_handle) {
     if (p_data->notify.value_len >= 2 &&
         p_data->notify.value[0] == BLE_CMD_RESET_ODOMETER) {
       if (p_data->notify.value[1] == 0x00) {
         latest_trip_km = 0.0f;
-        ui_update_trip_distance(0.0f);
+        link->trip_km = 0.0f;
+        ui_update_trip_distance(link_idx, 0.0f);
         ESP_LOGI(GATTC_TAG, "Odometer reset ACK received from receiver");
         printf("#>DATA odometer_reset=ok\n");
       }
@@ -397,12 +408,14 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       float decoded_voltage = voltage / 100.0f;
       if (decoded_voltage > 1.0f) {
         latest_voltage = decoded_voltage;
+        link->vesc_voltage = decoded_voltage;
       }
 
       // total_voltage (bytes 14-15)
       int16_t total_voltage =
           p_data->notify.value[14] | ((int16_t)p_data->notify.value[15] << 8);
       bms_total_voltage = total_voltage / 100.0f;
+      link->bms_total_voltage = bms_total_voltage;
 
       // current (bytes 16-17)
       int16_t bms_current_raw =
@@ -413,11 +426,13 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       int16_t remaining_cap =
           p_data->notify.value[18] | ((int16_t)p_data->notify.value[19] << 8);
       bms_remaining_capacity = remaining_cap / 100.0f;
+      link->bms_remaining_capacity = bms_remaining_capacity;
 
       // nominal_capacity (bytes 20-21)
       int16_t nominal_cap =
           p_data->notify.value[20] | ((int16_t)p_data->notify.value[21] << 8);
       bms_nominal_capacity = nominal_cap / 100.0f;
+      link->bms_nominal_capacity = bms_nominal_capacity;
 
       // num_cells (byte 22)
       bms_num_cells = p_data->notify.value[22];
@@ -456,7 +471,8 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
                              ((int32_t)p_data->notify.value[63] << 16) |
                              ((int32_t)p_data->notify.value[64] << 24);
       latest_trip_km = trip_km_x100 / 100.0f;
-      ui_update_trip_distance(latest_trip_km);
+      link->trip_km = latest_trip_km;
+      ui_update_trip_distance(link_idx, link->trip_km);
 
       ESP_LOGI(GATTC_TAG, "Combined Data Received:");
       ESP_LOGI(GATTC_TAG,
@@ -829,7 +845,9 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     }
     ESP_LOGI(GATTC_TAG, "disconnect (conn_id=%d)", p_data->disconnect.conn_id);
     if (link != NULL) {
-      link_free(link);
+      int link_idx = (int)(link - links);
+      link_free(link); // Also clears this receiver's telemetry
+      ui_reset_skate_display(link_idx);
     }
 
     if (link_count_connected() == 0) {
@@ -861,7 +879,6 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
                "Speed and battery values reset to 0 due to disconnection");
 
       ui_update_speed(0);
-      ui_update_skate_battery_percentage(0);
     }
 
     pairing_adv_apply();
@@ -1396,11 +1413,11 @@ static void log_rssi_task(void *pvParameters) {
   }
 }
 
-int get_bms_battery_percentage(void) {
-  if (bms_nominal_capacity <= 0.0f)
+static int bms_capacity_to_percentage(float remaining, float nominal) {
+  if (nominal <= 0.0f)
     return -1;
 
-  float percentage = (bms_remaining_capacity / bms_nominal_capacity) * 100.0f;
+  float percentage = (remaining / nominal) * 100.0f;
 
   if (percentage > 100.0f)
     percentage = 100.0f;
@@ -1408,6 +1425,54 @@ int get_bms_battery_percentage(void) {
     percentage = 0.0f;
 
   return (int)percentage;
+}
+
+int get_bms_battery_percentage(void) {
+  return bms_capacity_to_percentage(bms_remaining_capacity,
+                                    bms_nominal_capacity);
+}
+
+static const receiver_link_t *link_for_idx(int idx) {
+  if (idx < 0 || idx >= MAX_RECEIVER_LINKS)
+    return NULL;
+  return &links[idx];
+}
+
+bool ble_receiver_is_connected(int idx) {
+  const receiver_link_t *link = link_for_idx(idx);
+  return !ble_suspended && link != NULL && link->ready;
+}
+
+bool ble_receiver_get_rssi(int idx, int8_t *out_rssi) {
+  const receiver_link_t *link = link_for_idx(idx);
+  if (link == NULL || !link->in_use || !link->rssi_valid)
+    return false;
+  if (out_rssi != NULL)
+    *out_rssi = link->rssi;
+  return true;
+}
+
+float ble_receiver_get_bms_total_voltage(int idx) {
+  const receiver_link_t *link = link_for_idx(idx);
+  return link != NULL ? link->bms_total_voltage : 0.0f;
+}
+
+int ble_receiver_get_bms_battery_percentage(int idx) {
+  const receiver_link_t *link = link_for_idx(idx);
+  if (link == NULL)
+    return -1;
+  return bms_capacity_to_percentage(link->bms_remaining_capacity,
+                                    link->bms_nominal_capacity);
+}
+
+float ble_receiver_get_vesc_voltage(int idx) {
+  const receiver_link_t *link = link_for_idx(idx);
+  return link != NULL ? link->vesc_voltage : 0.0f;
+}
+
+float ble_receiver_get_trip_km(int idx) {
+  const receiver_link_t *link = link_for_idx(idx);
+  return link != NULL ? link->trip_km : 0.0f;
 }
 
 void ble_suspend(void) {
@@ -1465,6 +1530,8 @@ void ble_set_dual_connection(bool enabled) {
   }
   pairing_adv_apply();
 }
+
+bool ble_dual_connection_is_enabled(void) { return dual_connection_enabled; }
 
 bool ble_is_connected(void) {
   if (ble_suspended) {

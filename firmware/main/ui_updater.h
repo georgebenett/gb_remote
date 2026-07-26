@@ -41,10 +41,25 @@ void ui_update_battery_current(float current);
 void ui_update_consumption(float consumption);
 void ui_update_connection_quality(int rssi);
 void ui_update_connection_icon(void);
-void ui_update_trip_distance(float trip_km_val);
 void ui_reset_trip_distance(void);
-void ui_update_skate_battery_percentage(int percentage);
-void ui_update_skate_battery_voltage_display(float voltage);
+
+/* Per-receiver updates. `receiver` is a slot in [0, BLE_MAX_RECEIVERS); on the
+ * single-receiver home screen every slot maps onto the one set of widgets. */
+void ui_update_trip_distance(int receiver, float trip_km_val);
+void ui_update_skate_battery_percentage(int receiver, int percentage);
+void ui_update_skate_battery_voltage_display(int receiver, float voltage);
+/** Blank a receiver's battery readout (shown as "--" while disconnected). */
+void ui_reset_skate_display(int receiver);
+
+/** Point the home-screen bindings at the single- or dual-receiver layout and,
+ *  when a home screen is already showing, swap to the other one. */
+void ui_set_dual_home_screen(bool enabled);
+/** The home screen for the active layout — use instead of objects.home_screen
+ *  when loading or invalidating it. */
+lv_obj_t *ui_get_home_screen(void);
+/** Reveal the "throttle not calibrated" warning on the active home screen.
+ *  Caller must hold the LVGL mutex. */
+void ui_show_throttle_not_calibrated_text(void);
 
 bool take_lvgl_mutex(void);
 bool take_lvgl_mutex_for_handler(void);
