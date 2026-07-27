@@ -128,8 +128,8 @@ static void power_button_callback(button_event_t event, void *user_data) {
         lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
         arc_animation_active = false;
         shutdown_armed = false;
-        lv_disp_load_scr(objects.home_screen);
-        lv_obj_invalidate(objects.home_screen);
+        lv_disp_load_scr(ui_get_home_screen());
+        lv_obj_invalidate(ui_get_home_screen());
         give_lvgl_mutex();
       } else {
         arc_animation_active = false;
@@ -239,7 +239,6 @@ static bool power_check_wake_from_sleep(void) {
         }
       }
 
-      // Button was held for long press duration
       woke_from_sleep_with_long_press = true;
       ESP_LOGI(TAG, "Long press detected - turning device on");
       // Restore button to interrupt mode for when button task starts later
@@ -339,7 +338,6 @@ void power_init(void) {
     // Never returns
   }
 
-  // Button held long enough, proceed with power-on
   gpio_config_t POWER_HOLD_GPIO_conf = {.pin_bit_mask =
                                             (1ULL << POWER_HOLD_GPIO),
                                         .mode = GPIO_MODE_OUTPUT,

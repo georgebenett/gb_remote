@@ -20,6 +20,7 @@ static const vesc_config_t default_config = {
     .gear_ratio_x1000 = 1001, // Will be overwritten by VESC
     .wheel_diameter_mm = 101, // Will be overwritten by VESC
     .speed_unit_mph = false,  // Speed unit: km/h by default
+    .dual_connection = false, // Single receiver connection by default
 #ifdef CONFIG_TARGET_LITE
     .invert_throttle = false // Throttle inversion disabled by default
 #endif
@@ -47,13 +48,12 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   config->gear_ratio_x1000 = current_motor_config.gear_ratio_x1000;
   config->wheel_diameter_mm = current_motor_config.wheel_diameter_mm;
 
-  // Set default user preferences
   config->speed_unit_mph = false;
+  config->dual_connection = false;
 #ifdef CONFIG_TARGET_LITE
   config->invert_throttle = false;
 #endif
 
-  // Load user preferences from NVS
   err = nvs_open(VESC_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
   if (err != ESP_OK) {
     // No NVS data, use defaults - this is OK
@@ -64,6 +64,12 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   err = nvs_get_u8(nvs_handle, NVS_KEY_SPEED_UNIT, &speed_unit);
   if (err == ESP_OK) {
     config->speed_unit_mph = (bool)speed_unit;
+  }
+
+  uint8_t dual_connection;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_DUAL_CONNECTION, &dual_connection);
+  if (err == ESP_OK) {
+    config->dual_connection = (bool)dual_connection;
   }
 
 #ifdef CONFIG_TARGET_LITE
@@ -89,6 +95,11 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
 
   err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_UNIT,
                    (uint8_t)config->speed_unit_mph);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_DUAL_CONNECTION,
+                   (uint8_t)config->dual_connection);
   if (err != ESP_OK)
     goto cleanup;
 
@@ -132,7 +143,6 @@ void vesc_config_get_motor(vesc_motor_config_t *motor_config) {
 }
 
 int32_t vesc_config_get_speed(const vesc_config_t *config) {
-  // Validate config and motor poles
   if (config == NULL || config->motor_poles == 0 ||
       config->gear_ratio_x1000 == 0) {
     return 0;

@@ -17,7 +17,6 @@
 #include "ui_updater.h"
 #include "vesc_config.h"
 
-// Static variables
 #define TAG "LCD"
 static uint8_t current_backlight_pwm =
     0; // Track current backlight PWM duty (0-255)
@@ -220,7 +219,6 @@ void lcd_start_tasks(void) {
   } else {
     ESP_LOGI("LCD", "lvgl_handler task created with priority 10 on CPU 0");
   }
-  // Start all UI update tasks
   ui_start_update_tasks();
 }
 

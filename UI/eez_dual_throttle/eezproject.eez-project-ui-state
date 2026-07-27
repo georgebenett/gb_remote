@@ -1,11 +1,11 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/0",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
-    "selectedFontObject": "[eezproject.eez-project]:/fonts/8",
-    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/13",
+    "selectedFontObject": "[eezproject.eez-project]:/fonts/4",
+    "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/16",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
     }
@@ -201,11 +201,22 @@
               "children": [
                 {
                   "type": "tab",
-                  "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "home screen",
+                  "id": "#d09e1267-766f-4a89-9f7e-6a2f89e59269",
+                  "name": "bebas150",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/2",
+                    "objectPath": "[eezproject.eez-project]:/fonts/4",
+                    "permanent": false
+                  },
+                  "icon": "material:font_download"
+                },
+                {
+                  "type": "tab",
+                  "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
+                  "name": "splash screen",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[eezproject.eez-project]:/userPages/1",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -596,6 +607,7 @@
             {
               "type": "tabset",
               "id": "#6a8a2930-ffc1-4771-94ee-a8a14266c33f",
+              "weight": 147.9500891265597,
               "enableDrop": false,
               "enableDrag": false,
               "enableClose": false,
@@ -613,6 +625,7 @@
             {
               "type": "tabset",
               "id": "#5da4edeb-dd9e-4bb0-b70c-2df316377d9d",
+              "weight": 52.04991087344028,
               "enableDrop": false,
               "enableDrag": false,
               "enableClose": false,
@@ -1502,17 +1515,21 @@
     "[eezproject.eez-project]:/userPages/5[flow-state]": {
       "selection": {
         "0": {
-          "0": {
+          "0": {},
+          "2": {
             "$selected": true
-          }
+          },
+          "5": {},
+          "7": {},
+          "8": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -276,
-          "y": -336
+          "x": -175,
+          "y": -269
         },
-        "scale": 1.5
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1524,7 +1541,8 @@
     "[eezproject.eez-project]:/userPages/1[flow-state]": {
       "selection": {
         "0": {
-          "1": {}
+          "1": {},
+          "2": {}
         }
       },
       "transform": {
@@ -1564,24 +1582,21 @@
     "[eezproject.eez-project]:/userPages/2[flow-state]": {
       "selection": {
         "0": {
+          "3": {},
           "4": {
             "0": {}
           },
           "5": {
             "0": {},
-            "1": {}
-          },
-          "6": {
             "1": {},
-            "2": {},
             "3": {}
           }
         }
       },
       "transform": {
         "translate": {
-          "x": -121.64227092352115,
-          "y": -312.9222582972584
+          "x": -130.64227092352115,
+          "y": -275.9222582972584
         },
         "scale": 1.25
       },
@@ -1595,9 +1610,10 @@
     "[eezproject.eez-project]:/userPages/3[flow-state]": {
       "selection": {
         "0": {
-          "1": {
+          "0": {
             "$selected": true
-          }
+          },
+          "1": {}
         }
       },
       "transform": {
@@ -1605,7 +1621,7 @@
           "x": -96,
           "y": -128
         },
-        "scale": 1.5
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1617,7 +1633,9 @@
     "[eezproject.eez-project]:/userPages/4[flow-state]": {
       "selection": {
         "0": {
-          "0": {}
+          "0": {
+            "$selected": true
+          }
         }
       },
       "transform": {

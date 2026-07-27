@@ -62,14 +62,12 @@ esp_err_t adc_init(void) {
     }
   }
 
-  // Create queue first
   adc_display_queue = xQueueCreate(10, sizeof(uint32_t));
   if (adc_display_queue == NULL) {
     ESP_LOGE(TAG, "Failed to create queue");
     return ESP_FAIL;
   }
 
-  // ADC1 init configuration
   init_config1.unit_id = ADC_UNIT_1;
   init_config1.ulp_mode = ADC_ULP_MODE_DISABLE;
   ret = adc_oneshot_new_unit(&init_config1, &adc1_handle);
@@ -78,7 +76,6 @@ esp_err_t adc_init(void) {
     return ret;
   }
 
-  // Channel configuration
   config.atten = ADC_ATTEN_DB_12;
   config.bitwidth = ADC_BITWIDTH_12;
   ret = adc_oneshot_config_channel(adc1_handle, THROTTLE_PIN, &config);
@@ -106,9 +103,8 @@ int32_t throttle_read_value(void) {
     return -1;
   }
 
-  // Take multiple readings and average
   const int NUM_SAMPLES = 5;
-  const int MIN_VALID_SAMPLES = 3; // Require at least 3/5 valid samples
+  const int MIN_VALID_SAMPLES = 3;
   int32_t samples[NUM_SAMPLES];
   int32_t sum = 0;
   int valid_samples = 0;
@@ -129,7 +125,6 @@ int32_t throttle_read_value(void) {
     vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
   }
 
-  // Require minimum valid samples
   if (valid_samples < MIN_VALID_SAMPLES) {
     ESP_LOGW(TAG, "Insufficient valid ADC samples: %d/%d", valid_samples,
              NUM_SAMPLES);
@@ -164,9 +159,8 @@ int32_t brake_read_value(void) {
     return -1;
   }
 
-  // Take multiple readings and average
   const int NUM_SAMPLES = 5;
-  const int MIN_VALID_SAMPLES = 3; // Require at least 3/5 valid samples
+  const int MIN_VALID_SAMPLES = 3;
   int32_t samples[NUM_SAMPLES];
   int32_t sum = 0;
   int valid_samples = 0;
@@ -187,7 +181,6 @@ int32_t brake_read_value(void) {
     vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
   }
 
-  // Require minimum valid samples
   if (valid_samples < MIN_VALID_SAMPLES) {
     ESP_LOGW(TAG, "Insufficient valid brake ADC samples: %d/%d", valid_samples,
              NUM_SAMPLES);
@@ -216,7 +209,6 @@ int32_t brake_read_value(void) {
 #endif
 
 static void adc_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint32_t last_value = 0;
@@ -260,7 +252,6 @@ static void adc_task(void *pvParameters) {
     latest_adc_value = mapped_value;
 
     if (!ble_is_connected()) {
-      // Only monitor value changes and reset timer when BLE is not connected
       if (abs((int32_t)mapped_value - (int32_t)last_value) > CHANGE_THRESHOLD) {
         power_reset_inactivity_timer();
         last_value = mapped_value;
@@ -273,7 +264,6 @@ static void adc_task(void *pvParameters) {
       xQueueSend(adc_display_queue, &mapped_value, 0);
     }
 
-    // Reset watchdog before delay
     esp_task_wdt_reset();
     vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLING_TICKS));
   }
@@ -290,7 +280,6 @@ void adc_start_task(void) {
 
 #if CALIBRATE_THROTTLE
   ESP_LOGI(TAG, "Force calibration flag set, performing calibration");
-  // Clear existing calibration
   nvs_handle_t nvs_handle;
   if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
     nvs_erase_key(nvs_handle, NVS_KEY_CALIBRATED);
@@ -342,13 +331,11 @@ static bool validate_calibration_values(uint32_t min_val, uint32_t max_val) {
     return false;
   }
 
-  // Check min < max
   if (min_val >= max_val) {
     ESP_LOGW(TAG, "Calibration min >= max");
     return false;
   }
 
-  // Check range is sufficient (at least 150 units)
   if ((max_val - min_val) < 150) {
     ESP_LOGW(TAG, "Calibration range too small: %lu", (max_val - min_val));
     return false;
@@ -361,13 +348,11 @@ static esp_err_t load_calibration_from_nvs(void) {
   nvs_handle_t nvs_handle;
   esp_err_t err;
 
-  // Open NVS
   err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
   if (err != ESP_OK) {
     return err;
   }
 
-  // Try to read calibration flag
   uint8_t is_calibrated = 0;
   err = nvs_get_u8(nvs_handle, NVS_KEY_CALIBRATED, &is_calibrated);
   if (err != ESP_OK || !is_calibrated) {
@@ -375,7 +360,6 @@ static esp_err_t load_calibration_from_nvs(void) {
     return ESP_ERR_NOT_FOUND;
   }
 
-  // Read throttle calibration values
   uint32_t temp_min, temp_max;
   err = nvs_get_u32(nvs_handle, NVS_KEY_MIN, &temp_min);
   if (err != ESP_OK) {
@@ -389,7 +373,6 @@ static esp_err_t load_calibration_from_nvs(void) {
     return err;
   }
 
-  // Validate throttle calibration
   if (!validate_calibration_values(temp_min, temp_max)) {
     ESP_LOGW(TAG, "Invalid throttle calibration in NVS, re-calibration needed");
     nvs_close(nvs_handle);
@@ -400,7 +383,6 @@ static esp_err_t load_calibration_from_nvs(void) {
   adc_input_max_value = temp_max;
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-  // Read brake calibration values
   uint32_t brake_temp_min, brake_temp_max;
   err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MIN, &brake_temp_min);
   if (err != ESP_OK) {
@@ -412,7 +394,6 @@ static esp_err_t load_calibration_from_nvs(void) {
     brake_temp_max = ADC_INITIAL_MAX_VALUE;
   }
 
-  // Validate brake calibration
   if (validate_calibration_values(brake_temp_min, brake_temp_max)) {
     brake_input_min_value = brake_temp_min;
     brake_input_max_value = brake_temp_max;
@@ -434,13 +415,11 @@ static esp_err_t save_calibration_to_nvs(void) {
   nvs_handle_t nvs_handle;
   esp_err_t err;
 
-  // Open NVS
   err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
   if (err != ESP_OK) {
     return err;
   }
 
-  // Save throttle calibration values
   err = nvs_set_u32(nvs_handle, NVS_KEY_MIN, adc_input_min_value);
   if (err != ESP_OK) {
     nvs_close(nvs_handle);
@@ -454,7 +433,6 @@ static esp_err_t save_calibration_to_nvs(void) {
   }
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-  // Save brake calibration values
   err = nvs_set_u32(nvs_handle, NVS_KEY_BRAKE_MIN, brake_input_min_value);
   if (err != ESP_OK) {
     nvs_close(nvs_handle);
@@ -468,14 +446,12 @@ static esp_err_t save_calibration_to_nvs(void) {
   }
 #endif
 
-  // Set calibration flag
   err = nvs_set_u8(nvs_handle, NVS_KEY_CALIBRATED, 1);
   if (err != ESP_OK) {
     nvs_close(nvs_handle);
     return err;
   }
 
-  // Commit changes
   err = nvs_commit(nvs_handle);
   nvs_close(nvs_handle);
   return err;
@@ -501,13 +477,12 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
 
 #define CAL_PROGRESS_INTERVAL 5 // Send progress update every N samples (~50ms)
 
-  // Take multiple samples to find the actual range
   for (int i = 0; i < ADC_CALIBRATION_SAMPLES; i++) {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     int32_t throttle_value = throttle_read_value();
     int32_t brake_value = brake_read_value();
 
-    if (throttle_value != -1) { // Valid reading
+    if (throttle_value != -1) {
       throttle_current = (uint32_t)throttle_value;
       if (throttle_min == UINT32_MAX || throttle_value < (int32_t)throttle_min)
         throttle_min = (uint32_t)throttle_value;
@@ -515,7 +490,7 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
         throttle_max = (uint32_t)throttle_value;
     }
 
-    if (brake_value != -1) { // Valid reading
+    if (brake_value != -1) {
       brake_current = (uint32_t)brake_value;
       if (brake_min == UINT32_MAX || brake_value < (int32_t)brake_min)
         brake_min = (uint32_t)brake_value;
@@ -524,7 +499,7 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
     }
 #elif defined(CONFIG_TARGET_LITE)
     int32_t value = throttle_read_value();
-    if (value != -1) { // Valid reading
+    if (value != -1) {
       throttle_current = (uint32_t)value;
       if (throttle_min == UINT32_MAX || value < (int32_t)throttle_min)
         throttle_min = (uint32_t)value;
@@ -533,8 +508,6 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
     }
 #endif
 
-    // Fire progress callback every CAL_PROGRESS_INTERVAL samples (and on the
-    // last sample)
     if (progress_cb && ((i % CAL_PROGRESS_INTERVAL == 0) ||
                         (i == ADC_CALIBRATION_SAMPLES - 1))) {
       uint32_t t_min_report = (throttle_min == UINT32_MAX) ? 0 : throttle_min;
@@ -553,7 +526,6 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
     vTaskDelay(pdMS_TO_TICKS(ADC_CALIBRATION_DELAY_MS));
   }
 
-  // Clear calibration in progress flag
   calibration_in_progress = false;
 
   bool throttle_valid = (throttle_min != UINT32_MAX && throttle_max != 0);
@@ -563,7 +535,6 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
   bool brake_range_ok = false;
 #endif
 
-  // Calibrate throttle
   if (throttle_valid) {
     uint32_t throttle_range = throttle_max - throttle_min;
 
@@ -587,7 +558,6 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
   if (brake_valid) {
     uint32_t brake_range = brake_max - brake_min;
 
-    // Check if the range is sufficient (at least 150 ADC units)
     if (brake_range < 150) {
       ESP_LOGW(TAG, "Brake: insufficient range %lu (need 150+)", brake_range);
     } else {
@@ -613,7 +583,6 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
 
   if (calibration_passed) {
     calibration_done = true;
-    // Save calibration to NVS
     if (save_calibration_to_nvs() != ESP_OK) {
       ESP_LOGE(TAG, "Failed to save calibration to NVS");
       calibration_done = had_previous_calibration;
@@ -687,13 +656,11 @@ uint8_t map_throttle_value(uint32_t adc_value) {
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 uint8_t map_brake_value(uint32_t adc_value) {
-  // Protection against invalid calibration
   uint32_t range = brake_input_max_value - brake_input_min_value;
   if (range == 0) {
     return ADC_OUTPUT_MIN_VALUE; // Return minimum brake on invalid calibration
   }
 
-  // Constrain input value to the calibrated range
   if (adc_value < brake_input_min_value) {
     adc_value = brake_input_min_value;
   }
@@ -713,12 +680,10 @@ uint8_t map_brake_value(uint32_t adc_value) {
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 uint8_t get_throttle_brake_ble_value(void) {
-  // Neutral value when not calibrated
   if (!calibration_done || calibration_in_progress) {
     return VESC_NEUTRAL_VALUE;
   }
 
-  // Read current throttle and brake values
   int32_t throttle_raw = throttle_read_value();
   int32_t brake_raw = brake_read_value();
 
@@ -726,7 +691,6 @@ uint8_t get_throttle_brake_ble_value(void) {
     return VESC_NEUTRAL_VALUE; // Return neutral on error
   }
 
-  // Constrain values to calibrated ranges
   if (throttle_raw < adc_input_min_value)
     throttle_raw = adc_input_min_value;
   if (throttle_raw > adc_input_max_value)

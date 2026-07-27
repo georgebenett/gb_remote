@@ -20,6 +20,10 @@
 // BLE Security Configuration
 #define BLE_PASSKEY 483265 // Fixed passkey for pairing (must match server)
 
+// Maximum simultaneous receiver links. Only slot 0 is used unless the
+// dual connection preference is enabled.
+#define BLE_MAX_RECEIVERS 2
+
 #define PROFILE_NUM 1
 #define PROFILE_APP_ID 0
 #define BT_BD_ADDR_STR "%02x:%02x:%02x:%02x:%02x:%02x"
@@ -61,6 +65,27 @@ esp_err_t ble_send_reset_odometer(void);
 int8_t ble_get_trim_offset(void);
 esp_err_t ble_increase_trim_offset(void);
 esp_err_t ble_decrease_trim_offset(void);
+
+/** Apply the dual connection preference at runtime (also loaded from NVS at
+ *  BLE init). Enabling starts scanning for a second receiver; disabling
+ *  drops any link beyond the first. */
+void ble_set_dual_connection(bool enabled);
+
+/** True while the dual connection preference is active. */
+bool ble_dual_connection_is_enabled(void);
+
+/* Per-receiver telemetry. `idx` is a receiver slot in
+ * [0, BLE_MAX_RECEIVERS); out-of-range or unconnected slots read as
+ * "no data" (0.0f / -1 / false). The aggregate getters above keep reporting
+ * whichever receiver notified last and are what the single-receiver home
+ * screen uses. */
+bool ble_receiver_is_connected(int idx);
+/** Latest RSSI for `idx`. Returns false when the slot has no valid reading. */
+bool ble_receiver_get_rssi(int idx, int8_t *out_rssi);
+float ble_receiver_get_bms_total_voltage(int idx);
+int ble_receiver_get_bms_battery_percentage(int idx);
+float ble_receiver_get_vesc_voltage(int idx);
+float ble_receiver_get_trip_km(int idx);
 
 /** Suspend BLE: disconnect and stop scanning.
  *  Called when leaving home screen (charging, snake, splash, etc.). */

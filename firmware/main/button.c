@@ -76,7 +76,6 @@ static bool read_button_state(void) {
 }
 
 static void button_monitor_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   bool button_pressed = false;
@@ -97,7 +96,6 @@ static void button_monitor_task(void *pvParameters) {
     notify_callbacks(BUTTON_EVENT_RELEASED);
   }
 
-  // Install GPIO ISR service and add handler
   gpio_install_isr_service(0);
   gpio_isr_handler_add(button_cfg.gpio_num, button_isr_handler, NULL);
 
@@ -124,11 +122,9 @@ static void button_monitor_task(void *pvParameters) {
     }
     uint32_t notification = ulTaskNotifyTake(pdTRUE, wait_time);
 
-    // Reset watchdog
     esp_task_wdt_reset();
 
     if (notification > 0 || isr_triggered) {
-      // Interrupt triggered - debounce
       isr_triggered = false;
       vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
 
@@ -139,8 +135,8 @@ static void button_monitor_task(void *pvParameters) {
 
     bool current_state_pressed = read_button_state();
 
-    // Double-press window expired: stop treating the next press as a double tap.
-    // Power-off was already armed immediately on first release.
+    // Double-press window expired: stop treating the next press as a double
+    // tap. Power-off was already armed immediately on first release.
     if (first_press_registered && !current_state_pressed) {
       uint32_t elapsed_ms =
           (xTaskGetTickCount() - last_release_time) * portTICK_PERIOD_MS;
@@ -181,7 +177,6 @@ static void button_monitor_task(void *pvParameters) {
       notify_callbacks(BUTTON_EVENT_PRESSED);
 
     } else if (current_state_pressed && button_pressed) {
-      // Button still held - check for long press
       uint32_t press_duration =
           (xTaskGetTickCount() - press_start_time) * portTICK_PERIOD_MS;
       if (!long_press_sent && press_duration >= button_cfg.long_press_time_ms) {
@@ -196,7 +191,6 @@ static void button_monitor_task(void *pvParameters) {
       }
 
     } else if (!current_state_pressed && button_pressed) {
-      // Button just released
       button_pressed = false;
 
       if (!long_press_sent) {

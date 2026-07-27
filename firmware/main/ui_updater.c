@@ -41,6 +41,7 @@ typedef enum {
 
 typedef struct {
   ui_cmd_type_t type;
+  uint8_t receiver; // Receiver slot the payload belongs to (0 unless dual)
   union {
     int32_t speed;
     bool speed_unit_mph;
@@ -50,11 +51,39 @@ typedef struct {
     } battery;
     int skate_percentage;
     float skate_voltage;
-    uint8_t connection_quality;
+    struct {
+      uint8_t quality;
+      bool connected;
+    } connection;
     float trip_km;
     bool aux_state;
   } data;
 } ui_cmd_t;
+
+/* The home screen exists in two layouts: the default one with a single
+ * receiver column, and home_screen_dual, which repeats the link icon, board
+ * battery arc and odometer once per receiver. Which one is live follows the
+ * dual_connection preference. Everything downstream talks to these bindings
+ * instead of `objects` directly so the update paths are identical in both. */
+#define UI_MAX_RECEIVERS BLE_MAX_RECEIVERS
+
+typedef struct {
+  lv_obj_t *screen;
+  lv_obj_t *speedlabel;
+  lv_obj_t *static_speed;
+  lv_obj_t *throttle_warning;
+  lv_obj_t *remote_arc;
+  lv_obj_t *remote_battery_text;
+  lv_obj_t *aux_output;
+  uint8_t receiver_count;
+  lv_obj_t *skate_arc[UI_MAX_RECEIVERS];
+  lv_obj_t *skate_battery_text[UI_MAX_RECEIVERS];
+  lv_obj_t *skateboard_icon[UI_MAX_RECEIVERS];
+  lv_obj_t *connection_icon[UI_MAX_RECEIVERS];
+  lv_obj_t *odometer[UI_MAX_RECEIVERS];
+} home_widgets_t;
+
+static home_widgets_t home_ui;
 
 static QueueHandle_t ui_cmd_queue = NULL;
 static SemaphoreHandle_t lvgl_mutex = NULL;
@@ -70,6 +99,150 @@ static volatile bool speed_unit_mph = false;
 static volatile float total_trip_km = 0.0f;
 
 static lv_obj_t *get_current_screen(void) { return lv_scr_act(); }
+
+static void bind_single_home_widgets(void) {
+  memset(&home_ui, 0, sizeof(home_ui));
+  home_ui.screen = objects.home_screen;
+  home_ui.speedlabel = objects.speedlabel;
+  home_ui.static_speed = objects.static_speed;
+  home_ui.throttle_warning = objects.throttle_not_calibrated_text;
+  home_ui.remote_arc = objects.remote_arc;
+  home_ui.remote_battery_text = objects.controller_battery_text;
+  home_ui.aux_output = objects.aux_output;
+  home_ui.receiver_count = 1;
+  home_ui.skate_arc[0] = objects.skateboard_arc;
+  home_ui.skate_battery_text[0] = objects.skate_battery_text;
+  home_ui.skateboard_icon[0] = objects.skateboard_icon;
+  home_ui.connection_icon[0] = objects.connection_icon;
+  home_ui.odometer[0] = objects.odometer;
+}
+
+/* home_screen_dual repeats the receiver widgets, `_1` for the first receiver
+ * and `_2` for the second. The board icon is the exception: on dual_throttle
+ * EEZ nested skateboard_icon_2 inside skateboard_arc_1 (and vice versa), so
+ * each icon is bound to the arc it actually lives in. */
+static void bind_dual_home_widgets(void) {
+  memset(&home_ui, 0, sizeof(home_ui));
+  home_ui.screen = objects.home_screen_dual;
+  home_ui.speedlabel = objects.speedlabel_1;
+  home_ui.static_speed = objects.static_speed_1;
+  home_ui.throttle_warning = objects.throttle_not_calibrated_text_1;
+  home_ui.remote_arc = objects.remote_arc_1;
+  home_ui.remote_battery_text = objects.controller_battery_text_1;
+  home_ui.aux_output = objects.aux_output_1;
+  home_ui.receiver_count = 2;
+
+  home_ui.skate_arc[0] = objects.skateboard_arc_1;
+  home_ui.skate_battery_text[0] = objects.skate_battery_text_1;
+  home_ui.connection_icon[0] = objects.connection_icon_1;
+  home_ui.odometer[0] = objects.odometer_1;
+
+  home_ui.skate_arc[1] = objects.skateboard_arc_2;
+  home_ui.skate_battery_text[1] = objects.skate_battery_text_2;
+  home_ui.connection_icon[1] = objects.connection_icon_2;
+  home_ui.odometer[1] = objects.odometer_2;
+
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+  home_ui.skateboard_icon[0] = objects.skateboard_icon_2;
+  home_ui.skateboard_icon[1] = objects.skateboard_icon_1;
+#else
+  home_ui.skateboard_icon[0] = objects.skateboard_icon_1;
+  home_ui.skateboard_icon[1] = objects.skateboard_icon_2;
+#endif
+}
+
+lv_obj_t *ui_get_home_screen(void) {
+  return home_ui.screen != NULL ? home_ui.screen : objects.home_screen;
+}
+
+void ui_set_dual_home_screen(bool enabled) {
+  /* Rebinding and the screen swap belong in the same critical section: the
+   * command processor reads home_ui under this mutex, and leaving the bindings
+   * pointing at a screen other than the one on display would stall every
+   * update. Toggling is a rare, user-initiated action, so retrying is cheap. */
+  bool locked = false;
+  for (int attempt = 0; attempt < 5 && !locked; attempt++) {
+    locked = take_lvgl_mutex();
+    if (!locked)
+      vTaskDelay(pdMS_TO_TICKS(MUTEX_RETRY_DELAY_MS));
+  }
+
+  lv_obj_t *previous = home_ui.screen;
+
+  if (enabled) {
+    bind_dual_home_widgets();
+  } else {
+    bind_single_home_widgets();
+  }
+
+  // Swap live if a home screen is what the user is currently looking at.
+  if (previous != NULL && previous != home_ui.screen &&
+      home_ui.screen != NULL && get_current_screen() == previous) {
+    lv_disp_load_scr(home_ui.screen);
+    lv_obj_invalidate(home_ui.screen);
+  }
+
+  if (locked)
+    give_lvgl_mutex();
+
+  ESP_LOGI(TAG, "Home screen layout: %s receiver",
+           home_ui.receiver_count > 1 ? "dual" : "single");
+}
+
+/* On the single-receiver screen every slot shares one set of widgets, so
+ * report the aggregate ("whichever receiver is up") state for it. The dual
+ * screen has real per-slot widgets and reads per-slot telemetry. */
+static bool receiver_is_connected(int idx) {
+  return home_ui.receiver_count <= 1 ? ble_is_connected()
+                                     : ble_receiver_is_connected(idx);
+}
+
+static bool receiver_get_rssi(int idx, int8_t *out_rssi) {
+  if (home_ui.receiver_count <= 1) {
+    for (int i = 0; i < UI_MAX_RECEIVERS; i++) {
+      if (ble_receiver_get_rssi(i, out_rssi))
+        return true;
+    }
+    return false;
+  }
+  return ble_receiver_get_rssi(idx, out_rssi);
+}
+
+static float receiver_bms_voltage(int idx) {
+  return home_ui.receiver_count <= 1 ? get_bms_total_voltage()
+                                     : ble_receiver_get_bms_total_voltage(idx);
+}
+
+static int receiver_bms_percentage(int idx) {
+  return home_ui.receiver_count <= 1
+             ? get_bms_battery_percentage()
+             : ble_receiver_get_bms_battery_percentage(idx);
+}
+
+static float receiver_vesc_voltage(int idx) {
+  return home_ui.receiver_count <= 1 ? get_latest_voltage()
+                                     : ble_receiver_get_vesc_voltage(idx);
+}
+
+/** Map a receiver slot onto a widget column, or -1 when it has none. */
+static int widget_slot_for_receiver(int receiver) {
+  if (receiver < 0)
+    return -1;
+  if (home_ui.receiver_count <= 1)
+    return 0; // Single column shows whichever receiver reported last
+  return receiver < home_ui.receiver_count ? receiver : -1;
+}
+
+static uint8_t rssi_to_quality(int rssi) {
+  if (rssi >= 0)
+    return 0;
+  int quality = ((rssi + 100) * 100) / 70;
+  if (quality > 100)
+    quality = 100;
+  if (quality < 0)
+    quality = 0;
+  return (uint8_t)quality;
+}
 
 static void set_arc_indicator_color_for_pct(lv_obj_t *arc, int pct) {
   lv_color_t color;
@@ -96,7 +269,6 @@ void ui_updater_init(void) {
     ESP_LOGI(TAG, "LVGL mutex created with priority inheritance");
   }
 
-  // Create UI command queue
   ui_cmd_queue = xQueueCreate(UI_CMD_QUEUE_SIZE, sizeof(ui_cmd_t));
   if (ui_cmd_queue == NULL) {
     ESP_LOGE(TAG, "Failed to create UI command queue");
@@ -125,7 +297,6 @@ void give_lvgl_mutex(void) {
   }
 }
 
-// Helper to send UI command to queue
 static bool ui_queue_send(ui_cmd_t *cmd) {
   if (ui_cmd_queue == NULL) {
     return false;
@@ -141,7 +312,7 @@ static bool ui_queue_send(ui_cmd_t *cmd) {
 }
 
 void ui_update_speed(int32_t value) {
-  if (power_is_entering_off_mode() || !objects.speedlabel)
+  if (power_is_entering_off_mode() || !home_ui.speedlabel)
     return;
 
   static int32_t last_value = -1;
@@ -158,8 +329,7 @@ void ui_update_speed(int32_t value) {
 void ui_update_battery_percentage(int percentage) {
   if (power_is_entering_off_mode())
     return;
-  if (objects.controller_battery_text == NULL ||
-      objects.controller_battery_text == NULL)
+  if (home_ui.remote_battery_text == NULL)
     return;
 
   int gpio_level = gpio_get_level(BATTERY_IS_CHARGING_GPIO);
@@ -171,70 +341,95 @@ void ui_update_battery_percentage(int percentage) {
   ui_queue_send(&cmd);
 }
 
-void ui_update_skate_battery_percentage(int percentage) {
+void ui_update_skate_battery_percentage(int receiver, int percentage) {
   if (power_is_entering_off_mode())
     return;
-  if (objects.skate_battery_text == NULL)
+  int slot = widget_slot_for_receiver(receiver);
+  if (slot < 0 || home_ui.skate_battery_text[slot] == NULL)
     return;
 
   ui_cmd_t cmd = {.type = UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE,
+                  .receiver = (uint8_t)slot,
                   .data.skate_percentage = percentage};
   ui_queue_send(&cmd);
 }
 
-void ui_update_skate_battery_voltage_display(float voltage) {
+void ui_update_skate_battery_voltage_display(int receiver, float voltage) {
   if (power_is_entering_off_mode())
     return;
-  if (objects.skate_battery_text == NULL)
+  int slot = widget_slot_for_receiver(receiver);
+  if (slot < 0 || home_ui.skate_battery_text[slot] == NULL)
     return;
 
   ui_cmd_t cmd = {.type = UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE,
+                  .receiver = (uint8_t)slot,
                   .data.skate_voltage = voltage};
+  ui_queue_send(&cmd);
+}
+
+void ui_reset_skate_display(int receiver) {
+  int slot = widget_slot_for_receiver(receiver);
+  if (slot < 0)
+    return;
+
+  ui_cmd_t cmd = {.type = UI_CMD_RESET_SKATE_DISPLAY,
+                  .receiver = (uint8_t)slot};
   ui_queue_send(&cmd);
 }
 
 int get_connection_quality(void) { return connection_quality; }
 
 void ui_update_connection_quality(int rssi) {
-  if (rssi >= 0) {
-    connection_quality = 0;
-  } else {
-    connection_quality = ((rssi + 100) * 100) / 70;
-    if (connection_quality > 100)
-      connection_quality = 100;
-  }
+  connection_quality = rssi_to_quality(rssi);
   ui_update_connection_icon();
 }
 
 void ui_update_connection_icon(void) {
   if (power_is_entering_off_mode())
     return;
-  if (objects.connection_icon == NULL)
-    return;
 
-  ui_cmd_t cmd = {.type = UI_CMD_UPDATE_CONNECTION_ICON,
-                  .data.connection_quality = connection_quality};
-  ui_queue_send(&cmd);
+  for (int i = 0; i < home_ui.receiver_count; i++) {
+    if (home_ui.connection_icon[i] == NULL &&
+        home_ui.skateboard_icon[i] == NULL)
+      continue;
+
+    bool connected = receiver_is_connected(i);
+    int8_t rssi = 0;
+    uint8_t quality = 0;
+    if (connected && receiver_get_rssi(i, &rssi)) {
+      quality = rssi_to_quality(rssi);
+    }
+
+    ui_cmd_t cmd = {
+        .type = UI_CMD_UPDATE_CONNECTION_ICON,
+        .receiver = (uint8_t)i,
+        .data.connection = {.quality = quality, .connected = connected}};
+    ui_queue_send(&cmd);
+  }
 }
 
-void ui_update_trip_distance(float trip_km_val) {
+void ui_update_trip_distance(int receiver, float trip_km_val) {
   if (power_is_entering_off_mode())
     return;
-  if (objects.odometer == NULL)
+  int slot = widget_slot_for_receiver(receiver);
+  if (slot < 0 || home_ui.odometer[slot] == NULL)
     return;
 
   total_trip_km = trip_km_val;
 
   ui_cmd_t cmd = {.type = UI_CMD_UPDATE_TRIP_DISTANCE,
-                  .data.trip_km = total_trip_km};
+                  .receiver = (uint8_t)slot,
+                  .data.trip_km = trip_km_val};
   ui_queue_send(&cmd);
 }
 
 void ui_reset_trip_distance(void) {
   total_trip_km = 0.0f;
 
-  ui_cmd_t cmd = {.type = UI_CMD_RESET_TRIP_DISTANCE};
-  ui_queue_send(&cmd);
+  for (int i = 0; i < home_ui.receiver_count; i++) {
+    ui_cmd_t cmd = {.type = UI_CMD_RESET_TRIP_DISTANCE, .receiver = (uint8_t)i};
+    ui_queue_send(&cmd);
+  }
 }
 
 void ui_check_mutex_health(void) {
@@ -263,7 +458,7 @@ void ui_check_mutex_health(void) {
 }
 
 void ui_update_speed_unit(bool is_mph) {
-  if (power_is_entering_off_mode() || !objects.static_speed)
+  if (power_is_entering_off_mode() || !home_ui.static_speed)
     return;
 
   ui_cmd_t cmd = {.type = UI_CMD_UPDATE_SPEED_UNIT,
@@ -272,7 +467,6 @@ void ui_update_speed_unit(bool is_mph) {
 }
 
 static void speed_update_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   vesc_config_t config;
@@ -310,12 +504,12 @@ static void speed_update_task(void *pvParameters) {
 }
 
 static void battery_update_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   static int displayed_percentage = -1;
   static uint32_t last_change_time = 0;
   const uint32_t RATE_LIMIT_MS = 5000;
+  bool was_connected[UI_MAX_RECEIVERS] = {false};
 
   while (1) {
     int battery_percentage = battery_get_percentage();
@@ -345,31 +539,31 @@ static void battery_update_task(void *pvParameters) {
       ui_update_battery_percentage(display_percentage);
     }
 
-    static bool was_connected = false;
-    if (ble_is_connected()) {
-      was_connected = true;
-      float bms_voltage = get_bms_total_voltage();
-      bool bms_connected = (bms_voltage > 0.1f);
+    for (int i = 0; i < home_ui.receiver_count; i++) {
+      if (receiver_is_connected(i)) {
+        was_connected[i] = true;
+        float bms_voltage = receiver_bms_voltage(i);
+        bool bms_connected = (bms_voltage > 0.1f);
 
-      if (!bms_connected) {
-        float vesc_voltage = get_latest_voltage();
+        if (!bms_connected) {
+          float vesc_voltage = receiver_vesc_voltage(i);
 
-        ESP_LOGI(TAG, "battery_update: BMS off, vesc_voltage=%.2fV",
-                 vesc_voltage);
+          ESP_LOGI(TAG, "battery_update: receiver %d BMS off, vesc=%.2fV", i,
+                   vesc_voltage);
 
-        if (vesc_voltage > 0.1f) {
-          ui_update_skate_battery_voltage_display(vesc_voltage);
+          if (vesc_voltage > 0.1f) {
+            ui_update_skate_battery_voltage_display(i, vesc_voltage);
+          }
+        } else {
+          int skate_battery_percentage = receiver_bms_percentage(i);
+          if (skate_battery_percentage >= 0) {
+            ui_update_skate_battery_percentage(i, skate_battery_percentage);
+          }
         }
-      } else {
-        int skate_battery_percentage = get_bms_battery_percentage();
-        if (skate_battery_percentage >= 0) {
-          ui_update_skate_battery_percentage(skate_battery_percentage);
-        }
+      } else if (was_connected[i]) {
+        was_connected[i] = false;
+        ui_reset_skate_display(i);
       }
-    } else if (was_connected) {
-      was_connected = false;
-      ui_cmd_t cmd = {.type = UI_CMD_RESET_SKATE_DISPLAY};
-      ui_queue_send(&cmd);
     }
     esp_task_wdt_reset();
     vTaskDelay(pdMS_TO_TICKS(BATTERY_UPDATE_MS));
@@ -388,7 +582,6 @@ static void connection_update_task(void *pvParameters) {
 
 // UI Command Processor Task - handles queued UI updates
 static void ui_cmd_processor_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   ui_cmd_t cmd;
@@ -401,37 +594,41 @@ static void ui_cmd_processor_task(void *pvParameters) {
     if (xQueueReceive(ui_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) == pdTRUE) {
       if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         // Only update if on home screen (for most commands)
-        bool on_home = (get_current_screen() == objects.home_screen);
+        bool on_home = (get_current_screen() == home_ui.screen);
+        // Widget column this command targets; commands without a receiver
+        // leave `receiver` at 0, which is always a valid column.
+        int slot = cmd.receiver < home_ui.receiver_count ? cmd.receiver : -1;
 
         switch (cmd.type) {
         case UI_CMD_UPDATE_SPEED:
-          if (on_home && objects.speedlabel != NULL) {
-            lv_label_set_text_fmt(objects.speedlabel, "%ld", cmd.data.speed);
+          if (on_home && home_ui.speedlabel != NULL) {
+            lv_label_set_text_fmt(home_ui.speedlabel, "%ld", cmd.data.speed);
           }
           break;
 
         case UI_CMD_UPDATE_SPEED_UNIT:
           speed_unit_mph = cmd.data.speed_unit_mph;
-          if (on_home && objects.static_speed != NULL) {
-            lv_label_set_text(objects.static_speed,
+          if (on_home && home_ui.static_speed != NULL) {
+            lv_label_set_text(home_ui.static_speed,
                               cmd.data.speed_unit_mph ? "mph" : "km/h");
           }
           break;
 
         case UI_CMD_UPDATE_BATTERY_PERCENTAGE:
-          if (on_home && objects.controller_battery_text != NULL &&
-              objects.controller_battery_text != NULL) {
-            lv_label_set_text_fmt(objects.controller_battery_text, "%d%%",
-                                  cmd.data.battery.percentage);
+          if (on_home && home_ui.remote_battery_text != NULL) {
+            lv_label_set_text_fmt(
+                home_ui.remote_battery_text, "%s%d%%",
+                cmd.data.battery.is_charging ? LV_SYMBOL_CHARGE " " : "",
+                cmd.data.battery.percentage);
           }
-          if (on_home && objects.remote_arc != NULL) {
+          if (on_home && home_ui.remote_arc != NULL) {
             int pct = cmd.data.battery.percentage;
             if (pct < 0)
               pct = 0;
             if (pct > 100)
               pct = 100;
-            lv_arc_set_value(objects.remote_arc, (int16_t)pct);
-            set_arc_indicator_color_for_pct(objects.remote_arc, pct);
+            lv_arc_set_value(home_ui.remote_arc, (int16_t)pct);
+            set_arc_indicator_color_for_pct(home_ui.remote_arc, pct);
           }
           if (get_current_screen() == objects.charging_screen &&
               objects.charging_screen_percentage != NULL) {
@@ -449,28 +646,30 @@ static void ui_cmd_processor_task(void *pvParameters) {
           break;
 
         case UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE:
-          if (on_home && objects.skate_battery_text != NULL) {
-            lv_label_set_text_fmt(objects.skate_battery_text, "%d%%",
+          if (on_home && slot >= 0 &&
+              home_ui.skate_battery_text[slot] != NULL) {
+            lv_label_set_text_fmt(home_ui.skate_battery_text[slot], "%d%%",
                                   cmd.data.skate_percentage);
-            lv_obj_set_style_text_color(objects.skate_battery_text,
-                                        ble_is_connected()
+            lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
+                                        receiver_is_connected(slot)
                                             ? lv_color_white()
                                             : lv_color_make(48, 48, 48),
                                         LV_PART_MAIN);
           }
-          if (on_home && objects.skateboard_arc != NULL) {
+          if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
             int pct = cmd.data.skate_percentage;
             if (pct < 0)
               pct = 0;
             if (pct > 100)
               pct = 100;
-            lv_arc_set_value(objects.skateboard_arc, (int16_t)pct);
-            set_arc_indicator_color_for_pct(objects.skateboard_arc, pct);
+            lv_arc_set_value(home_ui.skate_arc[slot], (int16_t)pct);
+            set_arc_indicator_color_for_pct(home_ui.skate_arc[slot], pct);
           }
           break;
 
         case UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE:
-          if (on_home && objects.skate_battery_text != NULL) {
+          if (on_home && slot >= 0 &&
+              home_ui.skate_battery_text[slot] != NULL) {
             int volts = (int)cmd.data.skate_voltage;
             int tenths = (int)((cmd.data.skate_voltage - volts) * 10 + 0.5f);
             if (tenths >= 10) {
@@ -478,9 +677,9 @@ static void ui_cmd_processor_task(void *pvParameters) {
               volts++;
             }
             snprintf(str_buf, sizeof(str_buf), "%d.%dV", volts, tenths);
-            lv_label_set_text(objects.skate_battery_text, str_buf);
-            lv_obj_set_style_text_color(objects.skate_battery_text,
-                                        ble_is_connected()
+            lv_label_set_text(home_ui.skate_battery_text[slot], str_buf);
+            lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
+                                        receiver_is_connected(slot)
                                             ? lv_color_white()
                                             : lv_color_make(48, 48, 48),
                                         LV_PART_MAIN);
@@ -488,68 +687,74 @@ static void ui_cmd_processor_task(void *pvParameters) {
           break;
 
         case UI_CMD_UPDATE_CONNECTION_ICON:
-          if (on_home && objects.connection_icon != NULL) {
+          if (on_home && slot >= 0 && home_ui.connection_icon[slot] != NULL) {
             const void *icon_src = NULL;
-            if (!ble_is_connected()) {
-              icon_src = &img_connection_0;
-            } else if (cmd.data.connection_quality >= 30) {
+            if (!cmd.data.connection.connected) {
+              icon_src = &img_no_connection;
+            } else if (cmd.data.connection.quality >= 30) {
               icon_src = &img_100_connection;
-            } else if (cmd.data.connection_quality >= 15) {
+            } else if (cmd.data.connection.quality >= 15) {
               icon_src = &img_66_connection;
-            } else if (cmd.data.connection_quality >= 5) {
+            } else if (cmd.data.connection.quality >= 5) {
               icon_src = &img_33_connection;
             } else {
               icon_src = &img_connection_0;
             }
-            lv_img_set_src(objects.connection_icon, icon_src);
+            lv_img_set_src(home_ui.connection_icon[slot], icon_src);
           }
-          if (on_home && objects.skateboard_icon != NULL) {
-            lv_img_set_src(objects.skateboard_icon,
-                           ble_is_connected() ? &img_skateboard_icon_connected
-                                              : &img_skateboard_no_connection);
+          if (on_home && slot >= 0 && home_ui.skateboard_icon[slot] != NULL) {
+            lv_img_set_src(home_ui.skateboard_icon[slot],
+                           cmd.data.connection.connected
+                               ? &img_skateboard_icon_connected
+                               : &img_skateboard_no_connection);
           }
           break;
 
         case UI_CMD_UPDATE_TRIP_DISTANCE:
-          if (on_home && objects.odometer != NULL) {
+          if (on_home && slot >= 0 && home_ui.odometer[slot] != NULL) {
             if (speed_unit_mph) {
               snprintf(str_buf, sizeof(str_buf), "%.1f mi",
                        cmd.data.trip_km * KM_TO_MI);
             } else {
               snprintf(str_buf, sizeof(str_buf), "%.1f km", cmd.data.trip_km);
             }
-            lv_label_set_text(objects.odometer, str_buf);
-            lv_obj_invalidate(objects.odometer);
+            lv_label_set_text(home_ui.odometer[slot], str_buf);
+            lv_obj_invalidate(home_ui.odometer[slot]);
           }
           break;
 
         case UI_CMD_RESET_TRIP_DISTANCE:
-          if (on_home && objects.odometer != NULL) {
-            lv_label_set_text(objects.odometer,
+          if (on_home && slot >= 0 && home_ui.odometer[slot] != NULL) {
+            lv_label_set_text(home_ui.odometer[slot],
                               speed_unit_mph ? "0.0 mi" : "0.0 km");
-            lv_obj_invalidate(objects.odometer);
+            lv_obj_invalidate(home_ui.odometer[slot]);
           }
           break;
 
         case UI_CMD_UPDATE_AUX_INDICATOR:
-          if (objects.aux_output != NULL) {
+          if (home_ui.aux_output != NULL) {
             if (cmd.data.aux_state) {
-              lv_obj_set_style_opa(objects.aux_output, LV_OPA_COVER, 0);
+              lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_COVER, 0);
             } else {
-              lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
+              lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_TRANSP, 0);
             }
           }
           break;
 
         case UI_CMD_RESET_SKATE_DISPLAY:
-          if (on_home && objects.skate_battery_text != NULL) {
-            lv_label_set_text(objects.skate_battery_text, "--");
-            lv_obj_set_style_text_color(objects.skate_battery_text,
+          if (on_home && slot >= 0 &&
+              home_ui.skate_battery_text[slot] != NULL) {
+            lv_label_set_text(home_ui.skate_battery_text[slot], "--");
+            lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
                                         lv_color_make(48, 48, 48),
                                         LV_PART_MAIN);
           }
-          if (objects.aux_output != NULL) {
-            lv_obj_set_style_opa(objects.aux_output, LV_OPA_TRANSP, 0);
+          if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
+            lv_arc_set_value(home_ui.skate_arc[slot], 0);
+          }
+          // Aux is a remote-wide indicator; clear it once no receiver is left.
+          if (home_ui.aux_output != NULL && !ble_is_connected()) {
+            lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_TRANSP, 0);
           }
           break;
         }
@@ -583,8 +788,8 @@ void ui_start_update_tasks(void) {
 void ui_force_config_reload(void) { force_config_reload = true; }
 
 void ui_create_aux_output_indicator(void) {
-  if (objects.aux_output == NULL) {
-    ESP_LOGW(TAG, "objects.aux_output is NULL");
+  if (home_ui.aux_output == NULL) {
+    ESP_LOGW(TAG, "home screen aux_output is NULL");
     return;
   }
 
@@ -593,16 +798,22 @@ void ui_create_aux_output_indicator(void) {
 }
 
 void ui_hide_throttle_not_calibrated_text(void) {
-  if (objects.throttle_not_calibrated_text == NULL)
+  if (home_ui.throttle_warning == NULL)
     return;
   if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    lv_obj_add_flag(objects.throttle_not_calibrated_text, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(home_ui.throttle_warning, LV_OBJ_FLAG_HIDDEN);
     xSemaphoreGive(lvgl_mutex);
   }
 }
 
+void ui_show_throttle_not_calibrated_text(void) {
+  if (home_ui.throttle_warning == NULL)
+    return;
+  lv_obj_clear_flag(home_ui.throttle_warning, LV_OBJ_FLAG_HIDDEN);
+}
+
 void ui_update_aux_output_indicator(void) {
-  if (objects.aux_output == NULL)
+  if (home_ui.aux_output == NULL)
     return;
 
   bool aux_state = ble_get_receiver_aux_output_state();
@@ -622,15 +833,15 @@ static void splash_timer_cb(lv_timer_t *timer) {
     return;
   }
 
-  lv_disp_load_scr(objects.home_screen);
+  lv_obj_t *home = ui_get_home_screen();
+  lv_disp_load_scr(home);
 
   // Home screen reached — activate BLE scanning and connection
   ble_resume();
-  if (objects.throttle_not_calibrated_text != NULL &&
-      !throttle_is_calibrated()) {
-    lv_obj_clear_flag(objects.throttle_not_calibrated_text, LV_OBJ_FLAG_HIDDEN);
+  if (!throttle_is_calibrated()) {
+    ui_show_throttle_not_calibrated_text();
   }
-  lv_obj_invalidate(objects.home_screen);
+  lv_obj_invalidate(home);
 }
 
 /** Cancel any pending splash transition. Caller must hold LVGL mutex. */
