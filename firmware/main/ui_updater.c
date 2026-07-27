@@ -269,7 +269,6 @@ void ui_updater_init(void) {
     ESP_LOGI(TAG, "LVGL mutex created with priority inheritance");
   }
 
-  // Create UI command queue
   ui_cmd_queue = xQueueCreate(UI_CMD_QUEUE_SIZE, sizeof(ui_cmd_t));
   if (ui_cmd_queue == NULL) {
     ESP_LOGE(TAG, "Failed to create UI command queue");
@@ -298,7 +297,6 @@ void give_lvgl_mutex(void) {
   }
 }
 
-// Helper to send UI command to queue
 static bool ui_queue_send(ui_cmd_t *cmd) {
   if (ui_cmd_queue == NULL) {
     return false;
@@ -469,7 +467,6 @@ void ui_update_speed_unit(bool is_mph) {
 }
 
 static void speed_update_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   vesc_config_t config;
@@ -507,7 +504,6 @@ static void speed_update_task(void *pvParameters) {
 }
 
 static void battery_update_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   static int displayed_percentage = -1;
@@ -586,7 +582,6 @@ static void connection_update_task(void *pvParameters) {
 
 // UI Command Processor Task - handles queued UI updates
 static void ui_cmd_processor_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   ui_cmd_t cmd;

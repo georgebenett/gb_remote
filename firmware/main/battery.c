@@ -76,7 +76,6 @@ esp_err_t adc_battery_init(void) {
 
   adc_oneshot_unit_handle_t adc1_handle = adc_get_handle();
 
-  // Configure the battery ADC channel
   adc_oneshot_chan_cfg_t battery_config = {.atten = ADC_ATTEN_DB_12,
                                            .bitwidth = ADC_BITWIDTH_12};
 
@@ -110,8 +109,8 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
 
   // Take multiple readings with outlier rejection
   const int NUM_SAMPLES = 10;
-  const int MIN_VALID_SAMPLES = 6; // Require at least 6/10 valid samples
-  const int TRIM_COUNT = 2;        // Remove 2 highest and 2 lowest values
+  const int MIN_VALID_SAMPLES = 6;
+  const int TRIM_COUNT = 2; // Remove 2 highest and 2 lowest values
   int32_t samples[NUM_SAMPLES];
   int valid_samples = 0;
 
@@ -130,7 +129,6 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
     vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
   }
 
-  // Require minimum valid samples
   if (valid_samples < MIN_VALID_SAMPLES) {
     ESP_LOGW(TAG, "Insufficient valid battery ADC samples: %d/%d",
              valid_samples, NUM_SAMPLES);
@@ -162,14 +160,12 @@ esp_err_t battery_init(void) {
     return ESP_OK;
   }
 
-  // Initialize the battery ADC
   esp_err_t ret = adc_battery_init();
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to initialize battery ADC: %s", esp_err_to_name(ret));
     return ret;
   }
 
-  // Initialize battery probe pin as OUTPUT
   gpio_config_t probe_conf = {.pin_bit_mask = (1ULL << BATTERY_PROBE_PIN),
                               .mode = GPIO_MODE_OUTPUT,
                               .pull_up_en = GPIO_PULLUP_DISABLE,
@@ -185,7 +181,6 @@ esp_err_t battery_init(void) {
   gpio_set_level(BATTERY_PROBE_PIN, 0);
   ESP_LOGI(TAG, "Battery probe pin GPIO %d initialized", BATTERY_PROBE_PIN);
 
-  // Initialize battery charging status GPIO as INPUT
   gpio_config_t charging_conf = {.pin_bit_mask =
                                      (1ULL << BATTERY_IS_CHARGING_GPIO),
                                  .mode = GPIO_MODE_INPUT,
@@ -242,7 +237,6 @@ float battery_get_voltage(void) {
     return latest_battery_voltage;
   }
 
-  // Calculate average of samples
   float sum = 0.0f;
   int count =
       battery_samples_filled ? BATTERY_VOLTAGE_SAMPLES : battery_sample_index;
@@ -255,7 +249,6 @@ float battery_get_voltage(void) {
 }
 
 static void battery_monitoring_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   TickType_t last_wake_time = xTaskGetTickCount();
@@ -277,11 +270,9 @@ static void battery_monitoring_task(void *pvParameters) {
         battery_samples_filled = true;
       }
 
-      // Check for low voltage condition
       if (voltage < BATTERY_LOW_VOLTAGE_THRESHOLD) {
         low_voltage_count++;
 
-        // Alert user on first detection
         if (!low_voltage_alerted) {
           ESP_LOGW(TAG, "Battery voltage low: %.2fV (threshold: %.2fV)",
                    voltage, BATTERY_LOW_VOLTAGE_THRESHOLD);
@@ -307,7 +298,6 @@ static void battery_monitoring_task(void *pvParameters) {
       ESP_LOGW(TAG, "Invalid battery reading");
     }
 
-    // Reset watchdog before delay
     esp_task_wdt_reset();
     vTaskDelayUntil(&last_wake_time,
                     pdMS_TO_TICKS(BATTERY_MONITOR_INTERVAL_MS));
@@ -323,7 +313,6 @@ int battery_get_percentage(void) {
     return -1; // Invalid reading
   }
 
-  // Calculate percentage using lookup table interpolation
   float soc = voltage_to_soc(voltage);
   return (int)(soc + 0.5f); // Round to nearest integer
 }
@@ -340,11 +329,9 @@ static void battery_low_voltage_shutdown(void) {
 
   low_voltage_shutdown_triggered = true;
 
-  // Alert user with haptic feedback
   viber_play_pattern(VIBER_PATTERN_ALERT);
   vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_ALERT_DELAY_MS));
 
-  // Show warning on shutdown screen if possible
   if (take_lvgl_mutex()) {
     if (objects.low_battery_screen != NULL) {
       lv_disp_load_scr(objects.low_battery_screen);

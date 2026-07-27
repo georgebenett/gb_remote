@@ -31,7 +31,6 @@ static snake_t snake = {0};
 extern volatile bool splash_transition_active;
 extern lv_timer_t *splash_transition_timer;
 
-// Forward declarations
 static void snake_rebuild_polyline(void);
 static void snake_spawn_food(void);
 static void snake_finish_game(void);
@@ -772,7 +771,6 @@ static void snake_hide_pause_menu(void) {
   snake.state = SNAKE_STATE_PLAYING;
   snake_set_hud_visible(true);
 
-  // Resume game timers
   if (snake.tick_timer != NULL) {
     lv_timer_resume(snake.tick_timer);
   }
@@ -1115,7 +1113,6 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
     snake_load_high_score();
   }
 
-  // Handle difficulty selection menu
   if (snake.state == SNAKE_STATE_DIFFICULTY_SELECT) {
     if (event == BUTTON_EVENT_PRESSED) {
       if (take_lvgl_mutex()) {
@@ -1133,7 +1130,6 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
     return true;
   }
 
-  // Handle pause menu
   if (snake.state == SNAKE_STATE_PAUSED) {
     if (event == BUTTON_EVENT_PRESSED) {
       if (take_lvgl_mutex()) {
@@ -1148,7 +1144,6 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
     return true;
   }
 
-  // Handle active game
   if (snake.running) {
     if (snake.game_over && event == BUTTON_EVENT_PRESSED) {
       if (take_lvgl_mutex()) {

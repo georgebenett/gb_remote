@@ -25,11 +25,9 @@
 
 #define TAG "USB_SERIAL"
 
-// NVS keys for backlight brightness
 #define NVS_NAMESPACE_LCD "lcd_cfg"
 #define NVS_KEY_BACKLIGHT "backlight"
 
-// Binary protocol state machine variables
 static bool usb_serial_initialized = false;
 static TaskHandle_t usb_task_handle = NULL;
 static packet_state_t rx_state = STATE_WAIT_START;
@@ -37,15 +35,12 @@ static binary_packet_t rx_packet;
 static uint16_t rx_payload_index = 0;
 static uint16_t rx_crc_calculated = 0;
 
-// Streaming configuration
 static stream_config_t stream_config = {.enabled = false,
                                         .rate_hz = 10, // Default 10Hz
                                         .last_send_ms = 0};
 
-// Configuration storage using vesc_config_t structure
 static vesc_config_t hand_controller_config;
 
-// Forward declarations - binary protocol handlers
 static void usb_serial_task(void *pvParameters);
 static void handle_cmd_ping(const binary_packet_t *packet);
 static void handle_cmd_get_firmware_version(const binary_packet_t *packet);
@@ -99,20 +94,16 @@ void usb_serial_init(void) {
     return;
   }
 
-  // Add target-specific initialization delay
   vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
 
   usb_serial_init_esp32s3();
 
-  // Initialize packet state machine
   rx_state = STATE_WAIT_START;
   rx_payload_index = 0;
   memset(&rx_packet, 0, sizeof(rx_packet));
 
-  // Load configuration from NVS
   esp_err_t err = vesc_config_load(&hand_controller_config);
   if (err != ESP_OK) {
-    // Initialize with default values if loading fails
     // TODO: fix this default behaviour
     hand_controller_config.motor_poles = 14;
     hand_controller_config.gear_ratio_x1000 = 2200; // 2.2 gear ratio
@@ -139,14 +130,12 @@ void usb_serial_start_task(void) {
 void usb_serial_init_esp32s3(void) {
   ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-S3");
 
-  /* Disable buffering on stdin */
   setvbuf(stdin, NULL, _IONBF, 0);
 
   /* Binary mode - no line ending conversion */
   usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
   usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
 
-  /* Enable non-blocking mode on stdin and stdout */
   fcntl(fileno(stdout), F_SETFL, O_NONBLOCK);
   fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
 
@@ -163,7 +152,6 @@ void usb_serial_init_esp32s3(void) {
     return;
   }
 
-  /* Tell vfs to use usb-serial-jtag driver */
   usb_serial_jtag_vfs_use_driver();
 
   ESP_LOGI(TAG, "USB Serial JTAG (Binary Mode) initialized successfully");
@@ -176,7 +164,6 @@ static void usb_serial_task(void *pvParameters) {
       temp_crc_buffer[PACKET_MAX_PAYLOAD_SIZE + 4]; // CMD + LEN(2) + PAYLOAD
 
   for (;;) {
-    // Handle streaming if enabled
     if (stream_config.enabled) {
       uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
       uint32_t interval_ms = 1000 / stream_config.rate_hz;
@@ -186,7 +173,6 @@ static void usb_serial_task(void *pvParameters) {
       }
     }
 
-    // Process incoming bytes
     int byte = fgetc(stdin);
     if (byte == EOF || byte == 0xFF) {
       vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
@@ -217,12 +203,10 @@ static void usb_serial_task(void *pvParameters) {
     case STATE_WAIT_LEN_MSB:
       rx_packet.payload_length |= ((uint16_t)data << 8);
 
-      // Validate payload length
       if (rx_packet.payload_length > PACKET_MAX_PAYLOAD_SIZE) {
         ESP_LOGW(TAG, "Invalid payload length: %d", rx_packet.payload_length);
         rx_state = STATE_WAIT_START;
       } else if (rx_packet.payload_length == 0) {
-        // No payload, go directly to CRC
         rx_state = STATE_WAIT_CRC_LSB;
       } else {
         rx_state = STATE_WAIT_PAYLOAD;
@@ -255,7 +239,6 @@ static void usb_serial_task(void *pvParameters) {
           calculate_crc16(temp_crc_buffer, 3 + rx_packet.payload_length);
 
       if (rx_crc_calculated == rx_packet.crc) {
-        // Valid packet received, process it
         ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d", rx_packet.cmd_id,
                  rx_packet.payload_length);
         usb_serial_process_packet(&rx_packet);
@@ -277,7 +260,6 @@ static void usb_serial_task(void *pvParameters) {
   }
 }
 
-// Send a binary response packet
 void usb_serial_send_response(uint8_t cmd_id, const uint8_t *payload,
                               uint16_t length) {
   if (length > PACKET_MAX_PAYLOAD_SIZE) {
@@ -304,14 +286,12 @@ void usb_serial_send_response(uint8_t cmd_id, const uint8_t *payload,
   packet[idx++] = crc & 0xFF;
   packet[idx++] = (crc >> 8) & 0xFF;
 
-  // Send packet
   usb_serial_jtag_write_bytes((const char *)packet, idx, pdMS_TO_TICKS(100));
 
   ESP_LOGD(TAG, "Sent response: CMD=0x%02X, LEN=%d, CRC=0x%04X", cmd_id, length,
            crc);
 }
 
-// Send ACK/NACK response
 void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code) {
   uint8_t payload[2];
   payload[0] = original_cmd;
@@ -319,7 +299,6 @@ void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code) {
   usb_serial_send_response(RSP_ACK, payload, 2);
 }
 
-// Send error response with message
 void usb_serial_send_error(error_code_t error_code, const char *message) {
   uint8_t payload[256];
   payload[0] = (uint8_t)error_code;
@@ -335,7 +314,6 @@ void usb_serial_send_error(error_code_t error_code, const char *message) {
   usb_serial_send_response(RSP_ERROR, payload, 1 + msg_len);
 }
 
-// Process received binary packet
 void usb_serial_process_packet(const binary_packet_t *packet) {
   switch (packet->cmd_id) {
   case CMD_PING:
@@ -405,10 +383,7 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   }
 }
 
-// ========== BINARY PROTOCOL COMMAND HANDLERS ==========
-
 static void handle_cmd_ping(const binary_packet_t *packet) {
-  // Simple ping response - just ACK
   usb_serial_send_ack(CMD_PING, ERR_OK);
 }
 
@@ -416,7 +391,6 @@ static void handle_cmd_get_firmware_version(const binary_packet_t *packet) {
   uint8_t payload[256];
   uint16_t idx = 0;
 
-  // Parse version string to get individual components
   uint8_t major = 0, minor = 0, patch = 0;
   sscanf(FW_VERSION, "%hhu.%hhu.%hhu", &major, &minor, &patch);
   payload[idx++] = major;
@@ -473,7 +447,6 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     flags |= 0x10;
   payload[idx++] = flags;
 
-  // Get backlight brightness
   nvs_handle_t nvs_handle;
   uint8_t brightness = LCD_BACKLIGHT_DEFAULT;
   err = nvs_open(NVS_NAMESPACE_LCD, NVS_READONLY, &nvs_handle);
@@ -639,7 +612,6 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t *packet) {
 
   if (result == CAL_OK) {
     ui_hide_throttle_not_calibrated_text();
-    // Build calibration response
     uint8_t payload[32];
     uint16_t idx = 0;
 
@@ -688,7 +660,6 @@ static void handle_cmd_get_calibration(const binary_packet_t *packet) {
     return;
   }
 
-  // Build calibration response
   uint8_t payload[64];
   uint16_t idx = 0;
 
@@ -782,7 +753,6 @@ static void handle_cmd_set_backlight(const binary_packet_t *packet) {
   lcd_fade_backlight(lcd_get_backlight(), pwm_value,
                      LCD_BACKLIGHT_FADE_DURATION_MS);
 
-  // Save to NVS
   nvs_handle_t nvs_handle;
   esp_err_t err = nvs_open(NVS_NAMESPACE_LCD, NVS_READWRITE, &nvs_handle);
   if (err == ESP_OK) {
@@ -865,8 +835,6 @@ static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
   }
 }
 
-// ========== STREAMING FUNCTIONS ==========
-
 // Apply trim offset with range compensation to maintain full 0-255 span
 static uint8_t apply_trim_with_compensation(uint8_t adc_value,
                                             int8_t trim_offset) {
@@ -878,7 +846,6 @@ static uint8_t apply_trim_with_compensation(uint8_t adc_value,
 
   int32_t new_center = VESC_NEUTRAL_VALUE + trim_offset;
 
-  // Clamp new center to valid range
   if (new_center < 0)
     new_center = 0;
   if (new_center > 255)
@@ -928,7 +895,6 @@ static void handle_cmd_start_streaming(const binary_packet_t *packet) {
     rate_hz = packet->payload[0] | (packet->payload[1] << 8);
   }
 
-  // Validate rate (1Hz - 100Hz)
   if (rate_hz < 1)
     rate_hz = 1;
   if (rate_hz > 100)
@@ -962,7 +928,6 @@ static void handle_cmd_set_stream_rate(const binary_packet_t *packet) {
 
   uint16_t rate_hz = packet->payload[0] | (packet->payload[1] << 8);
 
-  // Validate rate (1Hz - 100Hz)
   if (rate_hz < 1 || rate_hz > 100) {
     usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_OUT_OF_RANGE);
     return;
@@ -1006,7 +971,7 @@ void usb_serial_send_stream_data(void) {
   // Throttle raw value (4 bytes, signed)
   int32_t throttle_raw = throttle_read_value();
   if (throttle_raw < 0)
-    throttle_raw = 0; // Clamp negative values to 0
+    throttle_raw = 0;
   uint32_t throttle_raw_uint = (uint32_t)throttle_raw;
   payload[idx++] = (throttle_raw_uint >> 0) & 0xFF;
   payload[idx++] = (throttle_raw_uint >> 8) & 0xFF;
@@ -1018,7 +983,7 @@ void usb_serial_send_stream_data(void) {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
   int32_t brake_raw = brake_read_value();
   if (brake_raw < 0)
-    brake_raw = 0; // Clamp negative values to 0
+    brake_raw = 0;
   brake_raw_uint = (uint32_t)brake_raw;
 #endif
   payload[idx++] = (brake_raw_uint >> 0) & 0xFF;
@@ -1042,7 +1007,6 @@ void usb_serial_send_stream_data(void) {
   } else {
     throttle_brake_ble = (uint8_t)adc_value;
 
-    // Apply throttle inversion if configured
     vesc_config_t config;
     esp_err_t err = vesc_config_load(&config);
     if (err == ESP_OK && config.invert_throttle) {
@@ -1107,10 +1071,7 @@ static void handle_cmd_get_ble_trim(const binary_packet_t *packet) {
   usb_serial_send_response(RSP_BLE_TRIM, payload, 1);
 }
 
-// ========== COREDUMP FUNCTIONS ==========
-
 static void handle_cmd_check_coredump(const binary_packet_t *packet) {
-  // Find the coredump partition
   const esp_partition_t *coredump_partition = esp_partition_find_first(
       ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
 
@@ -1157,7 +1118,6 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet) {
     const uint32_t min_empty_block = 256; // Require at least 256 consecutive
                                           // 0xFF bytes to consider it padding
 
-    // Start from the end and work backwards in chunks
     bool found_data_end = false;
     uint32_t consecutive_ff = 0;
 
@@ -1176,7 +1136,6 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet) {
       if (end_err != ESP_OK)
         break;
 
-      // Check backwards through this chunk
       for (int32_t i = read_size - 1; i >= 0; i--) {
         if (end_check_buffer[i] == 0xFF) {
           consecutive_ff++;
@@ -1228,7 +1187,6 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet) {
       }
     }
 
-    // If still not found, use partition size but round down
     if (!found_data_end) {
       data_end = coredump_partition->size;
       data_end = (data_end / 1024) * 1024; // Round down to 1KB boundary
@@ -1268,7 +1226,6 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet) {
     payload[idx++] = 1; // exists flag
     payload[idx++] = (reported_size >> 0) & 0xFF;
     payload[idx++] = (reported_size >> 8) & 0xFF;
-    // Include first 16 bytes
     for (int i = 0; i < 16; i++) {
       payload[idx++] = check_buffer[i];
     }
@@ -1277,7 +1234,6 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet) {
     payload[idx++] = 0; // no coredump
     payload[idx++] = 0;
     payload[idx++] = 0;
-    // Include first 16 bytes
     for (int i = 0; i < 16; i++) {
       payload[idx++] = check_buffer[i];
     }
@@ -1295,7 +1251,6 @@ static void handle_cmd_get_coredump(const binary_packet_t *packet) {
 
   uint16_t chunk_offset = packet->payload[0] | (packet->payload[1] << 8);
 
-  // Find the coredump partition
   const esp_partition_t *coredump_partition = esp_partition_find_first(
       ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
 
@@ -1305,7 +1260,6 @@ static void handle_cmd_get_coredump(const binary_packet_t *packet) {
     return;
   }
 
-  // Validate chunk offset
   if (chunk_offset >= coredump_partition->size) {
     ESP_LOGW(TAG, "Chunk offset out of range: %" PRIu16 " >= %" PRIu32,
              chunk_offset, coredump_partition->size);
@@ -1313,7 +1267,6 @@ static void handle_cmd_get_coredump(const binary_packet_t *packet) {
     return;
   }
 
-  // Calculate chunk size (max payload - 2 bytes for chunk info)
   uint16_t max_chunk_size =
       PACKET_MAX_PAYLOAD_SIZE -
       4; // Reserve 4 bytes for chunk_offset and chunk_size
@@ -1321,7 +1274,6 @@ static void handle_cmd_get_coredump(const binary_packet_t *packet) {
   uint16_t chunk_size =
       (remaining < max_chunk_size) ? (uint16_t)remaining : max_chunk_size;
 
-  // Read chunk from partition
   uint8_t payload[PACKET_MAX_PAYLOAD_SIZE];
   uint16_t idx = 0;
 
@@ -1332,7 +1284,6 @@ static void handle_cmd_get_coredump(const binary_packet_t *packet) {
   payload[idx++] = (chunk_size >> 0) & 0xFF;
   payload[idx++] = (chunk_size >> 8) & 0xFF;
 
-  // Read data from partition
   esp_err_t err = esp_partition_read(coredump_partition, chunk_offset,
                                      &payload[idx], chunk_size);
   if (err != ESP_OK) {

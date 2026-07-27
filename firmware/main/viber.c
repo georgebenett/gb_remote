@@ -141,7 +141,6 @@ esp_err_t viber_init(void) {
   };
   ESP_ERROR_CHECK(ledc_channel_config(&channel_conf));
 
-  // Load saved intensity from NVS
   nvs_handle_t nvs_handle;
   if (nvs_open(NVS_NAMESPACE_HAPTIC, NVS_READONLY, &nvs_handle) == ESP_OK) {
     nvs_get_u8(nvs_handle, NVS_KEY_INTENSITY, &haptic_intensity);

@@ -4,12 +4,6 @@
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
-/****************************************************************************
- *
- * This file is for ble spp client demo.
- *
- ****************************************************************************/
-
 #include "driver/uart.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -66,7 +60,6 @@ enum {
   SPP_IDX_NB,
 };
 
-/// Declare static functions
 static void esp_gap_cb(esp_gap_ble_cb_event_t event,
                        esp_ble_gap_cb_param_t *param);
 static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
@@ -372,7 +365,6 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   if (handle == db[SPP_IDX_SPP_DATA_NTY_VAL].attribute_handle) {
     if (p_data->notify.value_len ==
         65) { // VESC + BMS + motor config + aux state + trip_km
-      // First process VESC data (first 14 bytes)
       // All values are little-endian (LSB first, MSB second)
       // temp_mos (bytes 0-1)
       int16_t temp_mos =
@@ -597,7 +589,6 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
     break;
   }
   case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
-    // scan start complete event to indicate scan start successfully or failed
     if ((err = param->scan_start_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
       scan_active = false;
       ESP_LOGE(GATTC_TAG, "Scan start failed: %s", esp_err_to_name(err));
@@ -632,7 +623,6 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
           esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
                                    ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
 
-      // Check if device name matches
       if (adv_name != NULL &&
           strncmp((char *)adv_name, device_name, adv_name_len) == 0) {
         // Ignore while a connect is in flight, when the receiver is already
@@ -754,7 +744,6 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                          esp_ble_gattc_cb_param_t *param) {
   ESP_LOGI(GATTC_TAG, "EVT %d, gattc if %d", event, gattc_if);
 
-  /* If event is register event, store the gattc_if for each profile */
   if (event == ESP_GATTC_REG_EVT) {
     if (param->reg.status == ESP_GATT_OK) {
       gl_profile_tab[param->reg.app_id].gattc_if = gattc_if;
@@ -764,8 +753,6 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
       return;
     }
   }
-  /* If the gattc_if equal to profile A, call profile A cb handler,
-   * so here call each profile's callback */
   do {
     int idx;
     for (idx = 0; idx < PROFILE_NUM; idx++) {
@@ -812,7 +799,6 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     set_is_connect(true);
     pairing_adv_apply();
 
-    // Initiate encryption/pairing
     ESP_LOGI(GATTC_TAG, "Initiating BLE encryption...");
     esp_ble_set_encryption(p_data->connect.remote_bda,
                            ESP_BLE_SEC_ENCRYPT_MITM);
@@ -856,7 +842,6 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
       // Send serial notification for config tool
       printf("#>DATA ble_status=disconnected\n");
 
-      // Reset speed and battery values to 0 when disconnected
       latest_erpm = 0;
       latest_voltage = 0.0f;
       latest_trip_km = 0.0f;
@@ -865,14 +850,12 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
       latest_temp_mos = 0.0f;
       latest_temp_motor = 0.0f;
 
-      // Reset BMS battery values to 0
       bms_total_voltage = 0.0f;
       bms_current = 0.0f;
       bms_remaining_capacity = 0.0f;
       bms_nominal_capacity = 0.0f;
       bms_num_cells = 0;
 
-      // Clear cell voltages array
       memset(bms_cell_voltages, 0, sizeof(bms_cell_voltages));
 
       ESP_LOGI(GATTC_TAG,
@@ -1032,13 +1015,11 @@ void ble_client_appRegister(void) {
 
   ESP_LOGI(GATTC_TAG, "register callback");
 
-  // register the scan callback function to the gap module
   if ((status = esp_ble_gap_register_callback(esp_gap_cb)) != ESP_OK) {
     ESP_LOGE(GATTC_TAG, "gap register error: %s",
              esp_err_to_name_r(status, err_msg, sizeof(err_msg)));
     return;
   }
-  // register the callback function to the gattc module
   if ((status = esp_ble_gattc_register_callback(esp_gattc_cb)) != ESP_OK) {
     ESP_LOGE(GATTC_TAG, "gattc register error: %s",
              esp_err_to_name_r(status, err_msg, sizeof(err_msg)));
@@ -1055,7 +1036,6 @@ void ble_client_appRegister(void) {
              esp_err_to_name_r(local_mtu_ret, err_msg, sizeof(err_msg)));
   }
 
-  // Configure BLE Security
   esp_ble_auth_req_t auth_req =
       ESP_LE_AUTH_REQ_SC_MITM_BOND; // Secure Connections, MITM protection,
                                     // Bonding
@@ -1092,11 +1072,9 @@ void ble_client_appRegister(void) {
 void uart_task(void *pvParameters) {
   uart_event_t event;
   for (;;) {
-    // Waiting for UART event.
     if (xQueueReceive(spp_uart_queue, (void *)&event,
                       (TickType_t)portMAX_DELAY)) {
       switch (event.type) {
-      // Event of UART receiving data
       case UART_DATA:
         if (event.size && ble_is_connected() && link_any_ready()) {
           uint8_t *temp = NULL;
@@ -1142,7 +1120,6 @@ static void spp_uart_init(void) {
       .source_clk = UART_SCLK_DEFAULT,
   };
 
-  // Install UART driver, and get the queue.
   esp_err_t ret =
       uart_driver_install(UART_NUM_0, 4096, 8192, 10, &spp_uart_queue, 0);
   if (ret != ESP_OK) {
@@ -1151,14 +1128,12 @@ static void spp_uart_init(void) {
     return;
   }
 
-  // Set UART parameters
   ret = uart_param_config(UART_NUM_0, &uart_config);
   if (ret != ESP_OK) {
     ESP_LOGE(GATTC_TAG, "Failed to configure UART: %s", esp_err_to_name(ret));
     return;
   }
 
-  // Set UART pins
   ret = uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE,
                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
   if (ret != ESP_OK) {
@@ -1181,10 +1156,8 @@ void spp_client_demo_init(void) {
 
   nvs_flash_init();
 
-  // Load aux output state from NVS
   aux_output_load_state();
 
-  // Load BLE trim offset from NVS
   ble_trim_load_offset();
 
   // Load dual connection preference (set via the USB config tool)
@@ -1233,7 +1206,6 @@ void spp_client_demo_init(void) {
 }
 
 static void adc_send_task(void *pvParameters) {
-  // Register with task watchdog
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint8_t data_buffer[3]; // throttle (2) + aux state (1)
@@ -1357,7 +1329,6 @@ static void adc_send_task(void *pvParameters) {
         }
       }
 
-      // Reset watchdog before delay
       esp_task_wdt_reset();
       vTaskDelay(pdMS_TO_TICKS(ADC_SEND_INTERVAL_MS));
     } else {

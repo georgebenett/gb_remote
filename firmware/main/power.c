@@ -239,7 +239,6 @@ static bool power_check_wake_from_sleep(void) {
         }
       }
 
-      // Button was held for long press duration
       woke_from_sleep_with_long_press = true;
       ESP_LOGI(TAG, "Long press detected - turning device on");
       // Restore button to interrupt mode for when button task starts later
@@ -339,7 +338,6 @@ void power_init(void) {
     // Never returns
   }
 
-  // Button held long enough, proceed with power-on
   gpio_config_t POWER_HOLD_GPIO_conf = {.pin_bit_mask =
                                             (1ULL << POWER_HOLD_GPIO),
                                         .mode = GPIO_MODE_OUTPUT,

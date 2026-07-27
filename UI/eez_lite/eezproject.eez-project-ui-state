@@ -1,10 +1,10 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/2",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/5",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
-    "selectedFontObject": "[eezproject.eez-project]:/fonts/1",
+    "selectedFontObject": "[eezproject.eez-project]:/fonts/3",
     "selectedBitmapObject": "[eezproject.eez-project]:/bitmaps/16",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Actions"
@@ -28,7 +28,7 @@
           },
           {
             "type": "border",
-            "selected": 2,
+            "selected": 1,
             "size": 240,
             "location": "right",
             "children": [
@@ -201,11 +201,11 @@
               "children": [
                 {
                   "type": "tab",
-                  "id": "#cf63db24-36da-452c-8c5c-c9e6a01480c0",
-                  "name": "satoshi16",
+                  "id": "#6c429f27-a7a7-428f-9fd5-d457b5338a75",
+                  "name": "bebas120",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/fonts/1",
+                    "objectPath": "[eezproject.eez-project]:/fonts/3",
                     "permanent": false
                   },
                   "icon": "material:font_download"
@@ -213,10 +213,10 @@
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "home screen",
+                  "name": "home screen_dual",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/2",
+                    "objectPath": "[eezproject.eez-project]:/userPages/5",
                     "permanent": false
                   },
                   "icon": "svg:page"
@@ -1513,17 +1513,17 @@
     "[eezproject.eez-project]:/userPages/5[flow-state]": {
       "selection": {
         "0": {
-          "0": {
-            "$selected": true
-          }
+          "0": {},
+          "4": {},
+          "6": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -276,
-          "y": -336
+          "x": -240,
+          "y": -272
         },
-        "scale": 1.5
+        "scale": 1.25
       },
       "timeline": {
         "isEditorActive": false,
@@ -1585,9 +1585,7 @@
           "5": {
             "1": {},
             "2": {},
-            "3": {
-              "$selected": true
-            }
+            "3": {}
           }
         }
       },

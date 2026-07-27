@@ -48,14 +48,12 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   config->gear_ratio_x1000 = current_motor_config.gear_ratio_x1000;
   config->wheel_diameter_mm = current_motor_config.wheel_diameter_mm;
 
-  // Set default user preferences
   config->speed_unit_mph = false;
   config->dual_connection = false;
 #ifdef CONFIG_TARGET_LITE
   config->invert_throttle = false;
 #endif
 
-  // Load user preferences from NVS
   err = nvs_open(VESC_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
   if (err != ESP_OK) {
     // No NVS data, use defaults - this is OK
@@ -145,7 +143,6 @@ void vesc_config_get_motor(vesc_motor_config_t *motor_config) {
 }
 
 int32_t vesc_config_get_speed(const vesc_config_t *config) {
-  // Validate config and motor poles
   if (config == NULL || config->motor_poles == 0 ||
       config->gear_ratio_x1000 == 0) {
     return 0;
