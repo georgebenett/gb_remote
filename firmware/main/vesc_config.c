@@ -134,14 +134,6 @@ void vesc_config_update_motor(uint8_t motor_poles, uint16_t gear_ratio_x1000,
   }
 }
 
-void vesc_config_get_motor(vesc_motor_config_t *motor_config) {
-  if (motor_config != NULL) {
-    motor_config->motor_poles = current_motor_config.motor_poles;
-    motor_config->gear_ratio_x1000 = current_motor_config.gear_ratio_x1000;
-    motor_config->wheel_diameter_mm = current_motor_config.wheel_diameter_mm;
-  }
-}
-
 int32_t vesc_config_get_speed(const vesc_config_t *config) {
   if (config == NULL || config->motor_poles == 0 ||
       config->gear_ratio_x1000 == 0) {

@@ -49,7 +49,4 @@ int32_t vesc_config_get_speed(const vesc_config_t *config);
 void vesc_config_update_motor(uint8_t motor_poles, uint16_t gear_ratio_x1000,
                               uint16_t wheel_diameter_mm);
 
-// Get current motor config (for display/debug)
-void vesc_config_get_motor(vesc_motor_config_t *motor_config);
-
 #endif // VESC_CONFIG_H
