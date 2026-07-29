@@ -63,6 +63,21 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet);
 static void handle_cmd_get_coredump(const binary_packet_t *packet);
 static void handle_cmd_boot_full_mode(const binary_packet_t *packet);
 
+/* Little-endian payload writers. Every response field on the wire is
+ * little-endian; these return the byte count so call sites read as
+ * `idx += put_u32(&payload[idx], value);`. */
+static uint16_t put_u16(uint8_t *p, uint16_t v) {
+  p[0] = v & 0xFF;
+  p[1] = (v >> 8) & 0xFF;
+  return 2;
+}
+
+static uint16_t put_u32(uint8_t *p, uint32_t v) {
+  put_u16(p, (uint16_t)(v & 0xFFFF));
+  put_u16(p + 2, (uint16_t)(v >> 16));
+  return 4;
+}
+
 // CRC-16-CCITT calculation (polynomial: 0x1021)
 uint16_t calculate_crc16(const uint8_t *data, uint16_t length) {
   uint16_t crc = 0xFFFF;
@@ -299,22 +314,33 @@ void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code) {
   usb_serial_send_response(RSP_ACK, payload, 2);
 }
 
-void usb_serial_send_error(error_code_t error_code, const char *message) {
-  uint8_t payload[256];
-  payload[0] = (uint8_t)error_code;
-
-  uint16_t msg_len = 0;
-  if (message != NULL) {
-    msg_len = strlen(message);
-    if (msg_len > 255)
-      msg_len = 255;
-    memcpy(&payload[1], message, msg_len);
+/* Commands that need the full application running. On the charging screen BLE,
+ * throttle and streaming are all down, so these are rejected up front instead
+ * of each handler repeating the check. */
+static bool cmd_needs_full_mode(uint8_t cmd_id) {
+  switch (cmd_id) {
+  case CMD_CALIBRATE_THROTTLE:
+  case CMD_INVERT_THROTTLE:
+  case CMD_TOGGLE_DUAL_CONNECTION:
+  case CMD_START_STREAMING:
+  case CMD_STOP_STREAMING:
+  case CMD_SET_STREAM_RATE:
+  case CMD_INCREASE_BLE_TRIM:
+  case CMD_DECREASE_BLE_TRIM:
+  case CMD_GET_BLE_TRIM:
+    return true;
+  default:
+    return false;
   }
-
-  usb_serial_send_response(RSP_ERROR, payload, 1 + msg_len);
 }
 
 void usb_serial_process_packet(const binary_packet_t *packet) {
+  if (power_get_mode() == POWER_MODE_CHARGING &&
+      cmd_needs_full_mode(packet->cmd_id)) {
+    usb_serial_send_ack(packet->cmd_id, ERR_NOT_SUPPORTED);
+    return;
+  }
+
   switch (packet->cmd_id) {
   case CMD_PING:
     handle_cmd_ping(packet);
@@ -447,31 +473,19 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     flags |= 0x10;
   payload[idx++] = flags;
 
-  nvs_handle_t nvs_handle;
-  uint8_t brightness = LCD_BACKLIGHT_DEFAULT;
-  err = nvs_open(NVS_NAMESPACE_LCD, NVS_READONLY, &nvs_handle);
-  if (err == ESP_OK) {
-    nvs_get_u8(nvs_handle, NVS_KEY_BACKLIGHT, &brightness);
-    nvs_close(nvs_handle);
-  }
-  payload[idx++] = brightness;
+  payload[idx++] = lcd_load_saved_brightness();
 
   // Motor configuration (2 bytes each, little-endian)
   payload[idx++] = hand_controller_config.motor_poles;
-  payload[idx++] = (hand_controller_config.gear_ratio_x1000 >> 0) & 0xFF;
-  payload[idx++] = (hand_controller_config.gear_ratio_x1000 >> 8) & 0xFF;
-  payload[idx++] = (hand_controller_config.wheel_diameter_mm >> 0) & 0xFF;
-  payload[idx++] = (hand_controller_config.wheel_diameter_mm >> 8) & 0xFF;
+  idx += put_u16(&payload[idx], hand_controller_config.gear_ratio_x1000);
+  idx += put_u16(&payload[idx], hand_controller_config.wheel_diameter_mm);
 
   // Current speed (4 bytes, little-endian, signed)
   int32_t speed = 0;
   if (ble_is_connected()) {
     speed = vesc_config_get_speed(&hand_controller_config);
   }
-  payload[idx++] = (speed >> 0) & 0xFF;
-  payload[idx++] = (speed >> 8) & 0xFF;
-  payload[idx++] = (speed >> 16) & 0xFF;
-  payload[idx++] = (speed >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], (uint32_t)speed);
 
   // BLE trim offset (1 byte, signed)
   int8_t trim_offset = ble_get_trim_offset();
@@ -487,29 +501,15 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     uint32_t min_val, max_val;
     throttle_get_calibration_values(&min_val, &max_val);
 
-    payload[idx++] = (min_val >> 0) & 0xFF;
-    payload[idx++] = (min_val >> 8) & 0xFF;
-    payload[idx++] = (min_val >> 16) & 0xFF;
-    payload[idx++] = (min_val >> 24) & 0xFF;
-
-    payload[idx++] = (max_val >> 0) & 0xFF;
-    payload[idx++] = (max_val >> 8) & 0xFF;
-    payload[idx++] = (max_val >> 16) & 0xFF;
-    payload[idx++] = (max_val >> 24) & 0xFF;
+    idx += put_u32(&payload[idx], min_val);
+    idx += put_u32(&payload[idx], max_val);
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     uint32_t brake_min, brake_max;
     brake_get_calibration_values(&brake_min, &brake_max);
 
-    payload[idx++] = (brake_min >> 0) & 0xFF;
-    payload[idx++] = (brake_min >> 8) & 0xFF;
-    payload[idx++] = (brake_min >> 16) & 0xFF;
-    payload[idx++] = (brake_min >> 24) & 0xFF;
-
-    payload[idx++] = (brake_max >> 0) & 0xFF;
-    payload[idx++] = (brake_max >> 8) & 0xFF;
-    payload[idx++] = (brake_max >> 16) & 0xFF;
-    payload[idx++] = (brake_max >> 24) & 0xFF;
+    idx += put_u32(&payload[idx], brake_min);
+    idx += put_u32(&payload[idx], brake_max);
 #endif
   }
 
@@ -542,41 +542,16 @@ calibration_progress_handler(uint16_t sample, uint16_t total,
 
   uint8_t percent = (uint8_t)((sample * 100) / (total > 0 ? total : 1));
 
-  payload[idx++] = sample & 0xFF;
-  payload[idx++] = (sample >> 8) & 0xFF;
-  payload[idx++] = total & 0xFF;
-  payload[idx++] = (total >> 8) & 0xFF;
+  idx += put_u16(&payload[idx], sample);
+  idx += put_u16(&payload[idx], total);
   payload[idx++] = percent;
 
-  payload[idx++] = (throttle_current >> 0) & 0xFF;
-  payload[idx++] = (throttle_current >> 8) & 0xFF;
-  payload[idx++] = (throttle_current >> 16) & 0xFF;
-  payload[idx++] = (throttle_current >> 24) & 0xFF;
-
-  payload[idx++] = (throttle_min >> 0) & 0xFF;
-  payload[idx++] = (throttle_min >> 8) & 0xFF;
-  payload[idx++] = (throttle_min >> 16) & 0xFF;
-  payload[idx++] = (throttle_min >> 24) & 0xFF;
-
-  payload[idx++] = (throttle_max >> 0) & 0xFF;
-  payload[idx++] = (throttle_max >> 8) & 0xFF;
-  payload[idx++] = (throttle_max >> 16) & 0xFF;
-  payload[idx++] = (throttle_max >> 24) & 0xFF;
-
-  payload[idx++] = (brake_current >> 0) & 0xFF;
-  payload[idx++] = (brake_current >> 8) & 0xFF;
-  payload[idx++] = (brake_current >> 16) & 0xFF;
-  payload[idx++] = (brake_current >> 24) & 0xFF;
-
-  payload[idx++] = (brake_min >> 0) & 0xFF;
-  payload[idx++] = (brake_min >> 8) & 0xFF;
-  payload[idx++] = (brake_min >> 16) & 0xFF;
-  payload[idx++] = (brake_min >> 24) & 0xFF;
-
-  payload[idx++] = (brake_max >> 0) & 0xFF;
-  payload[idx++] = (brake_max >> 8) & 0xFF;
-  payload[idx++] = (brake_max >> 16) & 0xFF;
-  payload[idx++] = (brake_max >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], throttle_current);
+  idx += put_u32(&payload[idx], throttle_min);
+  idx += put_u32(&payload[idx], throttle_max);
+  idx += put_u32(&payload[idx], brake_current);
+  idx += put_u32(&payload[idx], brake_min);
+  idx += put_u32(&payload[idx], brake_max);
 
   usb_serial_send_response(RSP_CALIBRATION_PROGRESS, payload, idx);
 }
@@ -601,10 +576,6 @@ static error_code_t calibration_result_to_error(calibration_result_t result) {
 }
 
 static void handle_cmd_calibrate_throttle(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_CALIBRATE_THROTTLE, ERR_NOT_SUPPORTED);
-    return;
-  }
   ESP_LOGI(TAG, "Starting throttle calibration...");
 
   calibration_result_t result =
@@ -620,29 +591,15 @@ static void handle_cmd_calibrate_throttle(const binary_packet_t *packet) {
     uint32_t throttle_min, throttle_max;
     throttle_get_calibration_values(&throttle_min, &throttle_max);
 
-    payload[idx++] = (throttle_min >> 0) & 0xFF;
-    payload[idx++] = (throttle_min >> 8) & 0xFF;
-    payload[idx++] = (throttle_min >> 16) & 0xFF;
-    payload[idx++] = (throttle_min >> 24) & 0xFF;
-
-    payload[idx++] = (throttle_max >> 0) & 0xFF;
-    payload[idx++] = (throttle_max >> 8) & 0xFF;
-    payload[idx++] = (throttle_max >> 16) & 0xFF;
-    payload[idx++] = (throttle_max >> 24) & 0xFF;
+    idx += put_u32(&payload[idx], throttle_min);
+    idx += put_u32(&payload[idx], throttle_max);
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     uint32_t brake_min, brake_max;
     brake_get_calibration_values(&brake_min, &brake_max);
 
-    payload[idx++] = (brake_min >> 0) & 0xFF;
-    payload[idx++] = (brake_min >> 8) & 0xFF;
-    payload[idx++] = (brake_min >> 16) & 0xFF;
-    payload[idx++] = (brake_min >> 24) & 0xFF;
-
-    payload[idx++] = (brake_max >> 0) & 0xFF;
-    payload[idx++] = (brake_max >> 8) & 0xFF;
-    payload[idx++] = (brake_max >> 16) & 0xFF;
-    payload[idx++] = (brake_max >> 24) & 0xFF;
+    idx += put_u32(&payload[idx], brake_min);
+    idx += put_u32(&payload[idx], brake_max);
 #endif
 
     usb_serial_send_response(RSP_CALIBRATION, payload, idx);
@@ -668,43 +625,21 @@ static void handle_cmd_get_calibration(const binary_packet_t *packet) {
   uint32_t throttle_min, throttle_max;
   throttle_get_calibration_values(&throttle_min, &throttle_max);
 
-  payload[idx++] = (throttle_min >> 0) & 0xFF;
-  payload[idx++] = (throttle_min >> 8) & 0xFF;
-  payload[idx++] = (throttle_min >> 16) & 0xFF;
-  payload[idx++] = (throttle_min >> 24) & 0xFF;
-
-  payload[idx++] = (throttle_max >> 0) & 0xFF;
-  payload[idx++] = (throttle_max >> 8) & 0xFF;
-  payload[idx++] = (throttle_max >> 16) & 0xFF;
-  payload[idx++] = (throttle_max >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], throttle_min);
+  idx += put_u32(&payload[idx], throttle_max);
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
   uint32_t brake_min, brake_max;
   brake_get_calibration_values(&brake_min, &brake_max);
 
-  payload[idx++] = (brake_min >> 0) & 0xFF;
-  payload[idx++] = (brake_min >> 8) & 0xFF;
-  payload[idx++] = (brake_min >> 16) & 0xFF;
-  payload[idx++] = (brake_min >> 24) & 0xFF;
-
-  payload[idx++] = (brake_max >> 0) & 0xFF;
-  payload[idx++] = (brake_max >> 8) & 0xFF;
-  payload[idx++] = (brake_max >> 16) & 0xFF;
-  payload[idx++] = (brake_max >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], brake_min);
+  idx += put_u32(&payload[idx], brake_max);
 
   // Current BLE value
-  int32_t ble_val = get_throttle_brake_ble_value();
-  payload[idx++] = (ble_val >> 0) & 0xFF;
-  payload[idx++] = (ble_val >> 8) & 0xFF;
-  payload[idx++] = (ble_val >> 16) & 0xFF;
-  payload[idx++] = (ble_val >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], (uint32_t)get_throttle_brake_ble_value());
 #else
   // Current ADC value
-  uint32_t adc_val = adc_get_latest_value();
-  payload[idx++] = (adc_val >> 0) & 0xFF;
-  payload[idx++] = (adc_val >> 8) & 0xFF;
-  payload[idx++] = (adc_val >> 16) & 0xFF;
-  payload[idx++] = (adc_val >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], adc_get_latest_value());
 #endif
 
   usb_serial_send_response(RSP_CALIBRATION, payload, idx);
@@ -795,10 +730,6 @@ static void handle_cmd_set_haptic_intensity(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_NOT_SUPPORTED);
-    return;
-  }
 #ifdef CONFIG_TARGET_LITE
   hand_controller_config.invert_throttle =
       !hand_controller_config.invert_throttle;
@@ -816,10 +747,6 @@ static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_NOT_SUPPORTED);
-    return;
-  }
   hand_controller_config.dual_connection =
       !hand_controller_config.dual_connection;
   esp_err_t err = vesc_config_save(&hand_controller_config);
@@ -835,59 +762,7 @@ static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
   }
 }
 
-// Apply trim offset with range compensation to maintain full 0-255 span
-static uint8_t apply_trim_with_compensation(uint8_t adc_value,
-                                            int8_t trim_offset) {
-  uint8_t dist = (adc_value > VESC_NEUTRAL_VALUE)
-                     ? (adc_value - VESC_NEUTRAL_VALUE)
-                     : (VESC_NEUTRAL_VALUE - adc_value);
-  if (dist <= THROTTLE_NEUTRAL_DEADBAND)
-    adc_value = VESC_NEUTRAL_VALUE;
-
-  int32_t new_center = VESC_NEUTRAL_VALUE + trim_offset;
-
-  if (new_center < 0)
-    new_center = 0;
-  if (new_center > 255)
-    new_center = 255;
-
-  uint8_t final_value;
-
-  if (adc_value <= VESC_NEUTRAL_VALUE) {
-    // Scale lower half (0-128) to map to 0 to new_center, preserving proportion
-    if (VESC_NEUTRAL_VALUE > 0) {
-      int32_t scaled = (int32_t)((float)adc_value * (float)new_center /
-                                     (float)VESC_NEUTRAL_VALUE +
-                                 0.5f);
-      final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
-    } else {
-      final_value = 0;
-    }
-  } else {
-    // Scale upper half (129-255) to map from new_center to 255, preserving
-    // proportion
-    int32_t upper_output_range = 255 - new_center;
-    int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
-    if (upper_input_range > 0) {
-      int32_t scaled =
-          new_center +
-          (int32_t)((float)(adc_value - VESC_NEUTRAL_VALUE) *
-                        (float)upper_output_range / (float)upper_input_range +
-                    0.5f);
-      final_value = (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
-    } else {
-      final_value = (uint8_t)new_center;
-    }
-  }
-
-  return final_value;
-}
-
 static void handle_cmd_start_streaming(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_START_STREAMING, ERR_NOT_SUPPORTED);
-    return;
-  }
   uint16_t rate_hz = 10; // Default 10Hz
 
   if (packet->payload_length >= 2) {
@@ -907,20 +782,12 @@ static void handle_cmd_start_streaming(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_stop_streaming(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_STOP_STREAMING, ERR_NOT_SUPPORTED);
-    return;
-  }
   usb_serial_stop_streaming();
   ESP_LOGI(TAG, "Streaming stopped");
   usb_serial_send_ack(CMD_STOP_STREAMING, ERR_OK);
 }
 
 static void handle_cmd_set_stream_rate(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_NOT_SUPPORTED);
-    return;
-  }
   if (packet->payload_length != 2) {
     usb_serial_send_ack(CMD_SET_STREAM_RATE, ERR_INVALID_PAYLOAD);
     return;
@@ -955,11 +822,8 @@ void usb_serial_send_stream_data(void) {
   uint8_t payload[32];
   uint16_t idx = 0;
 
-  uint32_t timestamp_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-  payload[idx++] = (timestamp_ms >> 0) & 0xFF;
-  payload[idx++] = (timestamp_ms >> 8) & 0xFF;
-  payload[idx++] = (timestamp_ms >> 16) & 0xFF;
-  payload[idx++] = (timestamp_ms >> 24) & 0xFF;
+  idx += put_u32(&payload[idx],
+                 (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
 
   uint8_t flags = 0;
   if (ble_is_connected())
@@ -972,11 +836,7 @@ void usb_serial_send_stream_data(void) {
   int32_t throttle_raw = throttle_read_value();
   if (throttle_raw < 0)
     throttle_raw = 0;
-  uint32_t throttle_raw_uint = (uint32_t)throttle_raw;
-  payload[idx++] = (throttle_raw_uint >> 0) & 0xFF;
-  payload[idx++] = (throttle_raw_uint >> 8) & 0xFF;
-  payload[idx++] = (throttle_raw_uint >> 16) & 0xFF;
-  payload[idx++] = (throttle_raw_uint >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], (uint32_t)throttle_raw);
 
   // Brake raw value (4 bytes, signed)
   uint32_t brake_raw_uint = 0;
@@ -986,10 +846,7 @@ void usb_serial_send_stream_data(void) {
     brake_raw = 0;
   brake_raw_uint = (uint32_t)brake_raw;
 #endif
-  payload[idx++] = (brake_raw_uint >> 0) & 0xFF;
-  payload[idx++] = (brake_raw_uint >> 8) & 0xFF;
-  payload[idx++] = (brake_raw_uint >> 16) & 0xFF;
-  payload[idx++] = (brake_raw_uint >> 24) & 0xFF;
+  idx += put_u32(&payload[idx], brake_raw_uint);
 
   // Throttle/brake combination value sent to BLE (1 byte, 0-255)
   uint8_t throttle_brake_ble = 0;
@@ -998,7 +855,7 @@ void usb_serial_send_stream_data(void) {
   // Apply trim offset with range compensation to match what's actually sent via
   // BLE
   throttle_brake_ble =
-      apply_trim_with_compensation(throttle_brake_ble, ble_get_trim_offset());
+      throttle_apply_trim(throttle_brake_ble, ble_get_trim_offset());
 #elif defined(CONFIG_TARGET_LITE)
   bool throttle_inverted = false;
   uint32_t adc_value = adc_get_latest_value();
@@ -1020,8 +877,7 @@ void usb_serial_send_stream_data(void) {
   // offset direction to compensate
   int8_t effective_trim =
       throttle_inverted ? -ble_get_trim_offset() : ble_get_trim_offset();
-  throttle_brake_ble =
-      apply_trim_with_compensation(throttle_brake_ble, effective_trim);
+  throttle_brake_ble = throttle_apply_trim(throttle_brake_ble, effective_trim);
 #endif
 
   payload[idx++] = throttle_brake_ble;
@@ -1030,10 +886,6 @@ void usb_serial_send_stream_data(void) {
 }
 
 static void handle_cmd_increase_ble_trim(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_NOT_SUPPORTED);
-    return;
-  }
   esp_err_t err = ble_increase_trim_offset();
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OK);
@@ -1045,10 +897,6 @@ static void handle_cmd_increase_ble_trim(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_NOT_SUPPORTED);
-    return;
-  }
   esp_err_t err = ble_decrease_trim_offset();
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OK);
@@ -1060,10 +908,6 @@ static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_get_ble_trim(const binary_packet_t *packet) {
-  if (power_get_mode() == POWER_MODE_CHARGING) {
-    usb_serial_send_ack(CMD_GET_BLE_TRIM, ERR_NOT_SUPPORTED);
-    return;
-  }
   int8_t trim_offset = ble_get_trim_offset();
   uint8_t payload[1];
   payload[0] = (uint8_t)trim_offset; // Cast to uint8_t for transmission
@@ -1224,8 +1068,7 @@ static void handle_cmd_check_coredump(const binary_packet_t *packet) {
                                  ? actual_coredump_size
                                  : coredump_partition->size;
     payload[idx++] = 1; // exists flag
-    payload[idx++] = (reported_size >> 0) & 0xFF;
-    payload[idx++] = (reported_size >> 8) & 0xFF;
+    idx += put_u16(&payload[idx], (uint16_t)reported_size);
     for (int i = 0; i < 16; i++) {
       payload[idx++] = check_buffer[i];
     }
@@ -1279,10 +1122,8 @@ static void handle_cmd_get_coredump(const binary_packet_t *packet) {
 
   // Add chunk metadata:
   // [chunk_offset_lsb][chunk_offset_msb][chunk_size_lsb][chunk_size_msb]
-  payload[idx++] = (chunk_offset >> 0) & 0xFF;
-  payload[idx++] = (chunk_offset >> 8) & 0xFF;
-  payload[idx++] = (chunk_size >> 0) & 0xFF;
-  payload[idx++] = (chunk_size >> 8) & 0xFF;
+  idx += put_u16(&payload[idx], chunk_offset);
+  idx += put_u16(&payload[idx], chunk_size);
 
   esp_err_t err = esp_partition_read(coredump_partition, chunk_offset,
                                      &payload[idx], chunk_size);

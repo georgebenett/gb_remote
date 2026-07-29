@@ -126,7 +126,6 @@ void usb_serial_process_packet(const binary_packet_t *packet);
 void usb_serial_send_response(uint8_t cmd_id, const uint8_t *payload,
                               uint16_t length);
 void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code);
-void usb_serial_send_error(error_code_t error_code, const char *message);
 
 // Streaming functions
 void usb_serial_start_streaming(uint16_t rate_hz);
