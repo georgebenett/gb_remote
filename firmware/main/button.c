@@ -1,14 +1,9 @@
 #include "button.h"
 #include "esp_log.h"
-#include "esp_sleep.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hw_config.h"
-#include "lvgl.h"
-#include "ui.h"
-#include "ui_updater.h"
-#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "BUTTON";
@@ -19,16 +14,12 @@ typedef struct {
   bool in_use;
 } button_callback_entry_t;
 
-typedef enum { SCREEN_HOME, SCREEN_SHUTDOWN, SCREEN_MAX } screen_state_t;
-
 static button_config_t button_cfg;
-static button_state_t current_state = BUTTON_IDLE;
 static TickType_t press_start_time = 0;
 static TickType_t last_release_time = 0;
 static bool first_press_registered = false;
 static TaskHandle_t button_task_handle = NULL;
 static button_callback_entry_t callbacks[MAX_CALLBACKS] = {0};
-static void default_button_handler(button_event_t event, void *user_data);
 static volatile bool isr_triggered = false;
 
 // ISR handler - runs in IRAM, minimal work
@@ -59,15 +50,6 @@ void button_register_callback(button_callback_t callback, void *user_data) {
     }
   }
   ESP_LOGW(TAG, "No free callback slots available");
-}
-
-void button_unregister_callback(button_callback_t callback) {
-  for (int i = 0; i < MAX_CALLBACKS; i++) {
-    if (callbacks[i].in_use && callbacks[i].callback == callback) {
-      callbacks[i].in_use = false;
-      return;
-    }
-  }
 }
 
 static bool read_button_state(void) {
@@ -173,14 +155,12 @@ static void button_monitor_task(void *pvParameters) {
       press_start_time = current_time;
       button_pressed = true;
       long_press_sent = false;
-      current_state = BUTTON_PRESSED;
       notify_callbacks(BUTTON_EVENT_PRESSED);
 
     } else if (current_state_pressed && button_pressed) {
       uint32_t press_duration =
           (xTaskGetTickCount() - press_start_time) * portTICK_PERIOD_MS;
       if (!long_press_sent && press_duration >= button_cfg.long_press_time_ms) {
-        current_state = BUTTON_LONG_PRESS;
         long_press_sent = true;
 
         // This press is no longer a double-press candidate; treat it as a hold.
@@ -196,7 +176,6 @@ static void button_monitor_task(void *pvParameters) {
       if (!long_press_sent) {
         TickType_t current_time = xTaskGetTickCount();
         if (second_press_candidate) {
-          current_state = BUTTON_DOUBLE_PRESS;
           first_press_registered = false;
           second_press_candidate = false;
           notify_callbacks(BUTTON_EVENT_POWER_OFF_CANCELLED);
@@ -220,7 +199,6 @@ static void button_monitor_task(void *pvParameters) {
       }
 
       notify_callbacks(BUTTON_EVENT_RELEASED);
-      current_state = BUTTON_IDLE;
     }
   }
 }
@@ -247,8 +225,6 @@ esp_err_t button_init(const button_config_t *config) {
     return ret;
   }
 
-  button_register_callback(default_button_handler, NULL);
-
   ESP_LOGI(TAG, "Button initialized on GPIO %d (interrupt-based)",
            config->gpio_num);
 
@@ -264,34 +240,10 @@ esp_err_t button_init_main(void) {
   return button_init(&config);
 }
 
-button_state_t button_get_state(void) { return current_state; }
-
-uint32_t button_get_press_duration_ms(void) {
-  if (current_state == BUTTON_IDLE) {
-    return 0;
-  }
-  return (xTaskGetTickCount() - press_start_time) * portTICK_PERIOD_MS;
-}
-
 void button_start_monitoring(void) {
   if (button_task_handle != NULL) {
     return; // Already started (e.g. before charging screen)
   }
   xTaskCreate(button_monitor_task, "button_monitor", TASK_STACK_SIZE, NULL,
               TASK_PRIORITY, &button_task_handle);
-}
-
-static void default_button_handler(button_event_t event, void *user_data) {
-  (void)event;
-  (void)user_data;
-}
-
-void switch_to_screen2_callback(button_event_t event, void *user_data) {
-  if (event == BUTTON_EVENT_LONG_PRESS) {
-    if (take_lvgl_mutex()) {
-      lv_disp_load_scr(objects.shutdown_screen);
-      lv_obj_invalidate(objects.shutdown_screen);
-      give_lvgl_mutex();
-    }
-  }
 }

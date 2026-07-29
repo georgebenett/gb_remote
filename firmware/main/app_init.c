@@ -94,7 +94,6 @@ void app_init_after_charging(void) {
   usb_serial_start_task();
   spp_client_demo_init();
   ESP_LOGI(TAG, "BLE initialization complete");
-  button_start_monitoring();
   ui_show_splash_screen();
   viber_play_startup_song();
 }

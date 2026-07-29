@@ -17,14 +17,6 @@
 #define BUTTON_DOUBLE_PRESS_TIME_MS 150
 #define POWER_OFF_ARM_WINDOW_MS 1200
 
-// Button states
-typedef enum {
-  BUTTON_IDLE,
-  BUTTON_PRESSED,
-  BUTTON_LONG_PRESS,
-  BUTTON_DOUBLE_PRESS
-} button_state_t;
-
 // Button configuration
 typedef struct {
   gpio_num_t gpio_num;
@@ -52,12 +44,6 @@ esp_err_t button_init_main(void);
 
 void button_register_callback(button_callback_t callback, void *user_data);
 
-button_state_t button_get_state(void);
-
-uint32_t button_get_press_duration_ms(void);
-
 void button_start_monitoring(void);
-
-void switch_to_screen2_callback(button_event_t event, void *user_data);
 
 #endif // BUTTON_H
