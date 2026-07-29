@@ -11,12 +11,10 @@
 #define VOLTAGE_DIVIDER_RATIO 2.0f
 #define ADC_REFERENCE_VOLTAGE 3.3f
 #define ADC_RESOLUTION 4095
-#define BATTERY_MAX_VOLTAGE 4.15f
 #define BATTERY_LOW_VOLTAGE_THRESHOLD 2.95f
 #define BATTERY_VOLTAGE_SAMPLES 10
 
-// Timing constants
-#define ADC_SAMPLE_MS 2                   // Delay between ADC samples
+// Timing constants (ADC_SAMPLE_MS comes from throttle.h)
 #define BATTERY_TASK_STARTUP_DELAY_MS 100 // Delay for task initialization
 #define BATTERY_MONITOR_INTERVAL_MS 500   // Battery monitoring poll rate
 #define LOW_BATTERY_ALERT_DELAY_MS 500    // Haptic feedback delay
