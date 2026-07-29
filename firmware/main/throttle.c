@@ -35,8 +35,10 @@ static uint32_t brake_input_min_value = ADC_INITIAL_MIN_VALUE;
 static bool calibration_done = false;
 static bool calibration_in_progress = false;
 static esp_err_t load_calibration_from_nvs(void);
-
-void adc_deinit(void);
+static void adc_deinit(void);
+#ifdef CONFIG_TARGET_LITE
+static uint8_t map_throttle_value(uint32_t adc_value);
+#endif
 
 // Getter function for battery module to access ADC handle
 adc_oneshot_unit_handle_t adc_get_handle(void) { return adc1_handle; }
@@ -97,7 +99,9 @@ esp_err_t adc_init(void) {
   return ESP_OK;
 }
 
-int32_t throttle_read_value(void) {
+/** Averaged read of one ADC channel. Returns -1 when too few samples come back
+ *  valid; a stuck rail is logged but still returned (calibration copes). */
+static int32_t adc_read_avg(adc_channel_t channel, const char *what) {
   if (!adc_initialized || !adc1_handle) {
     ESP_LOGE(TAG, "ADC not properly initialized");
     return -1;
@@ -111,8 +115,8 @@ int32_t throttle_read_value(void) {
 
   for (int i = 0; i < NUM_SAMPLES; i++) {
     int adc_raw = 0;
-    if (xSemaphoreTake(adc_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-      esp_err_t ret = adc_oneshot_read(adc1_handle, THROTTLE_PIN, &adc_raw);
+    if (adc_mutex && xSemaphoreTake(adc_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      esp_err_t ret = adc_oneshot_read(adc1_handle, channel, &adc_raw);
       xSemaphoreGive(adc_mutex);
       if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
         samples[valid_samples] = adc_raw;
@@ -126,14 +130,11 @@ int32_t throttle_read_value(void) {
   }
 
   if (valid_samples < MIN_VALID_SAMPLES) {
-    ESP_LOGW(TAG, "Insufficient valid ADC samples: %d/%d", valid_samples,
-             NUM_SAMPLES);
+    ESP_LOGW(TAG, "Insufficient valid %s ADC samples: %d/%d", what,
+             valid_samples, NUM_SAMPLES);
     return -1;
   }
 
-  int32_t average = sum / valid_samples;
-
-  // Detect stuck ADC (all samples at extreme values)
   bool all_at_min = true;
   bool all_at_max = true;
   for (int i = 0; i < valid_samples; i++) {
@@ -142,70 +143,20 @@ int32_t throttle_read_value(void) {
     if (samples[i] < 4085)
       all_at_max = false;
   }
-
   if (all_at_min || all_at_max) {
-    ESP_LOGW(TAG, "ADC appears stuck at %s",
+    ESP_LOGW(TAG, "%s ADC appears stuck at %s", what,
              all_at_min ? "minimum" : "maximum");
-    // Still return the value but log warning - calibration may handle this
   }
 
-  return average;
+  return sum / valid_samples;
+}
+
+int32_t throttle_read_value(void) {
+  return adc_read_avg(THROTTLE_PIN, "throttle");
 }
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-int32_t brake_read_value(void) {
-  if (!adc_initialized || !adc1_handle) {
-    ESP_LOGE(TAG, "ADC not properly initialized");
-    return -1;
-  }
-
-  const int NUM_SAMPLES = 5;
-  const int MIN_VALID_SAMPLES = 3;
-  int32_t samples[NUM_SAMPLES];
-  int32_t sum = 0;
-  int valid_samples = 0;
-
-  for (int i = 0; i < NUM_SAMPLES; i++) {
-    int adc_raw = 0;
-    if (xSemaphoreTake(adc_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-      esp_err_t ret = adc_oneshot_read(adc1_handle, BRAKE_PIN, &adc_raw);
-      xSemaphoreGive(adc_mutex);
-      if (ret == ESP_OK && adc_raw >= 0 && adc_raw <= 4095) {
-        samples[valid_samples] = adc_raw;
-        sum += adc_raw;
-        valid_samples++;
-      }
-    }
-
-    // Small delay between samples for ADC settling
-    vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
-  }
-
-  if (valid_samples < MIN_VALID_SAMPLES) {
-    ESP_LOGW(TAG, "Insufficient valid brake ADC samples: %d/%d", valid_samples,
-             NUM_SAMPLES);
-    return -1;
-  }
-
-  int32_t average = sum / valid_samples;
-
-  // Detect stuck ADC (all samples at extreme values)
-  bool all_at_min = true;
-  bool all_at_max = true;
-  for (int i = 0; i < valid_samples; i++) {
-    if (samples[i] > 10)
-      all_at_min = false;
-    if (samples[i] < 4085)
-      all_at_max = false;
-  }
-
-  if (all_at_min || all_at_max) {
-    ESP_LOGW(TAG, "Brake ADC appears stuck at %s",
-             all_at_min ? "minimum" : "maximum");
-  }
-
-  return average;
-}
+int32_t brake_read_value(void) { return adc_read_avg(BRAKE_PIN, "brake"); }
 #endif
 
 static void adc_task(void *pvParameters) {
@@ -246,7 +197,7 @@ static void adc_task(void *pvParameters) {
     uint8_t mapped_value = get_throttle_brake_ble_value();
 #elif defined(CONFIG_TARGET_LITE)
     // Single throttle mapping (lite mode)
-    uint8_t mapped_value = map_adc_value(adc_value);
+    uint8_t mapped_value = map_throttle_value(adc_value);
 #endif
     // Update latest_adc_value so modules like snake can read current input
     latest_adc_value = mapped_value;
@@ -301,7 +252,7 @@ void adc_start_task(void) {
 
 uint32_t adc_get_latest_value(void) { return latest_adc_value; }
 
-void adc_deinit(void) {
+static void adc_deinit(void) {
   if (!adc_initialized) {
     return;
   }
@@ -639,7 +590,46 @@ bool throttle_should_use_neutral(void) {
   return calibration_in_progress || !calibration_done;
 }
 
-uint8_t map_throttle_value(uint32_t adc_value) {
+/** Shift the neutral point by `trim` while keeping both halves of the stick
+ *  range proportional, so the full 0-255 span survives the offset. Readings
+ *  inside THROTTLE_NEUTRAL_DEADBAND snap to exact neutral first. Used both for
+ *  what BLE actually sends and for the value mirrored to the USB stream. */
+uint8_t throttle_apply_trim(uint8_t value, int8_t trim) {
+  uint8_t dist = (value > VESC_NEUTRAL_VALUE) ? (value - VESC_NEUTRAL_VALUE)
+                                              : (VESC_NEUTRAL_VALUE - value);
+  if (dist <= THROTTLE_NEUTRAL_DEADBAND)
+    value = VESC_NEUTRAL_VALUE;
+
+  int32_t new_center = VESC_NEUTRAL_VALUE + trim;
+  if (new_center < 0)
+    new_center = 0;
+  if (new_center > 255)
+    new_center = 255;
+
+  int32_t scaled;
+  if (value <= VESC_NEUTRAL_VALUE) {
+    if (VESC_NEUTRAL_VALUE == 0)
+      return 0;
+    scaled =
+        (int32_t)((float)value * (float)new_center / (float)VESC_NEUTRAL_VALUE +
+                  0.5f);
+  } else {
+    const int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
+    if (upper_input_range <= 0)
+      return (uint8_t)new_center;
+    scaled = new_center + (int32_t)((float)(value - VESC_NEUTRAL_VALUE) *
+                                        (float)(255 - new_center) /
+                                        (float)upper_input_range +
+                                    0.5f);
+  }
+
+  return (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+}
+
+#ifdef CONFIG_TARGET_LITE
+/* Dual-throttle builds never call this: get_throttle_brake_ble_value() does
+ * its own throttle+brake mapping. */
+static uint8_t map_throttle_value(uint32_t adc_value) {
   uint32_t range = adc_input_max_value - adc_input_min_value;
   if (range == 0) {
     return VESC_NEUTRAL_VALUE;
@@ -652,29 +642,6 @@ uint8_t map_throttle_value(uint32_t adc_value) {
 
   return (uint8_t)((adc_value - adc_input_min_value) *
                    (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) / range);
-}
-
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-uint8_t map_brake_value(uint32_t adc_value) {
-  uint32_t range = brake_input_max_value - brake_input_min_value;
-  if (range == 0) {
-    return ADC_OUTPUT_MIN_VALUE; // Return minimum brake on invalid calibration
-  }
-
-  if (adc_value < brake_input_min_value) {
-    adc_value = brake_input_min_value;
-  }
-  if (adc_value > brake_input_max_value) {
-    adc_value = brake_input_max_value;
-  }
-
-  // Perform the mapping (no offset for brake)
-  uint8_t mapped =
-      (uint8_t)((adc_value - brake_input_min_value) *
-                    (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) / range +
-                ADC_OUTPUT_MIN_VALUE);
-
-  return mapped;
 }
 #endif
 
@@ -718,12 +685,5 @@ uint8_t get_throttle_brake_ble_value(void) {
   uint8_t ble_value = (uint8_t)(throttle_ble_value * (1.0f - brake_factor));
 
   return ble_value;
-}
-#endif
-
-#ifdef CONFIG_TARGET_LITE
-// Lite mode: single throttle mapping function
-uint8_t map_adc_value(uint32_t adc_value) {
-  return map_throttle_value(adc_value);
 }
 #endif

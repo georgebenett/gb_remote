@@ -59,22 +59,21 @@ esp_err_t adc_init(void);
 int32_t throttle_read_value(void);
 void adc_start_task(void);
 uint32_t adc_get_latest_value(void);
-uint8_t map_throttle_value(uint32_t adc_value);
 calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb);
 bool throttle_is_calibrated(void);
-void adc_deinit(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 bool throttle_should_use_neutral(void);
 
+/** Apply the BLE trim offset to a 0-255 stick reading: shifts neutral by
+ *  `trim` while keeping both halves proportional. Snaps the deadband around
+ *  neutral to exact neutral. */
+uint8_t throttle_apply_trim(uint8_t value, int8_t trim);
+
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 int32_t brake_read_value(void);
-uint8_t map_brake_value(uint32_t adc_value);
 uint8_t get_throttle_brake_ble_value(
     void); // Combined throttle/brake value for BLE (0-255, 128=neutral)
 void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
-#elif defined(CONFIG_TARGET_LITE)
-uint8_t
-map_adc_value(uint32_t adc_value); // Single throttle mapping for lite mode
 #endif
 
 // ADC handle and mutex accessors for other modules (e.g., battery)
