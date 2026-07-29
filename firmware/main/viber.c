@@ -42,14 +42,6 @@ static const song_note_t startup_song[] = {
     {NOTE_C6, 250},
 };
 
-// Shutdown: same arpeggio descending (inverse of startup)
-static const song_note_t shutdown_song[] = {
-    {NOTE_C6, 120},
-    {NOTE_G5, 120},
-    {NOTE_E5, 120},
-    {NOTE_C5, 250},
-};
-
 static bool viber_initialized = false;
 static uint8_t haptic_intensity = HAPTIC_INTENSITY_DEFAULT; // 0-100%
 
@@ -159,86 +151,50 @@ esp_err_t viber_init(void) {
   return ESP_OK;
 }
 
-esp_err_t viber_play_pattern(viber_pattern_t pattern) {
-  static const uint32_t pattern_very_short[] = {VERY_SHORT_DURATION};
-  static const uint32_t pattern_single_short[] = {SHORT_DURATION};
-  static const uint32_t pattern_single_long[] = {LONG_DURATION};
-  static const uint32_t pattern_double_short[] = {
-      SHORT_DURATION, PAUSE_DURATION, SHORT_DURATION};
-  static const uint32_t pattern_success[] = {SHORT_DURATION, PAUSE_DURATION,
-                                             LONG_DURATION};
-  static const uint32_t pattern_error[] = {SHORT_DURATION, PAUSE_DURATION,
-                                           SHORT_DURATION, PAUSE_DURATION,
-                                           SHORT_DURATION};
-  static const uint32_t pattern_alert[] = {LONG_DURATION, PAUSE_DURATION,
-                                           SHORT_DURATION, PAUSE_DURATION,
-                                           LONG_DURATION};
+// Even indices vibrate, odd indices pause (see viber_task).
+#define PATTERN(name, ...) static const uint32_t name[] = {__VA_ARGS__}
+PATTERN(pat_very_short, VERY_SHORT_DURATION);
+PATTERN(pat_single_short, SHORT_DURATION);
+PATTERN(pat_single_long, LONG_DURATION);
+PATTERN(pat_double_short, SHORT_DURATION, PAUSE_DURATION, SHORT_DURATION);
+PATTERN(pat_success, SHORT_DURATION, PAUSE_DURATION, LONG_DURATION);
+PATTERN(pat_error, SHORT_DURATION, PAUSE_DURATION, SHORT_DURATION,
+        PAUSE_DURATION, SHORT_DURATION);
+PATTERN(pat_alert, LONG_DURATION, PAUSE_DURATION, SHORT_DURATION,
+        PAUSE_DURATION, LONG_DURATION);
+#undef PATTERN
 
+#define PATTERN_ENTRY(p) {p, sizeof(p) / sizeof(p[0])}
+static const struct {
   const uint32_t *durations;
   uint8_t count;
+} pattern_table[] = {
+    [VIBER_PATTERN_VERY_SHORT] = PATTERN_ENTRY(pat_very_short),
+    [VIBER_PATTERN_SINGLE_SHORT] = PATTERN_ENTRY(pat_single_short),
+    [VIBER_PATTERN_SINGLE_LONG] = PATTERN_ENTRY(pat_single_long),
+    [VIBER_PATTERN_DOUBLE_SHORT] = PATTERN_ENTRY(pat_double_short),
+    [VIBER_PATTERN_SUCCESS] = PATTERN_ENTRY(pat_success),
+    [VIBER_PATTERN_ERROR] = PATTERN_ENTRY(pat_error),
+    [VIBER_PATTERN_ALERT] = PATTERN_ENTRY(pat_alert),
+};
+#undef PATTERN_ENTRY
 
-  switch (pattern) {
-  case VIBER_PATTERN_VERY_SHORT:
-    durations = pattern_very_short;
-    count = sizeof(pattern_very_short) / sizeof(pattern_very_short[0]);
-    break;
-  case VIBER_PATTERN_SINGLE_SHORT:
-    durations = pattern_single_short;
-    count = sizeof(pattern_single_short) / sizeof(pattern_single_short[0]);
-    break;
-  case VIBER_PATTERN_SINGLE_LONG:
-    durations = pattern_single_long;
-    count = sizeof(pattern_single_long) / sizeof(pattern_single_long[0]);
-    break;
-  case VIBER_PATTERN_DOUBLE_SHORT:
-    durations = pattern_double_short;
-    count = sizeof(pattern_double_short) / sizeof(pattern_double_short[0]);
-    break;
-  case VIBER_PATTERN_SUCCESS:
-    durations = pattern_success;
-    count = sizeof(pattern_success) / sizeof(pattern_success[0]);
-    break;
-  case VIBER_PATTERN_ERROR:
-    durations = pattern_error;
-    count = sizeof(pattern_error) / sizeof(pattern_error[0]);
-    break;
-  case VIBER_PATTERN_ALERT:
-    durations = pattern_alert;
-    count = sizeof(pattern_alert) / sizeof(pattern_alert[0]);
-    break;
-  default:
+esp_err_t viber_play_pattern(viber_pattern_t pattern) {
+  if ((unsigned)pattern >= sizeof(pattern_table) / sizeof(pattern_table[0])) {
     return ESP_ERR_INVALID_ARG;
   }
-
-  return viber_custom_pattern(durations, count);
-}
-
-esp_err_t viber_vibrate(uint32_t duration_ms) {
-  return viber_custom_pattern(&duration_ms, 1);
-}
-
-esp_err_t viber_custom_pattern(const uint32_t *durations, uint8_t count) {
-  if (!viber_initialized || !durations || count == 0) {
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  viber_stop();
-  vTaskDelay(pdMS_TO_TICKS(10));
-
-  task_params.durations = durations;
-  task_params.count = count;
-  task_params.is_running = true;
-
-  return ESP_OK;
-}
-
-esp_err_t viber_stop(void) {
   if (!viber_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
 
   task_params.is_running = false;
   buzzer_off();
+  vTaskDelay(pdMS_TO_TICKS(10));
+
+  task_params.durations = pattern_table[pattern].durations;
+  task_params.count = pattern_table[pattern].count;
+  task_params.is_running = true;
+
   return ESP_OK;
 }
 
@@ -282,14 +238,6 @@ esp_err_t viber_play_startup_song(void) {
     return ESP_ERR_INVALID_STATE;
   }
   play_song(startup_song, sizeof(startup_song) / sizeof(startup_song[0]));
-  return ESP_OK;
-}
-
-esp_err_t viber_play_shutdown_song(void) {
-  if (!viber_initialized) {
-    return ESP_ERR_INVALID_STATE;
-  }
-  play_song(shutdown_song, sizeof(shutdown_song) / sizeof(shutdown_song[0]));
   return ESP_OK;
 }
 

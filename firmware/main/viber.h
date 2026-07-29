@@ -27,18 +27,10 @@ esp_err_t viber_play_early_boot_ack(void);
 
 esp_err_t viber_play_pattern(viber_pattern_t pattern);
 
-esp_err_t viber_vibrate(uint32_t duration_ms);
-
-esp_err_t viber_custom_pattern(const uint32_t *durations, uint8_t count);
-
-esp_err_t viber_stop(void);
-
 esp_err_t viber_set_intensity(uint8_t percent);
 
 uint8_t viber_get_intensity(void);
 
 esp_err_t viber_play_startup_song(void);
-
-esp_err_t viber_play_shutdown_song(void);
 
 #endif // VIBER_H
