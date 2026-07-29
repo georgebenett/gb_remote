@@ -17,7 +17,6 @@ typedef enum {
 #define SHUTDOWN_FEEDBACK_DELAY_MS 100
 #define BUTTON_DEBOUNCE_DELAY_MS 50
 #define BUTTON_POLL_INTERVAL_MS 10
-#define NVS_RETRY_DELAY_MS 50
 #define NVS_FLUSH_DELAY_MS 200
 
 bool power_is_entering_off_mode(void);
