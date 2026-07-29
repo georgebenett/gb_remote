@@ -49,7 +49,7 @@ static void init_ui(void) {
   bool have_config = (vesc_config_load(&config) == ESP_OK);
   // Bind the home-screen widgets before anything tries to update them.
   ui_set_dual_home_screen(have_config && config.dual_connection);
-  ui_create_aux_output_indicator();
+  ui_update_aux_output_indicator();
   if (have_config) {
     ui_update_speed_unit(config.speed_unit_mph);
     ESP_LOGI(TAG, "Speed unit: %s", config.speed_unit_mph ? "mph" : "km/h");

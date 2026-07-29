@@ -36,10 +36,6 @@ extern const lv_img_dsc_t img_no_connection;
 void ui_updater_init(void);
 void ui_update_speed(int32_t value);
 void ui_update_battery_percentage(int percentage);
-void ui_update_motor_current(float current);
-void ui_update_battery_current(float current);
-void ui_update_consumption(float consumption);
-void ui_update_connection_quality(int rssi);
 void ui_update_connection_icon(void);
 void ui_reset_trip_distance(void);
 
@@ -62,10 +58,8 @@ lv_obj_t *ui_get_home_screen(void);
 void ui_show_throttle_not_calibrated_text(void);
 
 bool take_lvgl_mutex(void);
-bool take_lvgl_mutex_for_handler(void);
 void give_lvgl_mutex(void);
 SemaphoreHandle_t get_lvgl_mutex_handle(void);
-void ui_check_mutex_health(void);
 void ui_start_update_tasks(void);
 void ui_force_config_reload(void);
 void ui_update_speed_unit(bool is_mph);
@@ -74,7 +68,6 @@ void ui_update_speed_unit(bool is_mph);
 void ui_hide_throttle_not_calibrated_text(void);
 
 // Aux output indicator
-void ui_create_aux_output_indicator(void);
 void ui_update_aux_output_indicator(void);
 
 // Splash screen

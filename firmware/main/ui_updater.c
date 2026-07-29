@@ -94,7 +94,6 @@ volatile bool splash_transition_active = false;
 static volatile bool force_config_reload = false;
 
 // Shared UI state (volatile ensures visibility across tasks)
-static volatile uint8_t connection_quality = 0;
 static volatile bool speed_unit_mph = false;
 static volatile float total_trip_km = 0.0f;
 
@@ -283,12 +282,6 @@ bool take_lvgl_mutex(void) {
   return xSemaphoreTake(lvgl_mutex, LVGL_MUTEX_TIMEOUT) == pdTRUE;
 }
 
-bool take_lvgl_mutex_for_handler(void) {
-  if (lvgl_mutex == NULL)
-    return false;
-  return xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE;
-}
-
 SemaphoreHandle_t get_lvgl_mutex_handle(void) { return lvgl_mutex; }
 
 void give_lvgl_mutex(void) {
@@ -377,13 +370,6 @@ void ui_reset_skate_display(int receiver) {
   ui_queue_send(&cmd);
 }
 
-int get_connection_quality(void) { return connection_quality; }
-
-void ui_update_connection_quality(int rssi) {
-  connection_quality = rssi_to_quality(rssi);
-  ui_update_connection_icon();
-}
-
 void ui_update_connection_icon(void) {
   if (power_is_entering_off_mode())
     return;
@@ -429,31 +415,6 @@ void ui_reset_trip_distance(void) {
   for (int i = 0; i < home_ui.receiver_count; i++) {
     ui_cmd_t cmd = {.type = UI_CMD_RESET_TRIP_DISTANCE, .receiver = (uint8_t)i};
     ui_queue_send(&cmd);
-  }
-}
-
-void ui_check_mutex_health(void) {
-  static uint32_t last_check_time = 0;
-  uint32_t current_time = esp_timer_get_time() / 1000000;
-
-  if (current_time - last_check_time >= 30) {
-    if (lvgl_mutex != NULL &&
-        xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(1)) != pdTRUE) {
-      ESP_LOGW(TAG, "LVGL mutex appears to be stuck, recreating");
-
-      SemaphoreHandle_t new_mutex = xSemaphoreCreateMutex();
-      if (new_mutex != NULL) {
-        lvgl_mutex = new_mutex;
-
-        ESP_LOGW(TAG, "LVGL mutex replaced");
-      } else {
-        ESP_LOGE(TAG, "Failed to create new LVGL mutex");
-      }
-    } else if (lvgl_mutex != NULL) {
-      xSemaphoreGive(lvgl_mutex);
-    }
-
-    last_check_time = current_time;
   }
 }
 
@@ -787,16 +748,6 @@ void ui_start_update_tasks(void) {
 
 void ui_force_config_reload(void) { force_config_reload = true; }
 
-void ui_create_aux_output_indicator(void) {
-  if (home_ui.aux_output == NULL) {
-    ESP_LOGW(TAG, "home screen aux_output is NULL");
-    return;
-  }
-
-  // Set initial visibility based on saved state
-  ui_update_aux_output_indicator();
-}
-
 void ui_hide_throttle_not_calibrated_text(void) {
   if (home_ui.throttle_warning == NULL)
     return;
@@ -853,9 +804,8 @@ static void ui_cancel_splash_transition_locked(void) {
   splash_transition_active = false;
 }
 
-/** Show splash and schedule transition to home after 4s. Caller must hold LVGL
- * mutex. */
-void ui_show_splash_then_home(void) {
+/** Fill in the splash screen's firmware version and BT MAC labels. */
+static void splash_set_labels(void) {
   if (objects.firmware_text != NULL) {
     char version_str[64];
     snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,
@@ -870,6 +820,12 @@ void ui_show_splash_then_home(void) {
              mac[1], mac[2], mac[3], mac[4], mac[5]);
     lv_label_set_text(objects.mac_addr_text, mac_str);
   }
+}
+
+/** Show splash and schedule transition to home after 4s. Caller must hold LVGL
+ * mutex. */
+void ui_show_splash_then_home(void) {
+  splash_set_labels();
   ui_cancel_splash_transition_locked();
   splash_transition_active = true;
   lv_disp_load_scr(objects.splash_screen);
@@ -879,23 +835,7 @@ void ui_show_splash_then_home(void) {
 }
 
 void ui_show_splash_screen(void) {
-  // Set firmware version + MAC labels now, just before showing the splash
-  // screen
-  if (objects.firmware_text != NULL) {
-    char version_str[64];
-    snprintf(version_str, sizeof(version_str), "%s (%s)", FW_VERSION,
-             TARGET_NAME);
-    lv_label_set_text(objects.firmware_text, version_str);
-  }
-  if (objects.mac_addr_text != NULL) {
-    uint8_t mac[6] = {0};
-    char mac_str[18];
-    esp_read_mac(mac, ESP_MAC_BT);
-    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0],
-             mac[1], mac[2], mac[3], mac[4], mac[5]);
-    lv_label_set_text(objects.mac_addr_text, mac_str);
-  }
-
+  splash_set_labels();
   lcd_set_backlight(0);
   ui_cancel_splash_transition_locked();
   splash_transition_active = true;
