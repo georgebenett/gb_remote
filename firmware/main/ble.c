@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
-#include "driver/uart.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -34,17 +33,6 @@
 #include "ui_updater.h"
 #include "vesc_config.h"
 
-struct gattc_profile_inst {
-  esp_gattc_cb_t gattc_cb;
-  uint16_t gattc_if;
-  uint16_t app_id;
-  uint16_t conn_id;
-  uint16_t service_start_handle;
-  uint16_t service_end_handle;
-  uint16_t char_handle;
-  esp_bd_addr_t remote_bda;
-};
-
 enum {
   SPP_IDX_SVC,
   SPP_IDX_SPP_DATA_RECV_VAL,
@@ -72,17 +60,6 @@ static void log_rssi_task(void *pvParameters);
 static int link_count_connected(void);
 static int desired_link_count(void);
 static void resume_scan_if_needed(void);
-
-/* One gatt-based profile one app_id and one gattc_if, this array will store the
- * gattc_if returned by ESP_GATTS_REG_EVT */
-static struct gattc_profile_inst gl_profile_tab[PROFILE_NUM] = {
-    [PROFILE_APP_ID] =
-        {
-            .gattc_cb = gattc_profile_event_handler,
-            .gattc_if = ESP_GATT_IF_NONE, /* Not get the gatt_if, so initial is
-                                             ESP_GATT_IF_NONE */
-        },
-};
 
 static esp_ble_scan_params_t ble_scan_params = {
     .scan_type = BLE_SCAN_TYPE_ACTIVE,
@@ -143,7 +120,8 @@ static receiver_link_t *link_by_bda(const esp_bd_addr_t bda);
 static bool is_connect = false; // True while at least one link is connected
 static SemaphoreHandle_t is_connect_mutex = NULL;
 static const char device_name[] = DEVICE_NAME;
-static uint16_t spp_gattc_if = 0xff;
+/* Interface handed to us by ESP_GATTC_REG_EVT; ESP_GATT_IF_NONE until then. */
+static esp_gatt_if_t spp_gattc_if = ESP_GATT_IF_NONE;
 static bool dual_connection_enabled = false;
 static bool scan_active = false;
 // Stop-scan-then-open handshake: set when a matching receiver is found,
@@ -152,7 +130,6 @@ static bool connect_pending = false;
 static esp_bd_addr_t pending_connect_bda;
 static esp_ble_addr_type_t pending_connect_addr_type;
 static QueueHandle_t cmd_reg_queue = NULL;
-QueueHandle_t spp_uart_queue = NULL;
 
 // Notify-registration work item processed by spp_client_reg_task
 typedef struct {
@@ -170,18 +147,10 @@ static esp_bt_uuid_t spp_service_uuid = {
 
 static float latest_voltage = 0.0f;
 static int32_t latest_erpm = 0;
-static float latest_current_motor = 0.0f;
-static float latest_current_in = 0.0f;
 
 static float bms_total_voltage = 0.0f;
-static float bms_current = 0.0f;
 static float bms_remaining_capacity = 0.0f;
 static float bms_nominal_capacity = 0.0f;
-static uint8_t bms_num_cells = 0;
-static float bms_cell_voltages[16] = {0};
-
-static float latest_temp_mos = 0.0f;
-static float latest_temp_motor = 0.0f;
 
 #define BLE_CMD_RESET_ODOMETER 0x01
 
@@ -193,10 +162,6 @@ static float latest_trip_km = 0.0f;
 /** When true, BLE is suspended (not on home screen). Starts true;
  *  resumed only when the home screen is reached. */
 static volatile bool ble_suspended = true;
-
-float get_latest_temp_mos(void) { return latest_temp_mos; }
-
-float get_latest_temp_motor(void) { return latest_temp_motor; }
 
 float ble_get_latest_trip_km(void) { return latest_trip_km; }
 
@@ -365,26 +330,16 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   if (handle == db[SPP_IDX_SPP_DATA_NTY_VAL].attribute_handle) {
     if (p_data->notify.value_len ==
         65) { // VESC + BMS + motor config + aux state + trip_km
-      // All values are little-endian (LSB first, MSB second)
-      // temp_mos (bytes 0-1)
+      // All values are little-endian (LSB first, MSB second). Temperatures and
+      // currents are decoded for the log only — nothing displays them.
       int16_t temp_mos =
           p_data->notify.value[0] | ((int16_t)p_data->notify.value[1] << 8);
-      latest_temp_mos = temp_mos / 100.0f;
-
-      // temp_motor (bytes 2-3)
       int16_t temp_motor =
           p_data->notify.value[2] | ((int16_t)p_data->notify.value[3] << 8);
-      latest_temp_motor = temp_motor / 100.0f;
-
-      // current_motor (bytes 4-5)
       int16_t current_motor =
           p_data->notify.value[4] | ((int16_t)p_data->notify.value[5] << 8);
-      latest_current_motor = current_motor / 100.0f;
-
-      // current_in (bytes 6-7)
       int16_t current_in =
           p_data->notify.value[6] | ((int16_t)p_data->notify.value[7] << 8);
-      latest_current_in = current_in / 100.0f;
 
       // rpm (bytes 8-11) - little-endian
       int32_t rpm_raw = ((int32_t)p_data->notify.value[8]) |
@@ -409,10 +364,9 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       bms_total_voltage = total_voltage / 100.0f;
       link->bms_total_voltage = bms_total_voltage;
 
-      // current (bytes 16-17)
+      // current (bytes 16-17) - log only
       int16_t bms_current_raw =
           p_data->notify.value[16] | ((int16_t)p_data->notify.value[17] << 8);
-      bms_current = bms_current_raw / 100.0f;
 
       // remaining_capacity (bytes 18-19)
       int16_t remaining_cap =
@@ -426,16 +380,9 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       bms_nominal_capacity = nominal_cap / 100.0f;
       link->bms_nominal_capacity = bms_nominal_capacity;
 
-      // num_cells (byte 22)
-      bms_num_cells = p_data->notify.value[22];
-
-      // cell_voltages (bytes 23-54, 16 cells * 2 bytes each) - little-endian
-      for (int i = 0; i < bms_num_cells && i < 16; i++) {
-        int16_t cell_voltage =
-            p_data->notify.value[23 + i * 2] |
-            ((int16_t)p_data->notify.value[23 + i * 2 + 1] << 8);
-        bms_cell_voltages[i] = cell_voltage / 1000.0f; // Convert to volts
-      }
+      // num_cells (byte 22) - log only. Bytes 23-54 hold the 16 per-cell
+      // voltages; nothing on the remote shows them, so they are not decoded.
+      uint8_t bms_num_cells = p_data->notify.value[22];
 
       // motor_poles (byte 55)
       uint8_t motor_poles = p_data->notify.value[55];
@@ -470,12 +417,12 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       ESP_LOGI(GATTC_TAG,
                "VESC: V=%.2fV, RPM=%ld, Motor=%.2fA, In=%.2fA, TempMos=%.2f°C, "
                "TempMotor=%.2f°C",
-               latest_voltage, latest_erpm, latest_current_motor,
-               latest_current_in, latest_temp_mos, latest_temp_motor);
+               latest_voltage, latest_erpm, current_motor / 100.0f,
+               current_in / 100.0f, temp_mos / 100.0f, temp_motor / 100.0f);
       ESP_LOGI(GATTC_TAG,
                "BMS: Total V=%.2fV, Current=%.2fA, Remaining=%.2fAh, Cells=%d",
-               bms_total_voltage, bms_current, bms_remaining_capacity,
-               bms_num_cells);
+               bms_total_voltage, bms_current_raw / 100.0f,
+               bms_remaining_capacity, bms_num_cells);
     } else {
       ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 65)",
                p_data->notify.value_len);
@@ -611,8 +558,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
     if (connect_pending) {
       connect_pending = false;
       ESP_LOGI(GATTC_TAG, "Connect to the remote device.");
-      esp_ble_gattc_open(gl_profile_tab[PROFILE_APP_ID].gattc_if,
-                         pending_connect_bda, pending_connect_addr_type, true);
+      esp_ble_gattc_open(spp_gattc_if, pending_connect_bda,
+                         pending_connect_addr_type, true);
     }
     break;
   case ESP_GAP_BLE_SCAN_RESULT_EVT: {
@@ -663,19 +610,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
         link->rssi = param->read_rssi_cmpl.rssi;
         link->rssi_valid = true;
       }
-      // Report the weakest link so the UI reflects worst-case quality
-      int rssi = 0;
-      bool have_rssi = false;
-      for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-        if (links[i].in_use && links[i].rssi_valid &&
-            (!have_rssi || links[i].rssi < rssi)) {
-          rssi = links[i].rssi;
-          have_rssi = true;
-        }
-      }
-      if (have_rssi) {
-        ui_update_connection_quality(rssi);
-      }
+      // Icons are per receiver and re-read each link's RSSI themselves.
+      ui_update_connection_icon();
     } else {
       ESP_LOGE(GATTC_TAG, "RSSI read failed: %d", param->read_rssi_cmpl.status);
     }
@@ -745,27 +681,14 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
   ESP_LOGI(GATTC_TAG, "EVT %d, gattc if %d", event, gattc_if);
 
   if (event == ESP_GATTC_REG_EVT) {
-    if (param->reg.status == ESP_GATT_OK) {
-      gl_profile_tab[param->reg.app_id].gattc_if = gattc_if;
-    } else {
+    if (param->reg.status != ESP_GATT_OK) {
       ESP_LOGI(GATTC_TAG, "Reg app failed, app_id %04x, status %d",
                param->reg.app_id, param->reg.status);
       return;
     }
+    spp_gattc_if = gattc_if;
   }
-  do {
-    int idx;
-    for (idx = 0; idx < PROFILE_NUM; idx++) {
-      if (gattc_if == ESP_GATT_IF_NONE || /* ESP_GATT_IF_NONE, not specify a
-                                             certain gatt_if, need to call every
-                                             profile cb function */
-          gattc_if == gl_profile_tab[idx].gattc_if) {
-        if (gl_profile_tab[idx].gattc_cb) {
-          gl_profile_tab[idx].gattc_cb(event, gattc_if, param);
-        }
-      }
-    }
-  } while (0);
+  gattc_profile_event_handler(event, gattc_if, param);
 }
 
 static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
@@ -845,18 +768,9 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
       latest_erpm = 0;
       latest_voltage = 0.0f;
       latest_trip_km = 0.0f;
-      latest_current_motor = 0.0f;
-      latest_current_in = 0.0f;
-      latest_temp_mos = 0.0f;
-      latest_temp_motor = 0.0f;
-
       bms_total_voltage = 0.0f;
-      bms_current = 0.0f;
       bms_remaining_capacity = 0.0f;
       bms_nominal_capacity = 0.0f;
-      bms_num_cells = 0;
-
-      memset(bms_cell_voltages, 0, sizeof(bms_cell_voltages));
 
       ESP_LOGI(GATTC_TAG,
                "Speed and battery values reset to 0 due to disconnection");
@@ -1069,82 +983,6 @@ void ble_client_appRegister(void) {
   xTaskCreate(spp_client_reg_task, "spp_client_reg_task", 2048, NULL, 10, NULL);
 }
 
-void uart_task(void *pvParameters) {
-  uart_event_t event;
-  for (;;) {
-    if (xQueueReceive(spp_uart_queue, (void *)&event,
-                      (TickType_t)portMAX_DELAY)) {
-      switch (event.type) {
-      case UART_DATA:
-        if (event.size && ble_is_connected() && link_any_ready()) {
-          uint8_t *temp = NULL;
-          temp = (uint8_t *)malloc(sizeof(uint8_t) * event.size);
-          if (temp == NULL) {
-            ESP_LOGE(GATTC_TAG, "malloc failed,%s L#%d", __func__, __LINE__);
-            break;
-          }
-          memset(temp, 0x0, event.size);
-          uart_read_bytes(UART_NUM_0, temp, event.size, portMAX_DELAY);
-          for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-            receiver_link_t *link = &links[i];
-            if (!link->ready ||
-                !(link->db[SPP_IDX_SPP_DATA_RECV_VAL].properties &
-                  (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
-                   ESP_GATT_CHAR_PROP_BIT_WRITE))) {
-              continue;
-            }
-            esp_ble_gattc_write_char(
-                spp_gattc_if, link->conn_id,
-                link->db[SPP_IDX_SPP_DATA_RECV_VAL].attribute_handle,
-                event.size, temp, ESP_GATT_WRITE_TYPE_NO_RSP,
-                ESP_GATT_AUTH_REQ_NONE);
-          }
-          free(temp);
-        }
-        break;
-      default:
-        break;
-      }
-    }
-  }
-}
-
-static void spp_uart_init(void) {
-  uart_config_t uart_config = {
-      .baud_rate = 115200,
-      .data_bits = UART_DATA_8_BITS,
-      .parity = UART_PARITY_DISABLE,
-      .stop_bits = UART_STOP_BITS_1,
-      .flow_ctrl = UART_HW_FLOWCTRL_RTS,
-      .rx_flow_ctrl_thresh = 122,
-      .source_clk = UART_SCLK_DEFAULT,
-  };
-
-  esp_err_t ret =
-      uart_driver_install(UART_NUM_0, 4096, 8192, 10, &spp_uart_queue, 0);
-  if (ret != ESP_OK) {
-    ESP_LOGE(GATTC_TAG, "Failed to install UART driver: %s",
-             esp_err_to_name(ret));
-    return;
-  }
-
-  ret = uart_param_config(UART_NUM_0, &uart_config);
-  if (ret != ESP_OK) {
-    ESP_LOGE(GATTC_TAG, "Failed to configure UART: %s", esp_err_to_name(ret));
-    return;
-  }
-
-  ret = uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE,
-                     UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-  if (ret != ESP_OK) {
-    ESP_LOGE(GATTC_TAG, "Failed to set UART pins: %s", esp_err_to_name(ret));
-    return;
-  }
-
-  ESP_LOGI(GATTC_TAG,
-           "UART initialized successfully for BLE data transmission");
-}
-
 void spp_client_demo_init(void) {
   esp_err_t ret;
 
@@ -1200,7 +1038,6 @@ void spp_client_demo_init(void) {
   }
 
   ble_client_appRegister();
-  spp_uart_init();
   xTaskCreate(adc_send_task, "adc_send_task", 4096, NULL, 8, NULL);
   xTaskCreate(log_rssi_task, "log_rssi_task", 2048, NULL, 4, NULL);
 }
@@ -1256,51 +1093,14 @@ static void adc_send_task(void *pvParameters) {
 #endif
       }
 
-      uint32_t dist = (adc_value > VESC_NEUTRAL_VALUE)
-                          ? (adc_value - VESC_NEUTRAL_VALUE)
-                          : (VESC_NEUTRAL_VALUE - adc_value);
-      if (dist <= THROTTLE_NEUTRAL_DEADBAND)
-        adc_value = VESC_NEUTRAL_VALUE;
-
-      uint8_t final_ble_value;
       int8_t effective_trim =
           throttle_inverted ? -ble_trim_offset : ble_trim_offset;
-      int32_t new_center = VESC_NEUTRAL_VALUE + effective_trim;
-
-      if (new_center < 0)
-        new_center = 0;
-      if (new_center > 255)
-        new_center = 255;
-
-      // Trimmed neutral: what the mapping below yields for a centered stick.
+      uint8_t final_ble_value =
+          throttle_apply_trim((uint8_t)adc_value, effective_trim);
+      // Trimmed neutral: what the same mapping yields for a centered stick.
       // Sent to a link during its post-connect neutral hold period.
-      uint8_t neutral_ble_value = (uint8_t)new_center;
-
-      if (adc_value <= VESC_NEUTRAL_VALUE) {
-        if (VESC_NEUTRAL_VALUE > 0) {
-          int32_t scaled = (int32_t)((float)adc_value * (float)new_center /
-                                         (float)VESC_NEUTRAL_VALUE +
-                                     0.5f);
-          final_ble_value =
-              (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
-        } else {
-          final_ble_value = 0;
-        }
-      } else {
-        int32_t upper_output_range = 255 - new_center;
-        int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
-        if (upper_input_range > 0) {
-          int32_t scaled =
-              new_center + (int32_t)((float)(adc_value - VESC_NEUTRAL_VALUE) *
-                                         (float)upper_output_range /
-                                         (float)upper_input_range +
-                                     0.5f);
-          final_ble_value =
-              (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
-        } else {
-          final_ble_value = (uint8_t)new_center;
-        }
-      }
+      uint8_t neutral_ble_value =
+          throttle_apply_trim(VESC_NEUTRAL_VALUE, effective_trim);
 
       uint32_t now_ms = esp_timer_get_time() / 1000;
       for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
@@ -1342,26 +1142,7 @@ float get_latest_voltage(void) { return latest_voltage; }
 
 int32_t get_latest_erpm(void) { return latest_erpm; }
 
-float get_latest_current_motor(void) { return latest_current_motor; }
-
-float get_latest_current_in(void) { return latest_current_in; }
-
 float get_bms_total_voltage(void) { return bms_total_voltage; }
-
-float get_bms_current(void) { return bms_current; }
-
-float get_bms_remaining_capacity(void) { return bms_remaining_capacity; }
-
-float get_bms_nominal_capacity(void) { return bms_nominal_capacity; }
-
-uint8_t get_bms_num_cells(void) { return bms_num_cells; }
-
-float get_bms_cell_voltage(uint8_t cell_index) {
-  if (cell_index < bms_num_cells && cell_index < 16) {
-    return bms_cell_voltages[cell_index];
-  }
-  return 0.0f;
-}
 
 static void log_rssi_task(void *pvParameters) {
   while (1) {
@@ -1369,7 +1150,7 @@ static void log_rssi_task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
       continue;
     }
-    if (ble_is_connected() && spp_gattc_if != 0xff) {
+    if (ble_is_connected() && spp_gattc_if != ESP_GATT_IF_NONE) {
       for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
         if (!links[i].in_use) {
           continue;
@@ -1454,11 +1235,10 @@ void ble_suspend(void) {
   connect_pending = false;
   esp_ble_gap_stop_scanning();
   pairing_adv_apply();
-  if (gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
+  if (spp_gattc_if != ESP_GATT_IF_NONE) {
     for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
       if (links[i].in_use) {
-        esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if,
-                            links[i].conn_id);
+        esp_ble_gattc_close(spp_gattc_if, links[i].conn_id);
       }
     }
   }
@@ -1484,7 +1264,7 @@ void ble_set_dual_connection(bool enabled) {
   if (enabled) {
     // Start looking for a second receiver right away
     resume_scan_if_needed();
-  } else if (gl_profile_tab[PROFILE_APP_ID].gattc_if != ESP_GATT_IF_NONE) {
+  } else if (spp_gattc_if != ESP_GATT_IF_NONE) {
     // Keep the first connected link, drop any extra
     bool kept = false;
     for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
@@ -1495,8 +1275,7 @@ void ble_set_dual_connection(bool enabled) {
         kept = true;
         continue;
       }
-      esp_ble_gattc_close(gl_profile_tab[PROFILE_APP_ID].gattc_if,
-                          links[i].conn_id);
+      esp_ble_gattc_close(spp_gattc_if, links[i].conn_id);
     }
   }
   pairing_adv_apply();
