@@ -55,6 +55,9 @@ typedef enum {
       0x1F, // Set haptic feedback intensity (payload: uint8 0-100)
   // 0x20-0x23 are reserved: lite_v1 legacy motor config commands
   CMD_TOGGLE_DUAL_CONNECTION = 0x24, // Toggle dual receiver connection mode
+  CMD_SET_BATTERY_CELLS = 0x25,      // Set skate pack series count and cell
+                                // chemistry (payload: [cells 0=unset or 5-20]
+                                // or [cells, cell_type])
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code

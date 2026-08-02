@@ -40,3 +40,10 @@ CONFIG_BT_BLE_ENABLED=y
 CONFIG_BT_GATTC_ENABLE=y
 CONFIG_BT_BLE_SMP_ENABLE=y
 CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
+
+# Coredump: panic handler writes an ELF core dump to the coredump partition;
+# the config tool reads it back over USB (see handle_cmd_check_coredump).
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y

@@ -21,6 +21,8 @@ static const vesc_config_t default_config = {
     .wheel_diameter_mm = 101, // Will be overwritten by VESC
     .speed_unit_mph = false,  // Speed unit: km/h by default
     .dual_connection = false, // Single receiver connection by default
+    .battery_cells = 0,     // Unset: show pack voltage until user sets S count
+    .battery_cell_type = 0, // High-drain li-ion (P42A/30Q/40T class)
 #ifdef CONFIG_TARGET_LITE
     .invert_throttle = false // Throttle inversion disabled by default
 #endif
@@ -50,6 +52,8 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
 
   config->speed_unit_mph = false;
   config->dual_connection = false;
+  config->battery_cells = 0;
+  config->battery_cell_type = 0;
 #ifdef CONFIG_TARGET_LITE
   config->invert_throttle = false;
 #endif
@@ -70,6 +74,18 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   err = nvs_get_u8(nvs_handle, NVS_KEY_DUAL_CONNECTION, &dual_connection);
   if (err == ESP_OK) {
     config->dual_connection = (bool)dual_connection;
+  }
+
+  uint8_t battery_cells;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_BATTERY_CELLS, &battery_cells);
+  if (err == ESP_OK) {
+    config->battery_cells = battery_cells;
+  }
+
+  uint8_t battery_cell_type;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_BATTERY_CELL_TYPE, &battery_cell_type);
+  if (err == ESP_OK) {
+    config->battery_cell_type = battery_cell_type;
   }
 
 #ifdef CONFIG_TARGET_LITE
@@ -100,6 +116,15 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
 
   err = nvs_set_u8(nvs_handle, NVS_KEY_DUAL_CONNECTION,
                    (uint8_t)config->dual_connection);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_BATTERY_CELLS, config->battery_cells);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_BATTERY_CELL_TYPE,
+                   config->battery_cell_type);
   if (err != ESP_OK)
     goto cleanup;
 

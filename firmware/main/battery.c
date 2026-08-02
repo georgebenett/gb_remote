@@ -26,37 +26,79 @@ static float latest_battery_voltage = 0.0f;
 static bool low_voltage_alerted = false;
 static bool low_voltage_shutdown_triggered = false;
 
-// Battery state of charge lookup table
+// Battery state of charge lookup tables: resting per-cell voltage -> SoC.
+// Cells inside one chemistry family track each other within ~1-2% SoC, which is
+// well under the sag a throttle pull causes, so the families below are what
+// actually differ - not individual part numbers.
 typedef struct {
   float voltage;
   float soc; // state of charge in %
 } soc_point_t;
 
-static const soc_point_t soc_table[] = {
+// Molicel P42A/P45B, Samsung 30Q/40T/30T, Sony-Murata VTC6. Also the curve for
+// the remote's own internal cell.
+static const soc_point_t soc_li_ion_high_drain[] = {
     {4.15, 100}, {4.10, 90}, {3.98, 80}, {3.85, 70}, {3.80, 60}, {3.75, 50},
     {3.70, 40},  {3.65, 30}, {3.55, 20}, {3.45, 10}, {3.30, 5},  {2.80, 0}};
 
-#define SOC_TABLE_SIZE (sizeof(soc_table) / sizeof(soc_table[0]))
+// Molicel P50B, Samsung 50S, LG M50LT. Higher capacity, sits a little lower
+// through the middle of the pack and has a longer tail under 3.5V.
+static const soc_point_t soc_li_ion_high_capacity[] = {
+    {4.15, 100}, {4.08, 90}, {3.95, 80}, {3.85, 70}, {3.76, 60}, {3.70, 50},
+    {3.64, 40},  {3.58, 30}, {3.50, 20}, {3.38, 10}, {3.20, 5},  {2.80, 0}};
+
+// LiFePO4: 3.65V full charge, ~3.4V rested, an extremely flat 20-80% plateau,
+// empty at 2.5V. Percentage between 20% and 80% is a coarse guess by nature.
+static const soc_point_t soc_lifepo4[] = {
+    {3.50, 100}, {3.40, 95}, {3.34, 90}, {3.32, 80}, {3.31, 70},
+    {3.30, 60},  {3.29, 50}, {3.28, 40}, {3.26, 30}, {3.23, 20},
+    {3.13, 10},  {3.00, 5},  {2.50, 0}};
+
+// LiPo pouch packs: holds voltage higher through the middle than 18650/21700
+// cells and is charged to a full 4.2V.
+static const soc_point_t soc_lipo[] = {
+    {4.20, 100}, {4.10, 90}, {4.00, 80}, {3.93, 70}, {3.87, 60}, {3.82, 50},
+    {3.79, 40},  {3.75, 30}, {3.71, 20}, {3.66, 10}, {3.50, 5},  {3.20, 0}};
+
+typedef struct {
+  const soc_point_t *points;
+  uint8_t count;
+} soc_curve_t;
+
+#define SOC_CURVE(table) {table, sizeof(table) / sizeof((table)[0])}
+
+static const soc_curve_t soc_curves[BATTERY_CELL_TYPE_COUNT] = {
+    [BATTERY_CELL_LI_ION_HIGH_DRAIN] = SOC_CURVE(soc_li_ion_high_drain),
+    [BATTERY_CELL_LI_ION_HIGH_CAPACITY] = SOC_CURVE(soc_li_ion_high_capacity),
+    [BATTERY_CELL_LIFEPO4] = SOC_CURVE(soc_lifepo4),
+    [BATTERY_CELL_LIPO] = SOC_CURVE(soc_lipo),
+};
 
 // Convert voltage to state of charge using lookup table with interpolation
-static float voltage_to_soc(float v) {
-  if (v >= soc_table[0].voltage)
+static float curve_voltage_to_soc(const soc_curve_t *curve, float v) {
+  const soc_point_t *t = curve->points;
+
+  if (v >= t[0].voltage)
     return 100.0f;
-  if (v <= soc_table[SOC_TABLE_SIZE - 1].voltage)
+  if (v <= t[curve->count - 1].voltage)
     return 0.0f;
 
-  for (int i = 0; i < SOC_TABLE_SIZE - 1; i++) {
-    if (v <= soc_table[i].voltage && v >= soc_table[i + 1].voltage) {
+  for (int i = 0; i < curve->count - 1; i++) {
+    if (v <= t[i].voltage && v >= t[i + 1].voltage) {
 
-      float dv = soc_table[i].voltage - soc_table[i + 1].voltage;
-      float dsoc = soc_table[i].soc - soc_table[i + 1].soc;
+      float dv = t[i].voltage - t[i + 1].voltage;
+      float dsoc = t[i].soc - t[i + 1].soc;
 
-      float ratio = (v - soc_table[i + 1].voltage) / dv;
+      float ratio = (v - t[i + 1].voltage) / dv;
 
-      return soc_table[i + 1].soc + ratio * dsoc;
+      return t[i + 1].soc + ratio * dsoc;
     }
   }
-  return 0.0f;
+  return 0.0f; // fallback
+}
+
+static float voltage_to_soc(float v) {
+  return curve_voltage_to_soc(&soc_curves[BATTERY_CELL_LI_ION_HIGH_DRAIN], v);
 }
 
 static float battery_voltage_samples[BATTERY_VOLTAGE_SAMPLES] = {0};
@@ -315,6 +357,21 @@ int battery_get_percentage(void) {
 
   float soc = voltage_to_soc(voltage);
   return (int)(soc + 0.5f); // Round to nearest integer
+}
+
+int battery_pack_percentage(float pack_voltage, uint8_t cells,
+                            uint8_t cell_type) {
+  if (cells == 0 || pack_voltage <= 0.0f) {
+    return -1;
+  }
+  if (cell_type >= BATTERY_CELL_TYPE_COUNT) {
+    cell_type = BATTERY_CELL_LI_ION_HIGH_DRAIN;
+  }
+  // ponytail: no sag compensation - reads low under throttle. Add a current-
+  // based IR correction if the dip bothers users.
+  float soc =
+      curve_voltage_to_soc(&soc_curves[cell_type], pack_voltage / (float)cells);
+  return (int)(soc + 0.5f);
 }
 
 bool battery_is_low_voltage(void) {

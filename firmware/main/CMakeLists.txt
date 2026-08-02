@@ -45,5 +45,5 @@ idf_component_register(
         "${UI_DIR}"
         "ui_dual_throttle"
         "ui_lite"
-    REQUIRES driver nvs_flash bt esp_adc spi_flash esp_lcd lvgl
+    REQUIRES driver nvs_flash bt esp_adc spi_flash esp_lcd lvgl espcoredump
 )

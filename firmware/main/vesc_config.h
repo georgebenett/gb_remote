@@ -10,6 +10,8 @@
 #define VESC_NVS_NAMESPACE "vesc_cfg"
 #define NVS_KEY_SPEED_UNIT "speed_unit"
 #define NVS_KEY_DUAL_CONNECTION "dual_conn"
+#define NVS_KEY_BATTERY_CELLS "batt_cells"
+#define NVS_KEY_BATTERY_CELL_TYPE "batt_celltyp"
 #ifdef CONFIG_TARGET_LITE
 #define NVS_KEY_INVERT_THROTTLE "inv_throttle"
 #endif
@@ -32,8 +34,12 @@ typedef struct {
   uint16_t gear_ratio_x1000;  // Gear ratio * 1000 (from VESC via BLE)
   uint16_t wheel_diameter_mm; // Wheel diameter in mm (from VESC via BLE)
   // User preferences (persisted to NVS)
-  bool speed_unit_mph;  // Speed unit: false = km/h, true = mph
-  bool dual_connection; // Allow connecting to two receivers simultaneously
+  bool speed_unit_mph;       // Speed unit: false = km/h, true = mph
+  bool dual_connection;      // Allow connecting to two receivers simultaneously
+  uint8_t battery_cells;     // Skate pack series count: 0 = unset (show pack
+                             // voltage), else 5..20 (estimate percentage)
+  uint8_t battery_cell_type; // Cell chemistry (battery_cell_type_t) picking
+                             // which SoC curve the estimate uses
 #ifdef CONFIG_TARGET_LITE
   bool invert_throttle; // Whether to invert throttle direction
 #endif

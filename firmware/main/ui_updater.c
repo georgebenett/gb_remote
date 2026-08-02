@@ -91,7 +91,9 @@ static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(50);
 volatile lv_timer_t *splash_transition_timer = NULL;
 volatile bool splash_transition_active = false;
 
-static volatile bool force_config_reload = false;
+// Bumped on every config change; each consumer task tracks its own last-seen
+// value so one task reloading doesn't swallow the notification for the others.
+static volatile uint32_t config_epoch = 0;
 
 // Shared UI state (volatile ensures visibility across tasks)
 static volatile bool speed_unit_mph = false;
@@ -436,6 +438,7 @@ static void speed_update_task(void *pvParameters) {
   TickType_t last_wake_time = xTaskGetTickCount();
   const TickType_t frequency = pdMS_TO_TICKS(SPEED_UPDATE_MS);
   uint32_t config_reload_counter = 0;
+  uint32_t seen_config_epoch = config_epoch;
   const uint32_t CONFIG_RELOAD_INTERVAL = 50;
 
   while (1) {
@@ -443,14 +446,14 @@ static void speed_update_task(void *pvParameters) {
 
     config_reload_counter++;
     if (config_reload_counter >= CONFIG_RELOAD_INTERVAL ||
-        force_config_reload) {
+        seen_config_epoch != config_epoch) {
+      seen_config_epoch = config_epoch;
       esp_err_t err = vesc_config_load(&config);
       if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to reload configuration: %s",
                  esp_err_to_name(err));
       }
       config_reload_counter = 0;
-      force_config_reload = false;
     }
 
     if (ble_is_connected()) {
@@ -472,7 +475,18 @@ static void battery_update_task(void *pvParameters) {
   const uint32_t RATE_LIMIT_MS = 5000;
   bool was_connected[UI_MAX_RECEIVERS] = {false};
 
+  vesc_config_t config;
+  if (vesc_config_load(&config) != ESP_OK) {
+    config.battery_cells = 0;
+  }
+  uint32_t seen_config_epoch = config_epoch;
+
   while (1) {
+    if (seen_config_epoch != config_epoch) {
+      seen_config_epoch = config_epoch;
+      vesc_config_load(&config);
+    }
+
     int battery_percentage = battery_get_percentage();
 
     if (battery_percentage >= 0) {
@@ -507,13 +521,21 @@ static void battery_update_task(void *pvParameters) {
         bool bms_connected = (bms_voltage > 0.1f);
 
         if (!bms_connected) {
+          // No BMS: fall back to the VESC pack voltage. If the user told us
+          // the cell count we can turn that into a percentage, else show volts.
           float vesc_voltage = receiver_vesc_voltage(i);
 
           ESP_LOGI(TAG, "battery_update: receiver %d BMS off, vesc=%.2fV", i,
                    vesc_voltage);
 
           if (vesc_voltage > 0.1f) {
-            ui_update_skate_battery_voltage_display(i, vesc_voltage);
+            int estimated = battery_pack_percentage(
+                vesc_voltage, config.battery_cells, config.battery_cell_type);
+            if (estimated >= 0) {
+              ui_update_skate_battery_percentage(i, estimated);
+            } else {
+              ui_update_skate_battery_voltage_display(i, vesc_voltage);
+            }
           }
         } else {
           int skate_battery_percentage = receiver_bms_percentage(i);
@@ -746,7 +768,7 @@ void ui_start_update_tasks(void) {
   xTaskCreate(connection_update_task, "conn_update", 4096, NULL, 2, NULL);
 }
 
-void ui_force_config_reload(void) { force_config_reload = true; }
+void ui_force_config_reload(void) { config_epoch++; }
 
 void ui_hide_throttle_not_calibrated_text(void) {
   if (home_ui.throttle_warning == NULL)

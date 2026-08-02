@@ -1,7 +1,9 @@
 #include "usb_serial.h"
+#include "battery.h"
 #include "ble.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
+#include "esp_core_dump.h"
 #include "esp_log.h"
 #include "esp_partition.h"
 #include "esp_vfs_dev.h"
@@ -53,6 +55,7 @@ static void handle_cmd_set_backlight(const binary_packet_t *packet);
 static void handle_cmd_set_haptic_intensity(const binary_packet_t *packet);
 static void handle_cmd_invert_throttle(const binary_packet_t *packet);
 static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet);
+static void handle_cmd_set_battery_cells(const binary_packet_t *packet);
 static void handle_cmd_start_streaming(const binary_packet_t *packet);
 static void handle_cmd_stop_streaming(const binary_packet_t *packet);
 static void handle_cmd_set_stream_rate(const binary_packet_t *packet);
@@ -375,6 +378,9 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_TOGGLE_DUAL_CONNECTION:
     handle_cmd_toggle_dual_connection(packet);
     break;
+  case CMD_SET_BATTERY_CELLS:
+    handle_cmd_set_battery_cells(packet);
+    break;
   case CMD_START_STREAMING:
     handle_cmd_start_streaming(packet);
     break;
@@ -495,6 +501,10 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
 
   // Haptic intensity (1 byte, 0-100%)
   payload[idx++] = viber_get_intensity();
+
+  // Skate pack series cell count (1 byte, 0 = unset) and cell chemistry
+  payload[idx++] = hand_controller_config.battery_cells;
+  payload[idx++] = hand_controller_config.battery_cell_type;
 
   // Throttle calibration (4 bytes each, little-endian)
   if (throttle_is_calibrated()) {
@@ -668,6 +678,37 @@ static void handle_cmd_set_speed_unit(const binary_packet_t *packet) {
   } else {
     usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_SAVE_FAILED);
   }
+}
+
+static void handle_cmd_set_battery_cells(const binary_packet_t *packet) {
+  // Payload: [series cell count: 0 = unset, or 5-20] with an optional second
+  // byte selecting the cell chemistry (battery_cell_type_t).
+  if (packet->payload_length != 1 && packet->payload_length != 2) {
+    usb_serial_send_ack(CMD_SET_BATTERY_CELLS, ERR_INVALID_PAYLOAD);
+    return;
+  }
+
+  uint8_t cells = packet->payload[0];
+  if (cells != 0 && (cells < 5 || cells > 20)) {
+    usb_serial_send_ack(CMD_SET_BATTERY_CELLS, ERR_OUT_OF_RANGE);
+    return;
+  }
+
+  if (packet->payload_length == 2) {
+    uint8_t cell_type = packet->payload[1];
+    if (cell_type >= BATTERY_CELL_TYPE_COUNT) {
+      usb_serial_send_ack(CMD_SET_BATTERY_CELLS, ERR_OUT_OF_RANGE);
+      return;
+    }
+    hand_controller_config.battery_cell_type = cell_type;
+  }
+
+  hand_controller_config.battery_cells = cells;
+  esp_err_t err = vesc_config_save(&hand_controller_config);
+  ui_force_config_reload();
+
+  usb_serial_send_ack(CMD_SET_BATTERY_CELLS,
+                      (err == ESP_OK) ? ERR_OK : ERR_SAVE_FAILED);
 }
 
 static void handle_cmd_set_backlight(const binary_packet_t *packet) {
@@ -916,173 +957,33 @@ static void handle_cmd_get_ble_trim(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_check_coredump(const binary_packet_t *packet) {
+  // Payload: [exists_flag][size_lsb][size_msb][first_16_bytes]
+  uint8_t payload[3 + 16] = {0};
+
+  size_t image_addr = 0;
+  size_t image_size = 0;
+  esp_err_t err = esp_core_dump_image_get(&image_addr, &image_size);
+  if (err != ESP_OK || image_size == 0) {
+    ESP_LOGI(TAG, "No coredump stored (%s)", esp_err_to_name(err));
+    usb_serial_send_response(RSP_COREDUMP_INFO, payload, sizeof(payload));
+    return;
+  }
+
+  // The size field is 2 bytes on the wire; the partition is 64 KB, so only an
+  // exactly-full image would overflow.
+  size_t reported_size = image_size > 0xFFFF ? 0xFFFF : image_size;
+  payload[0] = 1;
+  put_u16(&payload[1], (uint16_t)reported_size);
+
   const esp_partition_t *coredump_partition = esp_partition_find_first(
       ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, "coredump");
-
-  if (coredump_partition == NULL) {
-    ESP_LOGW(TAG, "Coredump partition not found");
-    usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_NO_COREDUMP);
-    return;
+  if (coredump_partition != NULL) {
+    esp_partition_read(coredump_partition, 0, &payload[3], 16);
   }
 
-  // Check partition directly - ESP-IDF stores coredumps with a header structure
-  // Read a larger buffer to check for coredump data (header + ELF data)
-  // ESP-IDF coredump header is typically 16-32 bytes, then ELF data starts
-  uint8_t check_buffer[256];
-  esp_err_t err = esp_partition_read(coredump_partition, 0, check_buffer,
-                                     sizeof(check_buffer));
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to read coredump partition: %s",
-             esp_err_to_name(err));
-    usb_serial_send_ack(CMD_CHECK_COREDUMP, ERR_READ_FAILED);
-    return;
-  }
-
-  // Check if partition is all 0xFF (erased) - definitely no coredump
-  bool is_empty = true;
-  for (int i = 0; i < sizeof(check_buffer); i++) {
-    if (check_buffer[i] != 0xFF) {
-      is_empty = false;
-      break;
-    }
-  }
-
-  bool has_valid_coredump = false;
-  uint32_t actual_coredump_size = 0;
-
-  if (is_empty) {
-    has_valid_coredump = false;
-  } else {
-    // Partition has data - find where the actual coredump data ends
-    // Search backwards from the end to find where a large block of 0xFF starts
-    // This is more accurate than finding the last non-0xFF byte (which might
-    // include padding)
-    uint32_t data_end = 0;
-    uint8_t end_check_buffer[512];
-    const uint32_t min_empty_block = 256; // Require at least 256 consecutive
-                                          // 0xFF bytes to consider it padding
-
-    bool found_data_end = false;
-    uint32_t consecutive_ff = 0;
-
-    for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
-         offset >= 0 && !found_data_end; offset -= sizeof(end_check_buffer)) {
-
-      if (offset < 0)
-        offset = 0;
-      uint32_t read_size =
-          (coredump_partition->size - offset < sizeof(end_check_buffer))
-              ? (coredump_partition->size - offset)
-              : sizeof(end_check_buffer);
-
-      esp_err_t end_err = esp_partition_read(coredump_partition, offset,
-                                             end_check_buffer, read_size);
-      if (end_err != ESP_OK)
-        break;
-
-      for (int32_t i = read_size - 1; i >= 0; i--) {
-        if (end_check_buffer[i] == 0xFF) {
-          consecutive_ff++;
-        } else {
-          // Found non-0xFF byte - if we had a large block of 0xFF before this,
-          // that was padding, so the data ends before the padding
-          if (consecutive_ff >= min_empty_block) {
-            // The data ends at the start of the padding block
-            data_end = offset + i + 1 + consecutive_ff - min_empty_block;
-            found_data_end = true;
-            break;
-          }
-          consecutive_ff = 0;
-        }
-      }
-    }
-
-    // If we didn't find a clear end (no large padding block), use the last
-    // non-0xFF byte but round down to nearest 1KB boundary to be conservative
-    if (!found_data_end) {
-      // Find last non-0xFF byte
-      for (int32_t offset = coredump_partition->size - sizeof(end_check_buffer);
-           offset >= 0; offset -= sizeof(end_check_buffer)) {
-
-        if (offset < 0)
-          offset = 0;
-        uint32_t read_size =
-            (coredump_partition->size - offset < sizeof(end_check_buffer))
-                ? (coredump_partition->size - offset)
-                : sizeof(end_check_buffer);
-
-        esp_err_t end_err = esp_partition_read(coredump_partition, offset,
-                                               end_check_buffer, read_size);
-        if (end_err != ESP_OK)
-          break;
-
-        for (int32_t i = read_size - 1; i >= 0; i--) {
-          if (end_check_buffer[i] != 0xFF) {
-            data_end = offset + i + 1;
-            // Round down to nearest 1KB (1024-byte) boundary to be conservative
-            // This accounts for any padding or metadata
-            data_end = (data_end / 1024) * 1024;
-            found_data_end = true;
-            break;
-          }
-        }
-        if (found_data_end)
-          break;
-      }
-    }
-
-    if (!found_data_end) {
-      data_end = coredump_partition->size;
-      data_end = (data_end / 1024) * 1024; // Round down to 1KB boundary
-    }
-
-    // Additional safety: if calculated size is very close to partition size,
-    // subtract 4KB to account for potential padding/metadata
-    if (data_end > coredump_partition->size - 4096) {
-      data_end = coredump_partition->size - 4096;
-      data_end = (data_end / 1024) * 1024; // Round down to 1KB boundary
-    }
-
-    actual_coredump_size = data_end;
-    // Check for ELF magic at various offsets in the header area
-    bool found_elf = false;
-    for (int offset = 0; offset < sizeof(check_buffer) - 4; offset++) {
-      if (check_buffer[offset] == 0x7F && check_buffer[offset + 1] == 'E' &&
-          check_buffer[offset + 2] == 'L' && check_buffer[offset + 3] == 'F') {
-        found_elf = true;
-        break;
-      }
-    }
-
-    if (found_elf || actual_coredump_size > 0) {
-      has_valid_coredump = true;
-    }
-  }
-
-  // Payload: [exists_flag][size_lsb][size_msb][first_16_bytes]
-  uint8_t payload[3 + 16];
-  uint16_t idx = 0;
-
-  if (has_valid_coredump) {
-    uint32_t reported_size = (actual_coredump_size > 0)
-                                 ? actual_coredump_size
-                                 : coredump_partition->size;
-    payload[idx++] = 1; // exists flag
-    idx += put_u16(&payload[idx], (uint16_t)reported_size);
-    for (int i = 0; i < 16; i++) {
-      payload[idx++] = check_buffer[i];
-    }
-    ESP_LOGI(TAG, "Coredump found: size=%" PRIu32 " bytes", reported_size);
-  } else {
-    payload[idx++] = 0; // no coredump
-    payload[idx++] = 0;
-    payload[idx++] = 0;
-    for (int i = 0; i < 16; i++) {
-      payload[idx++] = check_buffer[i];
-    }
-  }
-
-  usb_serial_send_response(RSP_COREDUMP_INFO, payload, idx);
+  ESP_LOGI(TAG, "Coredump found at 0x%08" PRIx32 ", size=%" PRIu32 " bytes",
+           (uint32_t)image_addr, (uint32_t)image_size);
+  usb_serial_send_response(RSP_COREDUMP_INFO, payload, sizeof(payload));
 }
 
 static void handle_cmd_get_coredump(const binary_packet_t *packet) {
