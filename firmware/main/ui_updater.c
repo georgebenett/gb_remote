@@ -36,6 +36,7 @@ typedef enum {
   UI_CMD_UPDATE_TRIP_DISTANCE,
   UI_CMD_RESET_TRIP_DISTANCE,
   UI_CMD_UPDATE_AUX_INDICATOR,
+  UI_CMD_UPDATE_REMOTE_ICON,
   UI_CMD_RESET_SKATE_DISPLAY,
 } ui_cmd_type_t;
 
@@ -57,6 +58,7 @@ typedef struct {
     } connection;
     float trip_km;
     bool aux_state;
+    bool shutdown_pending;
   } data;
 } ui_cmd_t;
 
@@ -74,6 +76,7 @@ typedef struct {
   lv_obj_t *throttle_warning;
   lv_obj_t *remote_arc;
   lv_obj_t *remote_battery_text;
+  lv_obj_t *remote_icon;
   lv_obj_t *aux_output;
   uint8_t receiver_count;
   lv_obj_t *skate_arc[UI_MAX_RECEIVERS];
@@ -109,6 +112,7 @@ static void bind_single_home_widgets(void) {
   home_ui.throttle_warning = objects.throttle_not_calibrated_text;
   home_ui.remote_arc = objects.remote_arc;
   home_ui.remote_battery_text = objects.controller_battery_text;
+  home_ui.remote_icon = objects.remote_icon;
   home_ui.aux_output = objects.aux_output;
   home_ui.receiver_count = 1;
   home_ui.skate_arc[0] = objects.skateboard_arc;
@@ -130,6 +134,7 @@ static void bind_dual_home_widgets(void) {
   home_ui.throttle_warning = objects.throttle_not_calibrated_text_1;
   home_ui.remote_arc = objects.remote_arc_1;
   home_ui.remote_battery_text = objects.controller_battery_text_1;
+  home_ui.remote_icon = objects.remote_icon_1;
   home_ui.aux_output = objects.aux_output_1;
   home_ui.receiver_count = 2;
 
@@ -724,6 +729,14 @@ static void ui_cmd_processor_task(void *pvParameters) {
           }
           break;
 
+        case UI_CMD_UPDATE_REMOTE_ICON:
+          if (home_ui.remote_icon != NULL) {
+            lv_img_set_src(home_ui.remote_icon, cmd.data.shutdown_pending
+                                                    ? &img_power
+                                                    : &img_remote_icon);
+          }
+          break;
+
         case UI_CMD_RESET_SKATE_DISPLAY:
           if (on_home && slot >= 0 &&
               home_ui.skate_battery_text[slot] != NULL) {
@@ -793,6 +806,12 @@ void ui_update_aux_output_indicator(void) {
 
   ui_cmd_t cmd = {.type = UI_CMD_UPDATE_AUX_INDICATOR,
                   .data.aux_state = aux_state};
+  ui_queue_send(&cmd);
+}
+
+void ui_set_shutdown_pending_icon(bool pending) {
+  ui_cmd_t cmd = {.type = UI_CMD_UPDATE_REMOTE_ICON,
+                  .data.shutdown_pending = pending};
   ui_queue_send(&cmd);
 }
 

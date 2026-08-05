@@ -107,6 +107,13 @@ static void set_bar_value(void *obj, int32_t v) {
   }
 }
 
+/* Single write path for the arm flag so the home-screen icon always tracks it:
+ * power glyph while we wait for the confirming press, remote icon otherwise. */
+static void set_shutdown_armed(bool armed) {
+  shutdown_armed = armed;
+  ui_set_shutdown_pending_icon(armed);
+}
+
 static void power_button_callback(button_event_t event, void *user_data) {
   static bool long_press_triggered = false;
 
@@ -127,13 +134,13 @@ static void power_button_callback(button_event_t event, void *user_data) {
         lv_anim_del(objects.shutting_down_bar, set_bar_value);
         lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
         arc_animation_active = false;
-        shutdown_armed = false;
+        set_shutdown_armed(false);
         lv_disp_load_scr(ui_get_home_screen());
         lv_obj_invalidate(ui_get_home_screen());
         give_lvgl_mutex();
       } else {
         arc_animation_active = false;
-        shutdown_armed = false;
+        set_shutdown_armed(false);
       }
     }
     long_press_triggered = false;
@@ -144,11 +151,11 @@ static void power_button_callback(button_event_t event, void *user_data) {
       break;
     if (!button_released_since_boot)
       break;
-    shutdown_armed = true;
+    set_shutdown_armed(true);
     break;
 
   case BUTTON_EVENT_POWER_OFF_CANCELLED:
-    shutdown_armed = false;
+    set_shutdown_armed(false);
     break;
 
   case BUTTON_EVENT_LONG_PRESS:
@@ -174,7 +181,7 @@ static void power_button_callback(button_event_t event, void *user_data) {
     /* Step 2: long press while armed → show shutdown screen + start bar */
     if (!long_press_triggered && shutdown_armed) {
       long_press_triggered = true;
-      shutdown_armed = false;
+      set_shutdown_armed(false);
       if (take_lvgl_mutex()) {
         lv_disp_load_scr(objects.shutdown_screen);
         lv_obj_invalidate(objects.shutdown_screen);

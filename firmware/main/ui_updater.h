@@ -32,6 +32,8 @@ extern const lv_img_dsc_t img_100_connection;
 extern const lv_img_dsc_t img_skateboard_icon_connected;
 extern const lv_img_dsc_t img_skateboard_no_connection;
 extern const lv_img_dsc_t img_no_connection;
+extern const lv_img_dsc_t img_remote_icon;
+extern const lv_img_dsc_t img_power;
 
 void ui_updater_init(void);
 void ui_update_speed(int32_t value);
@@ -69,6 +71,11 @@ void ui_hide_throttle_not_calibrated_text(void);
 
 // Aux output indicator
 void ui_update_aux_output_indicator(void);
+
+/** Swap the home-screen remote icon to the power glyph while a shutdown is
+ *  armed and waiting for the confirming press, back to the remote when it
+ *  clears. */
+void ui_set_shutdown_pending_icon(bool pending);
 
 // Splash screen
 void ui_show_splash_screen(void);
