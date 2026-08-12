@@ -529,10 +529,6 @@ static void battery_update_task(void *pvParameters) {
           // No BMS: fall back to the VESC pack voltage. If the user told us
           // the cell count we can turn that into a percentage, else show volts.
           float vesc_voltage = receiver_vesc_voltage(i);
-
-          ESP_LOGI(TAG, "battery_update: receiver %d BMS off, vesc=%.2fV", i,
-                   vesc_voltage);
-
           if (vesc_voltage > 0.1f) {
             int estimated = battery_pack_percentage(
                 vesc_voltage, config.battery_cells, config.battery_cell_type);

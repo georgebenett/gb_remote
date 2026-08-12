@@ -103,8 +103,6 @@ typedef struct {
   uint32_t connect_ms; // Connection timestamp for the neutral hold period
   int8_t rssi;
   bool rssi_valid;
-  // Telemetry as reported by this receiver. Cleared with the slot on
-  // disconnect. The dual home screen shows one column per slot.
   float vesc_voltage;
   float bms_total_voltage;
   float bms_remaining_capacity;
@@ -287,12 +285,8 @@ bool ble_get_receiver_aux_output_state(void) {
   return receiver_aux_output_state;
 }
 
-// Telemetry is stored twice: per link (used by the dual home screen, which
-// shows one battery arc and odometer per receiver) and in the aggregate
-// globals below (last-write-wins), which feed the single-receiver home
-// screen and the USB telemetry stream.
 static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
-  uint8_t handle = 0;
+  uint16_t handle = 0;
 
   if (p_data->notify.is_notify == true) {
     ESP_LOGI(GATTC_TAG, "+NOTIFY:handle = %d,length = %d ",
@@ -430,8 +424,6 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   }
 }
 
-// Advertise while we still have receiver capacity (so a second receiver can
-// pair while the first is connected), stop when full or suspended.
 static void pairing_adv_apply(void) {
   bool want = !ble_suspended && link_count_connected() < desired_link_count();
   if (want && !pairing_adv_active) {
@@ -572,8 +564,6 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
 
       if (adv_name != NULL &&
           strncmp((char *)adv_name, device_name, adv_name_len) == 0) {
-        // Ignore while a connect is in flight, when the receiver is already
-        // connected, or when we have all the links we want
         if (connect_pending || link_by_bda(scan_result->scan_rst.bda) != NULL ||
             link_count_connected() >= desired_link_count()) {
           break;
