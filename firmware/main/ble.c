@@ -151,6 +151,7 @@ static float bms_remaining_capacity = 0.0f;
 static float bms_nominal_capacity = 0.0f;
 
 #define BLE_CMD_RESET_ODOMETER 0x01
+#define BLE_CMD_SHUTDOWN 0x02
 
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
@@ -188,6 +189,34 @@ esp_err_t ble_send_reset_odometer(void) {
     return ESP_ERR_NOT_SUPPORTED;
   }
   ESP_LOGI(GATTC_TAG, "Reset odometer command sent to receiver(s)");
+  return ESP_OK;
+}
+
+esp_err_t ble_send_shutdown(void) {
+  if (!ble_is_connected()) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  uint8_t cmd[1] = {BLE_CMD_SHUTDOWN};
+  bool sent = false;
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    receiver_link_t *link = &links[i];
+    if (!link->ready)
+      continue;
+    if (!(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
+          (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
+      continue;
+    if (esp_ble_gattc_write_char(
+            spp_gattc_if, link->conn_id,
+            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle, sizeof(cmd),
+            cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
+            ESP_GATT_AUTH_REQ_NONE) == ESP_OK) {
+      sent = true;
+    }
+  }
+  if (!sent) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+  ESP_LOGI(GATTC_TAG, "Shutdown command sent to receiver(s)");
   return ESP_OK;
 }
 

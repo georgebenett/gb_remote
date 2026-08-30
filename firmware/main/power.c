@@ -435,6 +435,9 @@ static void power_enter_sleep(void) {
 void power_shutdown(void) {
   ESP_LOGI(TAG, "Preparing for shutdown");
 
+  ble_send_shutdown(); // Lets receiver skip its failsafe brake ramp on
+                       // disconnect
+
   uint8_t current_pwm = lcd_get_backlight();
   uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
   lcd_fade_backlight(current_pwm, min_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);

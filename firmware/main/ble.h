@@ -51,6 +51,9 @@ float ble_get_latest_trip_km(void);
 // Send reset-odometer command to receiver over BLE
 esp_err_t ble_send_reset_odometer(void);
 
+// Send shutdown command to receiver over BLE (skips its failsafe on disconnect)
+esp_err_t ble_send_shutdown(void);
+
 // BLE trim offset control
 int8_t ble_get_trim_offset(void);
 esp_err_t ble_increase_trim_offset(void);
