@@ -58,6 +58,7 @@ typedef enum {
   CMD_SET_BATTERY_CELLS = 0x25,      // Set skate pack series count and cell
                                 // chemistry (payload: [cells 0=unset or 5-20]
                                 // or [cells, cell_type])
+  CMD_TOGGLE_SMART_REVERSE = 0x26, // Toggle VESC-style smart reverse
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code

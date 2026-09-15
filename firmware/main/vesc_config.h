@@ -12,6 +12,7 @@
 #define NVS_KEY_DUAL_CONNECTION "dual_conn"
 #define NVS_KEY_BATTERY_CELLS "batt_cells"
 #define NVS_KEY_BATTERY_CELL_TYPE "batt_celltyp"
+#define NVS_KEY_SMART_REVERSE "smart_rev"
 #ifdef CONFIG_TARGET_LITE
 #define NVS_KEY_INVERT_THROTTLE "inv_throttle"
 #endif
@@ -40,6 +41,7 @@ typedef struct {
                              // voltage), else 5..20 (estimate percentage)
   uint8_t battery_cell_type; // Cell chemistry (battery_cell_type_t) picking
                              // which SoC curve the estimate uses
+  bool smart_reverse;        // VESC-style smart reverse, run by the receiver
 #ifdef CONFIG_TARGET_LITE
   bool invert_throttle; // Whether to invert throttle direction
 #endif

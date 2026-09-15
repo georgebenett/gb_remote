@@ -592,13 +592,13 @@ bool throttle_should_use_neutral(void) {
 
 /** Shift the neutral point by `trim` while keeping both halves of the stick
  *  range proportional, so the full 0-255 span survives the offset. Readings
- *  inside THROTTLE_NEUTRAL_DEADBAND snap to exact neutral first. Used both for
- *  what BLE actually sends and for the value mirrored to the USB stream. */
+ *  inside THROTTLE_NEUTRAL_DEADBAND snap to exact neutral; outside it each half
+ *  ramps from the deadband edge (not neutral) to the rail, so output rises
+ *  from centre with no step at the boundary. Used both for what BLE actually
+ *  sends and for the value mirrored to the USB stream. */
 uint8_t throttle_apply_trim(uint8_t value, int8_t trim) {
-  uint8_t dist = (value > VESC_NEUTRAL_VALUE) ? (value - VESC_NEUTRAL_VALUE)
-                                              : (VESC_NEUTRAL_VALUE - value);
-  if (dist <= THROTTLE_NEUTRAL_DEADBAND)
-    value = VESC_NEUTRAL_VALUE;
+  const int32_t lo_edge = VESC_NEUTRAL_VALUE - THROTTLE_NEUTRAL_DEADBAND;
+  const int32_t hi_edge = VESC_NEUTRAL_VALUE + THROTTLE_NEUTRAL_DEADBAND;
 
   int32_t new_center = VESC_NEUTRAL_VALUE + trim;
   if (new_center < 0)
@@ -607,20 +607,16 @@ uint8_t throttle_apply_trim(uint8_t value, int8_t trim) {
     new_center = 255;
 
   int32_t scaled;
-  if (value <= VESC_NEUTRAL_VALUE) {
-    if (VESC_NEUTRAL_VALUE == 0)
-      return 0;
+  if (value >= lo_edge && value <= hi_edge) {
+    scaled = new_center;
+  } else if (value < lo_edge) {
     scaled =
-        (int32_t)((float)value * (float)new_center / (float)VESC_NEUTRAL_VALUE +
-                  0.5f);
+        (int32_t)((float)value * (float)new_center / (float)lo_edge + 0.5f);
   } else {
-    const int32_t upper_input_range = 255 - VESC_NEUTRAL_VALUE;
-    if (upper_input_range <= 0)
-      return (uint8_t)new_center;
-    scaled = new_center + (int32_t)((float)(value - VESC_NEUTRAL_VALUE) *
-                                        (float)(255 - new_center) /
-                                        (float)upper_input_range +
-                                    0.5f);
+    scaled = new_center +
+             (int32_t)((float)(value - hi_edge) * (float)(255 - new_center) /
+                           (float)(255 - hi_edge) +
+                       0.5f);
   }
 
   return (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));

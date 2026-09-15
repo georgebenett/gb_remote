@@ -64,6 +64,10 @@ esp_err_t ble_decrease_trim_offset(void);
  *  drops any link beyond the first. */
 void ble_set_dual_connection(bool enabled);
 
+/** Apply the smart reverse preference at runtime (also loaded from NVS at BLE
+ *  init) and send it to every connected receiver, which runs the logic. */
+void ble_set_smart_reverse(bool enabled);
+
 /** True while the dual connection preference is active. */
 bool ble_dual_connection_is_enabled(void);
 

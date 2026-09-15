@@ -23,6 +23,7 @@ static const vesc_config_t default_config = {
     .dual_connection = false, // Single receiver connection by default
     .battery_cells = 0,     // Unset: show pack voltage until user sets S count
     .battery_cell_type = 0, // High-drain li-ion (P42A/30Q/40T class)
+    .smart_reverse = false,
 #ifdef CONFIG_TARGET_LITE
     .invert_throttle = false // Throttle inversion disabled by default
 #endif
@@ -54,6 +55,7 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   config->dual_connection = false;
   config->battery_cells = 0;
   config->battery_cell_type = 0;
+  config->smart_reverse = false;
 #ifdef CONFIG_TARGET_LITE
   config->invert_throttle = false;
 #endif
@@ -86,6 +88,12 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   err = nvs_get_u8(nvs_handle, NVS_KEY_BATTERY_CELL_TYPE, &battery_cell_type);
   if (err == ESP_OK) {
     config->battery_cell_type = battery_cell_type;
+  }
+
+  uint8_t smart_reverse;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_SMART_REVERSE, &smart_reverse);
+  if (err == ESP_OK) {
+    config->smart_reverse = (bool)smart_reverse;
   }
 
 #ifdef CONFIG_TARGET_LITE
@@ -125,6 +133,11 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
 
   err = nvs_set_u8(nvs_handle, NVS_KEY_BATTERY_CELL_TYPE,
                    config->battery_cell_type);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_SMART_REVERSE,
+                   (uint8_t)config->smart_reverse);
   if (err != ESP_OK)
     goto cleanup;
 

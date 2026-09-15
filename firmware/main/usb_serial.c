@@ -55,6 +55,7 @@ static void handle_cmd_set_backlight(const binary_packet_t *packet);
 static void handle_cmd_set_haptic_intensity(const binary_packet_t *packet);
 static void handle_cmd_invert_throttle(const binary_packet_t *packet);
 static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet);
+static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet);
 static void handle_cmd_set_battery_cells(const binary_packet_t *packet);
 static void handle_cmd_start_streaming(const binary_packet_t *packet);
 static void handle_cmd_stop_streaming(const binary_packet_t *packet);
@@ -378,6 +379,9 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_TOGGLE_DUAL_CONNECTION:
     handle_cmd_toggle_dual_connection(packet);
     break;
+  case CMD_TOGGLE_SMART_REVERSE:
+    handle_cmd_toggle_smart_reverse(packet);
+    break;
   case CMD_SET_BATTERY_CELLS:
     handle_cmd_set_battery_cells(packet);
     break;
@@ -477,6 +481,8 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     flags |= 0x08;
   if (hand_controller_config.dual_connection)
     flags |= 0x10;
+  if (hand_controller_config.smart_reverse)
+    flags |= 0x20;
   payload[idx++] = flags;
 
   payload[idx++] = lcd_load_saved_brightness();
@@ -800,6 +806,17 @@ static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
     usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_OK);
   } else {
     usb_serial_send_ack(CMD_TOGGLE_DUAL_CONNECTION, ERR_SAVE_FAILED);
+  }
+}
+
+static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet) {
+  hand_controller_config.smart_reverse = !hand_controller_config.smart_reverse;
+  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+    // Takes effect immediately on every connected receiver.
+    ble_set_smart_reverse(hand_controller_config.smart_reverse);
+    usb_serial_send_ack(CMD_TOGGLE_SMART_REVERSE, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_TOGGLE_SMART_REVERSE, ERR_SAVE_FAILED);
   }
 }
 

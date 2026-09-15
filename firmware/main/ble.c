@@ -152,6 +152,7 @@ static float bms_nominal_capacity = 0.0f;
 
 #define BLE_CMD_RESET_ODOMETER 0x01
 #define BLE_CMD_SHUTDOWN 0x02
+#define BLE_CMD_SET_SMART_REVERSE 0x03 // [0x03, enabled]
 
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
@@ -163,6 +164,22 @@ static float latest_trip_km = 0.0f;
 static volatile bool ble_suspended = true;
 
 float ble_get_latest_trip_km(void) { return latest_trip_km; }
+
+/** Smart reverse preference (set via the USB config tool). The receiver runs
+ *  the logic; it learns the setting from us on every connect. */
+static bool smart_reverse_enabled = false;
+
+static void link_send_smart_reverse(receiver_link_t *link) {
+  if (!link->ready ||
+      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
+        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
+    return;
+  uint8_t cmd[2] = {BLE_CMD_SET_SMART_REVERSE, smart_reverse_enabled ? 1 : 0};
+  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
+                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
+                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
+                           ESP_GATT_AUTH_REQ_NONE);
+}
 
 esp_err_t ble_send_reset_odometer(void) {
   if (!ble_is_connected()) {
@@ -890,6 +907,8 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
                link->db[i].properties, link->db[i].uuid.uuid.uuid16);
     }
     link->ready = true;
+    // Receiver resets smart reverse to off on connect until we send ours.
+    link_send_smart_reverse(link);
 
     reg_work_t work = {.link_idx = (uint8_t)(link - links),
                        .attr_idx = SPP_IDX_SPP_DATA_NTY_VAL};
@@ -1022,6 +1041,7 @@ void spp_client_demo_init(void) {
     vesc_config_t cfg;
     if (vesc_config_load(&cfg) == ESP_OK) {
       dual_connection_enabled = cfg.dual_connection;
+      smart_reverse_enabled = cfg.smart_reverse;
     }
     ESP_LOGI(GATTC_TAG, "Dual connection %s",
              dual_connection_enabled ? "enabled" : "disabled");
@@ -1298,6 +1318,14 @@ void ble_set_dual_connection(bool enabled) {
     }
   }
   pairing_adv_apply();
+}
+
+void ble_set_smart_reverse(bool enabled) {
+  smart_reverse_enabled = enabled;
+  ESP_LOGI(GATTC_TAG, "Smart reverse %s", enabled ? "enabled" : "disabled");
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    link_send_smart_reverse(&links[i]);
+  }
 }
 
 bool ble_dual_connection_is_enabled(void) { return dual_connection_enabled; }
