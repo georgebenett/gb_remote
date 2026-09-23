@@ -153,6 +153,7 @@ static float bms_nominal_capacity = 0.0f;
 #define BLE_CMD_RESET_ODOMETER 0x01
 #define BLE_CMD_SHUTDOWN 0x02
 #define BLE_CMD_SET_SMART_REVERSE 0x03 // [0x03, enabled]
+#define BLE_CMD_SET_ASSIST_PUSH 0x04   // [0x04, enabled, strength%, decay]
 
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
@@ -169,12 +170,31 @@ float ble_get_latest_trip_km(void) { return latest_trip_km; }
  *  the logic; it learns the setting from us on every connect. */
 static bool smart_reverse_enabled = false;
 
+/** Assistive push preference (set via the USB config tool). The receiver runs
+ *  the logic; it learns the setting from us on every connect. */
+static bool assist_push_enabled = false;
+static uint8_t assist_strength = ASSIST_STRENGTH_DEFAULT;
+static uint8_t assist_decay = ASSIST_DECAY_DEFAULT;
+
 static void link_send_smart_reverse(receiver_link_t *link) {
   if (!link->ready ||
       !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
     return;
   uint8_t cmd[2] = {BLE_CMD_SET_SMART_REVERSE, smart_reverse_enabled ? 1 : 0};
+  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
+                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
+                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
+                           ESP_GATT_AUTH_REQ_NONE);
+}
+
+static void link_send_assist_push(receiver_link_t *link) {
+  if (!link->ready ||
+      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
+        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
+    return;
+  uint8_t cmd[4] = {BLE_CMD_SET_ASSIST_PUSH, assist_push_enabled ? 1 : 0,
+                    assist_strength, assist_decay};
   esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
                            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
                            sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
@@ -909,6 +929,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     link->ready = true;
     // Receiver resets smart reverse to off on connect until we send ours.
     link_send_smart_reverse(link);
+    link_send_assist_push(link);
 
     reg_work_t work = {.link_idx = (uint8_t)(link - links),
                        .attr_idx = SPP_IDX_SPP_DATA_NTY_VAL};
@@ -1042,6 +1063,9 @@ void spp_client_demo_init(void) {
     if (vesc_config_load(&cfg) == ESP_OK) {
       dual_connection_enabled = cfg.dual_connection;
       smart_reverse_enabled = cfg.smart_reverse;
+      assist_push_enabled = cfg.assist_push;
+      assist_strength = cfg.assist_strength;
+      assist_decay = cfg.assist_decay;
     }
     ESP_LOGI(GATTC_TAG, "Dual connection %s",
              dual_connection_enabled ? "enabled" : "disabled");
@@ -1325,6 +1349,24 @@ void ble_set_smart_reverse(bool enabled) {
   ESP_LOGI(GATTC_TAG, "Smart reverse %s", enabled ? "enabled" : "disabled");
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
     link_send_smart_reverse(&links[i]);
+  }
+}
+
+void ble_set_assist_push(bool enabled) {
+  assist_push_enabled = enabled;
+  ESP_LOGI(GATTC_TAG, "Assistive push %s", enabled ? "enabled" : "disabled");
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    link_send_assist_push(&links[i]);
+  }
+}
+
+void ble_set_assist_params(uint8_t strength_pct, uint8_t decay_rpm_s) {
+  assist_strength = strength_pct;
+  assist_decay = decay_rpm_s;
+  ESP_LOGI(GATTC_TAG, "Assist params: strength %d%%, decay %d rpm/s",
+           strength_pct, decay_rpm_s);
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    link_send_assist_push(&links[i]);
   }
 }
 

@@ -13,6 +13,17 @@
 #define NVS_KEY_BATTERY_CELLS "batt_cells"
 #define NVS_KEY_BATTERY_CELL_TYPE "batt_celltyp"
 #define NVS_KEY_SMART_REVERSE "smart_rev"
+#define NVS_KEY_ASSIST_PUSH "assist_push"
+#define NVS_KEY_ASSIST_STRENGTH "assist_str"
+#define NVS_KEY_ASSIST_DECAY "assist_dec"
+
+// Assistive push tuning, clamped again by the receiver that runs it.
+#define ASSIST_STRENGTH_DEFAULT 15 // percent of the VESC current limit
+#define ASSIST_STRENGTH_MIN 5
+#define ASSIST_STRENGTH_MAX 50
+#define ASSIST_DECAY_DEFAULT 30 // motor rpm/s bled off the held speed
+#define ASSIST_DECAY_MIN 10
+#define ASSIST_DECAY_MAX 120
 #ifdef CONFIG_TARGET_LITE
 #define NVS_KEY_INVERT_THROTTLE "inv_throttle"
 #endif
@@ -42,6 +53,9 @@ typedef struct {
   uint8_t battery_cell_type; // Cell chemistry (battery_cell_type_t) picking
                              // which SoC curve the estimate uses
   bool smart_reverse;        // VESC-style smart reverse, run by the receiver
+  bool assist_push;        // Assistive push (endless mode), run by the receiver
+  uint8_t assist_strength; // Assistive push strength, percent of current limit
+  uint8_t assist_decay;    // Assistive push decay, motor rpm/s
 #ifdef CONFIG_TARGET_LITE
   bool invert_throttle; // Whether to invert throttle direction
 #endif

@@ -59,6 +59,10 @@ typedef enum {
                                 // chemistry (payload: [cells 0=unset or 5-20]
                                 // or [cells, cell_type])
   CMD_TOGGLE_SMART_REVERSE = 0x26, // Toggle VESC-style smart reverse
+  CMD_TOGGLE_ASSIST_PUSH = 0x27,   // Toggle assistive push (endless mode)
+  CMD_SET_ASSIST_PARAMS =
+      0x28, // Assist tuning (payload: [strength%, decay rpm/s])
+  CMD_GET_ASSIST_PARAMS = 0x29, // Read assist tuning back
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code
@@ -71,6 +75,7 @@ typedef enum {
   RSP_COREDUMP_CHUNK = 0x87,       // Coredump data chunk
   RSP_CALIBRATION_PROGRESS = 0x88, // Real-time calibration progress update
   RSP_STREAM_DATA = 0x90,          // Real-time streaming data
+  RSP_ASSIST_PARAMS = 0x91,        // Assist tuning: [strength%, decay rpm/s]
 } packet_command_t;
 
 // Response/Error codes

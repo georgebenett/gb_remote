@@ -68,6 +68,15 @@ void ble_set_dual_connection(bool enabled);
  *  init) and send it to every connected receiver, which runs the logic. */
 void ble_set_smart_reverse(bool enabled);
 
+/** Apply the assistive push preference at runtime (also loaded from NVS at BLE
+ *  init) and send it to every connected receiver, which runs the logic. */
+void ble_set_assist_push(bool enabled);
+
+/** Apply the assistive push tuning at runtime and send it to every connected
+ *  receiver. Strength is a percent of the VESC current limit; decay is in
+ *  motor rpm/s. The receiver clamps both again. */
+void ble_set_assist_params(uint8_t strength_pct, uint8_t decay_rpm_s);
+
 /** True while the dual connection preference is active. */
 bool ble_dual_connection_is_enabled(void);
 

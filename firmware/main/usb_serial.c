@@ -56,6 +56,9 @@ static void handle_cmd_set_haptic_intensity(const binary_packet_t *packet);
 static void handle_cmd_invert_throttle(const binary_packet_t *packet);
 static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet);
 static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet);
+static void handle_cmd_toggle_assist_push(const binary_packet_t *packet);
+static void handle_cmd_set_assist_params(const binary_packet_t *packet);
+static void handle_cmd_get_assist_params(const binary_packet_t *packet);
 static void handle_cmd_set_battery_cells(const binary_packet_t *packet);
 static void handle_cmd_start_streaming(const binary_packet_t *packet);
 static void handle_cmd_stop_streaming(const binary_packet_t *packet);
@@ -382,6 +385,15 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_TOGGLE_SMART_REVERSE:
     handle_cmd_toggle_smart_reverse(packet);
     break;
+  case CMD_TOGGLE_ASSIST_PUSH:
+    handle_cmd_toggle_assist_push(packet);
+    break;
+  case CMD_SET_ASSIST_PARAMS:
+    handle_cmd_set_assist_params(packet);
+    break;
+  case CMD_GET_ASSIST_PARAMS:
+    handle_cmd_get_assist_params(packet);
+    break;
   case CMD_SET_BATTERY_CELLS:
     handle_cmd_set_battery_cells(packet);
     break;
@@ -483,6 +495,8 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     flags |= 0x10;
   if (hand_controller_config.smart_reverse)
     flags |= 0x20;
+  if (hand_controller_config.assist_push)
+    flags |= 0x40;
   payload[idx++] = flags;
 
   payload[idx++] = lcd_load_saved_brightness();
@@ -818,6 +832,48 @@ static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet) {
   } else {
     usb_serial_send_ack(CMD_TOGGLE_SMART_REVERSE, ERR_SAVE_FAILED);
   }
+}
+
+static void handle_cmd_toggle_assist_push(const binary_packet_t *packet) {
+  hand_controller_config.assist_push = !hand_controller_config.assist_push;
+  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+    // Takes effect immediately on every connected receiver.
+    ble_set_assist_push(hand_controller_config.assist_push);
+    usb_serial_send_ack(CMD_TOGGLE_ASSIST_PUSH, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_TOGGLE_ASSIST_PUSH, ERR_SAVE_FAILED);
+  }
+}
+
+/* Payload: [strength%, decay rpm/s]. Both are range-checked here and again by
+ * the receiver, which is what actually runs assist. */
+static void handle_cmd_set_assist_params(const binary_packet_t *packet) {
+  if (packet->payload_length < 2) {
+    usb_serial_send_ack(CMD_SET_ASSIST_PARAMS, ERR_INVALID_PAYLOAD);
+    return;
+  }
+  uint8_t strength = packet->payload[0];
+  uint8_t decay = packet->payload[1];
+  if (strength < ASSIST_STRENGTH_MIN || strength > ASSIST_STRENGTH_MAX ||
+      decay < ASSIST_DECAY_MIN || decay > ASSIST_DECAY_MAX) {
+    usb_serial_send_ack(CMD_SET_ASSIST_PARAMS, ERR_OUT_OF_RANGE);
+    return;
+  }
+
+  hand_controller_config.assist_strength = strength;
+  hand_controller_config.assist_decay = decay;
+  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+    ble_set_assist_params(strength, decay); // live on every connected receiver
+    usb_serial_send_ack(CMD_SET_ASSIST_PARAMS, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_SET_ASSIST_PARAMS, ERR_SAVE_FAILED);
+  }
+}
+
+static void handle_cmd_get_assist_params(const binary_packet_t *packet) {
+  uint8_t payload[2] = {hand_controller_config.assist_strength,
+                        hand_controller_config.assist_decay};
+  usb_serial_send_response(RSP_ASSIST_PARAMS, payload, sizeof(payload));
 }
 
 static void handle_cmd_start_streaming(const binary_packet_t *packet) {

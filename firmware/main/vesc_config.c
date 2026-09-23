@@ -24,6 +24,9 @@ static const vesc_config_t default_config = {
     .battery_cells = 0,     // Unset: show pack voltage until user sets S count
     .battery_cell_type = 0, // High-drain li-ion (P42A/30Q/40T class)
     .smart_reverse = false,
+    .assist_push = false,
+    .assist_strength = ASSIST_STRENGTH_DEFAULT,
+    .assist_decay = ASSIST_DECAY_DEFAULT,
 #ifdef CONFIG_TARGET_LITE
     .invert_throttle = false // Throttle inversion disabled by default
 #endif
@@ -56,6 +59,9 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   config->battery_cells = 0;
   config->battery_cell_type = 0;
   config->smart_reverse = false;
+  config->assist_push = false;
+  config->assist_strength = ASSIST_STRENGTH_DEFAULT;
+  config->assist_decay = ASSIST_DECAY_DEFAULT;
 #ifdef CONFIG_TARGET_LITE
   config->invert_throttle = false;
 #endif
@@ -94,6 +100,26 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   err = nvs_get_u8(nvs_handle, NVS_KEY_SMART_REVERSE, &smart_reverse);
   if (err == ESP_OK) {
     config->smart_reverse = (bool)smart_reverse;
+  }
+
+  uint8_t assist_push;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_ASSIST_PUSH, &assist_push);
+  if (err == ESP_OK) {
+    config->assist_push = (bool)assist_push;
+  }
+
+  uint8_t assist_strength;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_ASSIST_STRENGTH, &assist_strength);
+  if (err == ESP_OK && assist_strength >= ASSIST_STRENGTH_MIN &&
+      assist_strength <= ASSIST_STRENGTH_MAX) {
+    config->assist_strength = assist_strength;
+  }
+
+  uint8_t assist_decay;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_ASSIST_DECAY, &assist_decay);
+  if (err == ESP_OK && assist_decay >= ASSIST_DECAY_MIN &&
+      assist_decay <= ASSIST_DECAY_MAX) {
+    config->assist_decay = assist_decay;
   }
 
 #ifdef CONFIG_TARGET_LITE
@@ -138,6 +164,20 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
 
   err = nvs_set_u8(nvs_handle, NVS_KEY_SMART_REVERSE,
                    (uint8_t)config->smart_reverse);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err =
+      nvs_set_u8(nvs_handle, NVS_KEY_ASSIST_PUSH, (uint8_t)config->assist_push);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err =
+      nvs_set_u8(nvs_handle, NVS_KEY_ASSIST_STRENGTH, config->assist_strength);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_ASSIST_DECAY, config->assist_decay);
   if (err != ESP_OK)
     goto cleanup;
 
