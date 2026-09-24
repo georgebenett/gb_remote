@@ -62,7 +62,11 @@ typedef enum {
   CMD_TOGGLE_ASSIST_PUSH = 0x27,   // Toggle assistive push (endless mode)
   CMD_SET_ASSIST_PARAMS =
       0x28, // Assist tuning (payload: [strength%, decay rpm/s])
-  CMD_GET_ASSIST_PARAMS = 0x29, // Read assist tuning back
+  CMD_GET_ASSIST_PARAMS = 0x29,  // Read assist tuning back
+  CMD_TOGGLE_NO_REVERSE = 0x2A,  // Toggle reverse lockout (brake only)
+  CMD_SET_THROTTLE_CURVE = 0x2B, // Curve (payload: [mode, acc, brake], the two
+                                 // curves signed tenths)
+  CMD_GET_THROTTLE_CURVE = 0x2C, // Read the curve back
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code
@@ -76,6 +80,7 @@ typedef enum {
   RSP_CALIBRATION_PROGRESS = 0x88, // Real-time calibration progress update
   RSP_STREAM_DATA = 0x90,          // Real-time streaming data
   RSP_ASSIST_PARAMS = 0x91,        // Assist tuning: [strength%, decay rpm/s]
+  RSP_THROTTLE_CURVE = 0x92,       // Curve: [mode, acc, brake]
 } packet_command_t;
 
 // Response/Error codes

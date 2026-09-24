@@ -10,13 +10,16 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "target_config.h"
+#include "throttle_math.h"
 #include <stdint.h>
 
 // Timing constants
-#define ADC_SAMPLE_MS 2               // Delay between ADC samples for settling
+#define ADC_SAMPLE_MS 1               // Delay between ADC samples for settling
 #define CALIBRATION_STEP_DELAY_MS 100 // Delay between calibration steps
 #define CALIBRATE_THROTTLE 0
-#define ADC_SAMPLING_TICKS 15
+/* One fresh sample per BLE connection event: match ADC_SEND_INTERVAL_MS in
+ * ble.h, and keep the sampling burst well inside it. */
+#define ADC_SAMPLE_PERIOD_MS 20
 // Initial values that will be updated by calibration
 #define ADC_INITIAL_MAX_VALUE 4095 // 12-bit ADC max
 #define ADC_INITIAL_MIN_VALUE 0
@@ -64,10 +67,11 @@ bool throttle_is_calibrated(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 bool throttle_should_use_neutral(void);
 
-/** Apply the BLE trim offset to a 0-255 stick reading: shifts neutral by
- *  `trim` while keeping both halves proportional. Snaps the deadband around
- *  neutral to exact neutral. */
-uint8_t throttle_apply_trim(uint8_t value, int8_t trim);
+/** Curve then trim, for everything that leaves the remote. */
+uint8_t throttle_shape_output(uint8_t value, int8_t trim);
+
+/** Throttle curve, owned by the config tool and reloaded at adc_init(). */
+void throttle_set_curve(int8_t acc, int8_t brake, uint8_t mode);
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 int32_t brake_read_value(void);

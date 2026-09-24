@@ -3,6 +3,7 @@
 
 #include "esp_err.h"
 #include "sdkconfig.h"
+#include "throttle_math.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -16,6 +17,10 @@
 #define NVS_KEY_ASSIST_PUSH "assist_push"
 #define NVS_KEY_ASSIST_STRENGTH "assist_str"
 #define NVS_KEY_ASSIST_DECAY "assist_dec"
+#define NVS_KEY_NO_REVERSE "no_reverse"
+#define NVS_KEY_CURVE_ACC "curve_acc"
+#define NVS_KEY_CURVE_BRAKE "curve_brk"
+#define NVS_KEY_CURVE_MODE "curve_mode"
 
 // Assistive push tuning, clamped again by the receiver that runs it.
 #define ASSIST_STRENGTH_DEFAULT 15 // percent of the VESC current limit
@@ -27,10 +32,6 @@
 #ifdef CONFIG_TARGET_LITE
 #define NVS_KEY_INVERT_THROTTLE "inv_throttle"
 #endif
-
-#define VESC_NEUTRAL_VALUE 128
-#define THROTTLE_NEUTRAL_DEADBAND                                              \
-  15 // ADC units around neutral (0-255 scale) that snap to exact neutral
 
 // Motor configuration from VESC (received via BLE, NOT persisted)
 typedef struct {
@@ -53,6 +54,10 @@ typedef struct {
   uint8_t battery_cell_type; // Cell chemistry (battery_cell_type_t) picking
                              // which SoC curve the estimate uses
   bool smart_reverse;        // VESC-style smart reverse, run by the receiver
+  bool no_reverse;           // Below neutral only brakes, run by the receiver
+  int8_t throttle_curve_acc; // Throttle curve, tenths (see throttle_math.h)
+  int8_t throttle_curve_brake; // Brake curve, tenths
+  uint8_t throttle_curve_mode; // throttle_curve_mode_t
   bool assist_push;        // Assistive push (endless mode), run by the receiver
   uint8_t assist_strength; // Assistive push strength, percent of current limit
   uint8_t assist_decay;    // Assistive push decay, motor rpm/s

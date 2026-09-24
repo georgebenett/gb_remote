@@ -22,7 +22,15 @@ static adc_oneshot_unit_init_cfg_t init_config1;
 static adc_oneshot_chan_cfg_t config;
 static QueueHandle_t adc_display_queue = NULL;
 static SemaphoreHandle_t adc_mutex = NULL;
-static uint32_t latest_adc_value = 0;
+/* Neutral, not 0: 0 is full brake, and the radio sends this if the task dies.
+ */
+static uint32_t latest_adc_value = VESC_NEUTRAL_VALUE;
+
+/* Owned by the config tool, loaded at adc_init(). Zero is linear, which is
+ * also what a failed load leaves. */
+static int8_t curve_acc = 0;
+static int8_t curve_brake = 0;
+static uint8_t curve_mode = THROTTLE_CURVE_EXPO;
 static bool adc_initialized = false;
 static int error_count = 0;
 static const int MAX_ERRORS = 5;
@@ -95,6 +103,14 @@ esp_err_t adc_init(void) {
   }
 #endif
 
+  {
+    vesc_config_t cfg;
+    if (vesc_config_load(&cfg) == ESP_OK) {
+      throttle_set_curve(cfg.throttle_curve_acc, cfg.throttle_curve_brake,
+                         cfg.throttle_curve_mode);
+    }
+  }
+
   adc_initialized = true;
   return ESP_OK;
 }
@@ -162,13 +178,19 @@ int32_t brake_read_value(void) { return adc_read_avg(BRAKE_PIN, "brake"); }
 static void adc_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
-  uint32_t last_value = 0;
+  uint32_t last_value = VESC_NEUTRAL_VALUE;
   const uint32_t CHANGE_THRESHOLD = 2;
+  TickType_t last_wake = xTaskGetTickCount();
 
   while (1) {
 
-    int32_t adc_raw;
-    adc_raw = throttle_read_value();
+    /* Both channels read once per pass and mapped from the raws here. Calling
+     * get_throttle_brake_ble_value() would read them again, tripling the ADC
+     * cost of the loop. */
+    int32_t adc_raw = throttle_read_value();
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    int32_t brake_raw = brake_read_value();
+#endif
 
 #ifdef CONFIG_TARGET_LITE
     // On ADC error, use neutral value (not 0 which would be throttle)
@@ -176,7 +198,11 @@ static void adc_task(void *pvParameters) {
         (adc_raw >= 0) ? (uint32_t)adc_raw : VESC_NEUTRAL_VALUE;
 #endif
 
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    if (adc_raw < 0 || brake_raw < 0) {
+#else
     if (adc_raw < 0) {
+#endif
       error_count++;
       if (error_count >= MAX_ERRORS) {
         ESP_LOGE(TAG, "Too many ADC errors, attempting re-initialization");
@@ -187,20 +213,27 @@ static void adc_task(void *pvParameters) {
         }
       }
       latest_adc_value = VESC_NEUTRAL_VALUE;
+      esp_task_wdt_reset(); // skips the feed at the bottom of the loop
       vTaskDelay(pdMS_TO_TICKS(CALIBRATION_STEP_DELAY_MS));
+      last_wake = xTaskGetTickCount(); // missed its slot, re-baseline
       continue;
     }
     error_count = 0; // Reset error count on successful read
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-    // Calculate combined throttle/brake BLE value (dual_throttle mode)
-    uint8_t mapped_value = get_throttle_brake_ble_value();
+    uint8_t mapped_value =
+        throttle_should_use_neutral()
+            ? VESC_NEUTRAL_VALUE
+            : throttle_map_ble_value(adc_raw, brake_raw, adc_input_min_value,
+                                     adc_input_max_value, brake_input_min_value,
+                                     brake_input_max_value);
 #elif defined(CONFIG_TARGET_LITE)
     // Single throttle mapping (lite mode)
     uint8_t mapped_value = map_throttle_value(adc_value);
 #endif
     // Update latest_adc_value so modules like snake can read current input
     latest_adc_value = mapped_value;
+    ble_notify_throttle_sample(); // one sample in, one packet out
 
     if (!ble_is_connected()) {
       if (abs((int32_t)mapped_value - (int32_t)last_value) > CHANGE_THRESHOLD) {
@@ -216,7 +249,15 @@ static void adc_task(void *pvParameters) {
     }
 
     esp_task_wdt_reset();
-    vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLING_TICKS));
+    /* Fixed cadence so a variable sampling burst does not stack onto the
+     * period. On overrun take the next slot fresh: catching up would burst
+     * back-to-back passes at priority 10, above everything else. */
+    TickType_t period = pdMS_TO_TICKS(ADC_SAMPLE_PERIOD_MS);
+    if ((xTaskGetTickCount() - last_wake) >= period) {
+      last_wake = xTaskGetTickCount();
+    } else {
+      vTaskDelayUntil(&last_wake, period);
+    }
   }
 }
 
@@ -590,36 +631,20 @@ bool throttle_should_use_neutral(void) {
   return calibration_in_progress || !calibration_done;
 }
 
-/** Shift the neutral point by `trim` while keeping both halves of the stick
- *  range proportional, so the full 0-255 span survives the offset. Readings
- *  inside THROTTLE_NEUTRAL_DEADBAND snap to exact neutral; outside it each half
- *  ramps from the deadband edge (not neutral) to the rail, so output rises
- *  from centre with no step at the boundary. Used both for what BLE actually
- *  sends and for the value mirrored to the USB stream. */
-uint8_t throttle_apply_trim(uint8_t value, int8_t trim) {
-  const int32_t lo_edge = VESC_NEUTRAL_VALUE - THROTTLE_NEUTRAL_DEADBAND;
-  const int32_t hi_edge = VESC_NEUTRAL_VALUE + THROTTLE_NEUTRAL_DEADBAND;
+/* Curve then trim, on a value the caller has already oriented. LITE inverts
+ * before calling, so the accel curve always shapes the rider's accelerate
+ * direction rather than whichever half of the ADC range that happens to be. */
+uint8_t throttle_shape_output(uint8_t value, int8_t trim) {
+  return throttle_apply_trim(
+      throttle_apply_curve(value, curve_acc, curve_brake, curve_mode), trim);
+}
 
-  int32_t new_center = VESC_NEUTRAL_VALUE + trim;
-  if (new_center < 0)
-    new_center = 0;
-  if (new_center > 255)
-    new_center = 255;
-
-  int32_t scaled;
-  if (value >= lo_edge && value <= hi_edge) {
-    scaled = new_center;
-  } else if (value < lo_edge) {
-    scaled =
-        (int32_t)((float)value * (float)new_center / (float)lo_edge + 0.5f);
-  } else {
-    scaled = new_center +
-             (int32_t)((float)(value - hi_edge) * (float)(255 - new_center) /
-                           (float)(255 - hi_edge) +
-                       0.5f);
-  }
-
-  return (uint8_t)(scaled < 0 ? 0 : (scaled > 255 ? 255 : scaled));
+void throttle_set_curve(int8_t acc, int8_t brake, uint8_t mode) {
+  curve_acc = acc;
+  curve_brake = brake;
+  curve_mode = mode;
+  ESP_LOGI(TAG, "Throttle curve: mode %d, acc %d, brake %d", (int)mode,
+           (int)acc, (int)brake);
 }
 
 #ifdef CONFIG_TARGET_LITE
@@ -642,8 +667,10 @@ static uint8_t map_throttle_value(uint32_t adc_value) {
 #endif
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
+/* Reads both channels. Callers that already have the raws should use
+ * throttle_map_ble_value() instead of paying for the reads twice. */
 uint8_t get_throttle_brake_ble_value(void) {
-  if (!calibration_done || calibration_in_progress) {
+  if (throttle_should_use_neutral()) {
     return VESC_NEUTRAL_VALUE;
   }
 
@@ -651,35 +678,11 @@ uint8_t get_throttle_brake_ble_value(void) {
   int32_t brake_raw = brake_read_value();
 
   if (throttle_raw < 0 || brake_raw < 0) {
-    return VESC_NEUTRAL_VALUE; // Return neutral on error
+    return VESC_NEUTRAL_VALUE;
   }
 
-  if (throttle_raw < adc_input_min_value)
-    throttle_raw = adc_input_min_value;
-  if (throttle_raw > adc_input_max_value)
-    throttle_raw = adc_input_max_value;
-  if (brake_raw < brake_input_min_value)
-    brake_raw = brake_input_min_value;
-  if (brake_raw > brake_input_max_value)
-    brake_raw = brake_input_max_value;
-
-  uint32_t brake_range = brake_input_max_value - brake_input_min_value;
-  uint32_t throttle_range = adc_input_max_value - adc_input_min_value;
-
-  if (brake_range == 0 || throttle_range == 0) {
-    return VESC_NEUTRAL_VALUE; // Avoid division by zero
-  }
-
-  float brake_factor =
-      (float)(brake_raw - brake_input_min_value) / (float)brake_range;
-
-  float throttle_factor =
-      (float)(throttle_raw - adc_input_min_value) / (float)throttle_range;
-  uint8_t throttle_ble_value =
-      VESC_NEUTRAL_VALUE + (uint8_t)(throttle_factor * 127.0f);
-
-  uint8_t ble_value = (uint8_t)(throttle_ble_value * (1.0f - brake_factor));
-
-  return ble_value;
+  return throttle_map_ble_value(throttle_raw, brake_raw, adc_input_min_value,
+                                adc_input_max_value, brake_input_min_value,
+                                brake_input_max_value);
 }
 #endif

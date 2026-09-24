@@ -24,6 +24,10 @@ static const vesc_config_t default_config = {
     .battery_cells = 0,     // Unset: show pack voltage until user sets S count
     .battery_cell_type = 0, // High-drain li-ion (P42A/30Q/40T class)
     .smart_reverse = false,
+    .no_reverse = false,
+    .throttle_curve_acc = 0,
+    .throttle_curve_brake = 0,
+    .throttle_curve_mode = THROTTLE_CURVE_EXPO,
     .assist_push = false,
     .assist_strength = ASSIST_STRENGTH_DEFAULT,
     .assist_decay = ASSIST_DECAY_DEFAULT,
@@ -59,6 +63,10 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   config->battery_cells = 0;
   config->battery_cell_type = 0;
   config->smart_reverse = false;
+  config->no_reverse = false;
+  config->throttle_curve_acc = 0;
+  config->throttle_curve_brake = 0;
+  config->throttle_curve_mode = THROTTLE_CURVE_EXPO;
   config->assist_push = false;
   config->assist_strength = ASSIST_STRENGTH_DEFAULT;
   config->assist_decay = ASSIST_DECAY_DEFAULT;
@@ -100,6 +108,34 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   err = nvs_get_u8(nvs_handle, NVS_KEY_SMART_REVERSE, &smart_reverse);
   if (err == ESP_OK) {
     config->smart_reverse = (bool)smart_reverse;
+  }
+
+  uint8_t no_reverse;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_NO_REVERSE, &no_reverse);
+  if (err == ESP_OK) {
+    config->no_reverse = (bool)no_reverse;
+  }
+
+  /* Out-of-range curve values are dropped, not clamped: a bad read gives the
+   * rider linear, not a shape they never asked for. */
+  int8_t curve_acc;
+  err = nvs_get_i8(nvs_handle, NVS_KEY_CURVE_ACC, &curve_acc);
+  if (err == ESP_OK && curve_acc >= THROTTLE_CURVE_MIN &&
+      curve_acc <= THROTTLE_CURVE_MAX) {
+    config->throttle_curve_acc = curve_acc;
+  }
+
+  int8_t curve_brake;
+  err = nvs_get_i8(nvs_handle, NVS_KEY_CURVE_BRAKE, &curve_brake);
+  if (err == ESP_OK && curve_brake >= THROTTLE_CURVE_MIN &&
+      curve_brake <= THROTTLE_CURVE_MAX) {
+    config->throttle_curve_brake = curve_brake;
+  }
+
+  uint8_t curve_mode;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_CURVE_MODE, &curve_mode);
+  if (err == ESP_OK && curve_mode < THROTTLE_CURVE_MODE_COUNT) {
+    config->throttle_curve_mode = curve_mode;
   }
 
   uint8_t assist_push;
@@ -178,6 +214,23 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
     goto cleanup;
 
   err = nvs_set_u8(nvs_handle, NVS_KEY_ASSIST_DECAY, config->assist_decay);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_NO_REVERSE, (uint8_t)config->no_reverse);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_i8(nvs_handle, NVS_KEY_CURVE_ACC, config->throttle_curve_acc);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err =
+      nvs_set_i8(nvs_handle, NVS_KEY_CURVE_BRAKE, config->throttle_curve_brake);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_CURVE_MODE, config->throttle_curve_mode);
   if (err != ESP_OK)
     goto cleanup;
 

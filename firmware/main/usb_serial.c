@@ -59,6 +59,9 @@ static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet);
 static void handle_cmd_toggle_assist_push(const binary_packet_t *packet);
 static void handle_cmd_set_assist_params(const binary_packet_t *packet);
 static void handle_cmd_get_assist_params(const binary_packet_t *packet);
+static void handle_cmd_toggle_no_reverse(const binary_packet_t *packet);
+static void handle_cmd_set_throttle_curve(const binary_packet_t *packet);
+static void handle_cmd_get_throttle_curve(const binary_packet_t *packet);
 static void handle_cmd_set_battery_cells(const binary_packet_t *packet);
 static void handle_cmd_start_streaming(const binary_packet_t *packet);
 static void handle_cmd_stop_streaming(const binary_packet_t *packet);
@@ -196,7 +199,9 @@ static void usb_serial_task(void *pvParameters) {
     }
 
     int byte = fgetc(stdin);
-    if (byte == EOF || byte == 0xFF) {
+    /* 0xFF is idle only between frames: inside one it is a real payload or CRC
+     * byte, and dropping it desyncs the parser and eats the next packet. */
+    if (byte == EOF || (byte == 0xFF && rx_state == STATE_WAIT_START)) {
       vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
       continue;
     }
@@ -391,6 +396,15 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_SET_ASSIST_PARAMS:
     handle_cmd_set_assist_params(packet);
     break;
+  case CMD_TOGGLE_NO_REVERSE:
+    handle_cmd_toggle_no_reverse(packet);
+    break;
+  case CMD_SET_THROTTLE_CURVE:
+    handle_cmd_set_throttle_curve(packet);
+    break;
+  case CMD_GET_THROTTLE_CURVE:
+    handle_cmd_get_throttle_curve(packet);
+    break;
   case CMD_GET_ASSIST_PARAMS:
     handle_cmd_get_assist_params(packet);
     break;
@@ -497,6 +511,8 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     flags |= 0x20;
   if (hand_controller_config.assist_push)
     flags |= 0x40;
+  if (hand_controller_config.no_reverse)
+    flags |= 0x80;
   payload[idx++] = flags;
 
   payload[idx++] = lcd_load_saved_brightness();
@@ -796,6 +812,9 @@ static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
       !hand_controller_config.invert_throttle;
   esp_err_t err = vesc_config_save(&hand_controller_config);
   ui_force_config_reload();
+  // Reaches the radio immediately: cached there, it would keep sending the old
+  // orientation until reboot and smart reverse would arm off the wrong end.
+  ble_set_invert_throttle(hand_controller_config.invert_throttle);
 
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_OK);
@@ -832,6 +851,51 @@ static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet) {
   } else {
     usb_serial_send_ack(CMD_TOGGLE_SMART_REVERSE, ERR_SAVE_FAILED);
   }
+}
+
+/* Reverse lockout: the receiver runs it, we own and forward the setting. */
+static void handle_cmd_toggle_no_reverse(const binary_packet_t *packet) {
+  hand_controller_config.no_reverse = !hand_controller_config.no_reverse;
+  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+    ble_set_no_reverse(hand_controller_config.no_reverse);
+    usb_serial_send_ack(CMD_TOGGLE_NO_REVERSE, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_TOGGLE_NO_REVERSE, ERR_SAVE_FAILED);
+  }
+}
+
+/* Payload: [mode, acc, brake]. The curves are signed tenths on the wire. */
+static void handle_cmd_set_throttle_curve(const binary_packet_t *packet) {
+  if (packet->payload_length < 3) {
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_INVALID_PAYLOAD);
+    return;
+  }
+  uint8_t mode = packet->payload[0];
+  int8_t acc = (int8_t)packet->payload[1];
+  int8_t brake = (int8_t)packet->payload[2];
+  if (mode >= THROTTLE_CURVE_MODE_COUNT || acc < THROTTLE_CURVE_MIN ||
+      acc > THROTTLE_CURVE_MAX || brake < THROTTLE_CURVE_MIN ||
+      brake > THROTTLE_CURVE_MAX) {
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_OUT_OF_RANGE);
+    return;
+  }
+
+  hand_controller_config.throttle_curve_mode = mode;
+  hand_controller_config.throttle_curve_acc = acc;
+  hand_controller_config.throttle_curve_brake = brake;
+  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+    throttle_set_curve(acc, brake, mode); // live on the next sample
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_OK);
+  } else {
+    usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_SAVE_FAILED);
+  }
+}
+
+static void handle_cmd_get_throttle_curve(const binary_packet_t *packet) {
+  uint8_t payload[3] = {hand_controller_config.throttle_curve_mode,
+                        (uint8_t)hand_controller_config.throttle_curve_acc,
+                        (uint8_t)hand_controller_config.throttle_curve_brake};
+  usb_serial_send_response(RSP_THROTTLE_CURVE, payload, sizeof(payload));
 }
 
 static void handle_cmd_toggle_assist_push(const binary_packet_t *packet) {
@@ -969,7 +1033,7 @@ void usb_serial_send_stream_data(void) {
   // Apply trim offset with range compensation to match what's actually sent via
   // BLE
   throttle_brake_ble =
-      throttle_apply_trim(throttle_brake_ble, ble_get_trim_offset());
+      throttle_shape_output(throttle_brake_ble, ble_get_trim_offset());
 #elif defined(CONFIG_TARGET_LITE)
   bool throttle_inverted = false;
   uint32_t adc_value = adc_get_latest_value();
@@ -991,7 +1055,8 @@ void usb_serial_send_stream_data(void) {
   // offset direction to compensate
   int8_t effective_trim =
       throttle_inverted ? -ble_get_trim_offset() : ble_get_trim_offset();
-  throttle_brake_ble = throttle_apply_trim(throttle_brake_ble, effective_trim);
+  throttle_brake_ble =
+      throttle_shape_output(throttle_brake_ble, effective_trim);
 #endif
 
   payload[idx++] = throttle_brake_ble;

@@ -56,6 +56,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
                                         esp_gatt_if_t gattc_if,
                                         esp_ble_gattc_cb_param_t *param);
 static void adc_send_task(void *pvParameters);
+static TaskHandle_t adc_send_task_handle = NULL;
 static void log_rssi_task(void *pvParameters);
 static int link_count_connected(void);
 static int desired_link_count(void);
@@ -154,6 +155,7 @@ static float bms_nominal_capacity = 0.0f;
 #define BLE_CMD_SHUTDOWN 0x02
 #define BLE_CMD_SET_SMART_REVERSE 0x03 // [0x03, enabled]
 #define BLE_CMD_SET_ASSIST_PUSH 0x04   // [0x04, enabled, strength%, decay]
+#define BLE_CMD_SET_NO_REVERSE 0x05    // [0x05, enabled]
 
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
@@ -175,6 +177,26 @@ static bool smart_reverse_enabled = false;
 static bool assist_push_enabled = false;
 static uint8_t assist_strength = ASSIST_STRENGTH_DEFAULT;
 static uint8_t assist_decay = ASSIST_DECAY_DEFAULT;
+
+/** Reverse lockout (USB config tool). Sent to the receiver on connect. */
+static bool no_reverse_enabled = false;
+
+/** Throttle inversion (lite, USB config tool). Module scope, not cached in the
+ * send task: a toggle has to reach the radio without a reboot, or the tool and
+ * the board disagree about which way the lever points. */
+static bool invert_throttle_enabled = false;
+
+static void link_send_no_reverse(receiver_link_t *link) {
+  if (!link->ready ||
+      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
+        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
+    return;
+  uint8_t cmd[2] = {BLE_CMD_SET_NO_REVERSE, no_reverse_enabled ? 1 : 0};
+  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
+                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
+                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
+                           ESP_GATT_AUTH_REQ_NONE);
+}
 
 static void link_send_smart_reverse(receiver_link_t *link) {
   if (!link->ready ||
@@ -929,6 +951,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     link->ready = true;
     // Receiver resets smart reverse to off on connect until we send ours.
     link_send_smart_reverse(link);
+    link_send_no_reverse(link);
     link_send_assist_push(link);
 
     reg_work_t work = {.link_idx = (uint8_t)(link - links),
@@ -1063,6 +1086,10 @@ void spp_client_demo_init(void) {
     if (vesc_config_load(&cfg) == ESP_OK) {
       dual_connection_enabled = cfg.dual_connection;
       smart_reverse_enabled = cfg.smart_reverse;
+      no_reverse_enabled = cfg.no_reverse;
+#ifdef CONFIG_TARGET_LITE
+      invert_throttle_enabled = cfg.invert_throttle;
+#endif
       assist_push_enabled = cfg.assist_push;
       assist_strength = cfg.assist_strength;
       assist_decay = cfg.assist_decay;
@@ -1101,7 +1128,8 @@ void spp_client_demo_init(void) {
   }
 
   ble_client_appRegister();
-  xTaskCreate(adc_send_task, "adc_send_task", 4096, NULL, 8, NULL);
+  xTaskCreate(adc_send_task, "adc_send_task", 4096, NULL, 8,
+              &adc_send_task_handle);
   xTaskCreate(log_rssi_task, "log_rssi_task", 2048, NULL, 4, NULL);
 }
 
@@ -1109,18 +1137,6 @@ static void adc_send_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint8_t data_buffer[3]; // throttle (2) + aux state (1)
-
-#ifdef CONFIG_TARGET_LITE
-  // Load once — invert_throttle only changes via USB config tool, never
-  // mid-ride.
-  bool invert_throttle = false;
-  {
-    vesc_config_t cfg;
-    if (vesc_config_load(&cfg) == ESP_OK) {
-      invert_throttle = cfg.invert_throttle;
-    }
-  }
-#endif
 
   while (1) {
     esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
@@ -1132,6 +1148,15 @@ static void adc_send_task(void *pvParameters) {
     }
 
     if (ble_is_connected() && link_any_ready()) {
+      /* Paced by the sampler: our own tick would drift against it and re-send
+       * unchanged values. A timeout means it stalled - send nothing, so a
+       * frozen reading is never held on the motors. */
+      if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ADC_SEND_TIMEOUT_MS)) == 0) {
+        ESP_LOGW(GATTC_TAG, "No throttle sample in %d ms, not sending",
+                 ADC_SEND_TIMEOUT_MS);
+        continue;
+      }
+
       uint32_t adc_value;
       bool throttle_inverted = false;
 
@@ -1149,7 +1174,7 @@ static void adc_send_task(void *pvParameters) {
           adc_value = adc_get_latest_value();
         }
 
-        if (invert_throttle) {
+        if (invert_throttle_enabled) {
           adc_value = 255 - adc_value;
           throttle_inverted = true;
         }
@@ -1159,11 +1184,11 @@ static void adc_send_task(void *pvParameters) {
       int8_t effective_trim =
           throttle_inverted ? -ble_trim_offset : ble_trim_offset;
       uint8_t final_ble_value =
-          throttle_apply_trim((uint8_t)adc_value, effective_trim);
+          throttle_shape_output((uint8_t)adc_value, effective_trim);
       // Trimmed neutral: what the same mapping yields for a centered stick.
       // Sent to a link during its post-connect neutral hold period.
       uint8_t neutral_ble_value =
-          throttle_apply_trim(VESC_NEUTRAL_VALUE, effective_trim);
+          throttle_shape_output(VESC_NEUTRAL_VALUE, effective_trim);
 
       uint32_t now_ms = esp_timer_get_time() / 1000;
       for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
@@ -1193,7 +1218,6 @@ static void adc_send_task(void *pvParameters) {
       }
 
       esp_task_wdt_reset();
-      vTaskDelay(pdMS_TO_TICKS(ADC_SEND_INTERVAL_MS));
     } else {
       vTaskDelay(
           pdMS_TO_TICKS(50)); // Yield when not connected, avoid tight loop
@@ -1344,11 +1368,31 @@ void ble_set_dual_connection(bool enabled) {
   pairing_adv_apply();
 }
 
+void ble_notify_throttle_sample(void) {
+  if (adc_send_task_handle) {
+    xTaskNotifyGive(adc_send_task_handle);
+  }
+}
+
 void ble_set_smart_reverse(bool enabled) {
   smart_reverse_enabled = enabled;
   ESP_LOGI(GATTC_TAG, "Smart reverse %s", enabled ? "enabled" : "disabled");
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
     link_send_smart_reverse(&links[i]);
+  }
+}
+
+void ble_set_invert_throttle(bool enabled) {
+  invert_throttle_enabled = enabled;
+  ESP_LOGI(GATTC_TAG, "Throttle inversion %s",
+           enabled ? "enabled" : "disabled");
+}
+
+void ble_set_no_reverse(bool enabled) {
+  no_reverse_enabled = enabled;
+  ESP_LOGI(GATTC_TAG, "Reverse %s", enabled ? "disabled" : "enabled");
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    link_send_no_reverse(&links[i]);
   }
 }
 

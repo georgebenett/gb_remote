@@ -13,7 +13,12 @@
 #define BLE_TRIM_NVS_NAMESPACE "ble_cfg"
 #define BLE_TRIM_NVS_KEY_OFFSET "trim_offset"
 // Task timing constants
-#define ADC_SEND_INTERVAL_MS 20    // Throttle data send rate (50 Hz)
+/* BLE connection interval: the fastest a throttle packet can leave. Sends are
+ * driven by the ADC task; ADC_SAMPLE_PERIOD_MS (throttle.h) matches this. */
+#define ADC_SEND_INTERVAL_MS 20 // 50 Hz
+/* Over ADC_SAMPLE_PERIOD_MS so jitter is not a stall, under the receiver's
+ * 200 ms THROTTLE_TIMEOUT_MS so a real stall reaches its failsafe. */
+#define ADC_SEND_TIMEOUT_MS 100
 #define RSSI_READ_INTERVAL_MS 1000 // RSSI polling rate
 #define NEUTRAL_HOLD_MS 1000       // Hold neutral after connection
 
@@ -66,7 +71,17 @@ void ble_set_dual_connection(bool enabled);
 
 /** Apply the smart reverse preference at runtime (also loaded from NVS at BLE
  *  init) and send it to every connected receiver, which runs the logic. */
+/** Wakes the sender on a new sample, so it transmits once per sample. */
+void ble_notify_throttle_sample(void);
+
 void ble_set_smart_reverse(bool enabled);
+
+/** Reverse lockout, sent to every receiver: they brake instead of reversing. */
+void ble_set_no_reverse(bool enabled);
+
+/** Throttle inversion (lite). Must be applied live: the USB stream reloads it
+ *  per packet, so a cached copy here would disagree with the config tool. */
+void ble_set_invert_throttle(bool enabled);
 
 /** Apply the assistive push preference at runtime (also loaded from NVS at BLE
  *  init) and send it to every connected receiver, which runs the logic. */

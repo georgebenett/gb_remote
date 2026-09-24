@@ -35,6 +35,7 @@ idf_component_register(
         "power.c"
         "snake.c"
         "throttle.c"
+        "throttle_math.c"
         "ui_updater.c"
         "usb_serial.c"
         "vesc_config.c"
