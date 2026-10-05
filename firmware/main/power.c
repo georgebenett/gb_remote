@@ -98,7 +98,7 @@ static void set_arc_value(void *obj, int32_t v) {
   (void)obj;
   ui_set_shutdown_progress(v);
 
-  if (v >= 100) {
+  if (v >= SHUTDOWN_PROGRESS_MAX) {
     /* Give haptic feedback when the arc completes. The old shutdown song would
      * immediately stop any running haptic pattern, so completion feedback could
      * be lost. We now keep a short vibration here and defer the final shutdown
@@ -197,7 +197,7 @@ static void power_button_callback(button_event_t event, void *user_data) {
         lv_anim_set_var(&arc_anim, ui_get_remote_arc());
         lv_anim_set_exec_cb(&arc_anim, set_arc_value);
         lv_anim_set_duration(&arc_anim, SHUTDOWN_ANIMATION_TIME);
-        lv_anim_set_values(&arc_anim, 0, 100);
+        lv_anim_set_values(&arc_anim, 0, SHUTDOWN_PROGRESS_MAX);
         ui_ease_curve(&arc_anim);
         lv_anim_start(&arc_anim);
         arc_animation_active = true;

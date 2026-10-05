@@ -303,6 +303,25 @@ static bool is_skate_arc(lv_obj_t *obj) {
   return false;
 }
 
+/* Arcs run in tenths of a percent: whole percents are 2.6 degree jumps, which
+ * the slow tail of an ease shows as steps. Tenths reach LVGL's 1 degree
+ * limit. Callers still speak percent. */
+#define GAUGE_FINE 10
+
+static void arc_set_fine(lv_obj_t *arc, int32_t fine) {
+  if (lv_arc_get_max_value(arc) != 100 * GAUGE_FINE) {
+    lv_arc_set_range(arc, 0, 100 * GAUGE_FINE);
+  }
+  lv_arc_set_value(arc, fine);
+}
+
+static void arc_show_fine(lv_obj_t *arc, int32_t fine) {
+  arc_set_fine(arc, fine);
+  if (arc != objects.charging_arc) { // charging keeps its orange
+    set_arc_indicator_color_for_pct(arc, fine / GAUGE_FINE);
+  }
+}
+
 static void gauge_show(lv_obj_t *gauge, int32_t v) {
   if (is_signal_icon(gauge)) {
     if (lv_image_get_src(gauge) != signal_imgs[v]) {
@@ -310,13 +329,12 @@ static void gauge_show(lv_obj_t *gauge, int32_t v) {
     }
     return;
   }
-  lv_arc_set_value(gauge, (int16_t)v);
-  if (gauge != objects.charging_arc) { // charging keeps its orange
-    set_arc_indicator_color_for_pct(gauge, v);
-  }
+  arc_show_fine(gauge, v * GAUGE_FINE);
 }
 
-static void gauge_settle_cb(lv_anim_t *a, int32_t v) { gauge_show(a->var, v); }
+static void gauge_settle_cb(lv_anim_t *a, int32_t fine) {
+  arc_show_fine(a->var, fine);
+}
 
 static void gauge_settle_done(lv_anim_t *a) {
   gauge_show(a->var, (intptr_t)lv_obj_get_user_data(a->var));
@@ -336,7 +354,7 @@ static void gauge_anim(lv_obj_t *gauge, uint32_t delay_ms) {
   lv_anim_set_duration(&a, GAUGE_EASE_MS);
   ui_ease_curve(&a);
   lv_anim_set_custom_exec_cb(&a, gauge_settle_cb);
-  lv_anim_set_values(&a, 0, (intptr_t)lv_obj_get_user_data(gauge));
+  lv_anim_set_values(&a, 0, (intptr_t)lv_obj_get_user_data(gauge) * GAUGE_FINE);
   lv_anim_set_completed_cb(&a, gauge_settle_done);
   lv_anim_start(&a);
 }
@@ -347,9 +365,10 @@ static void gauge_set(lv_obj_t *gauge, int value) {
   lv_obj_set_user_data(gauge, (void *)(intptr_t)value);
   lv_anim_t *a = lv_anim_get(gauge, NULL);
   if (a != NULL) {
-    if (a->custom_exec_cb == gauge_settle_cb && a->end_value != value) {
+    if (a->custom_exec_cb == gauge_settle_cb &&
+        a->end_value != value * GAUGE_FINE) {
       a->start_value = lv_arc_get_value(gauge);
-      a->end_value = value;
+      a->end_value = value * GAUGE_FINE;
       a->act_time = LV_MIN(a->act_time, 0);
     }
     return; // the shutdown fill owns the remote arc meanwhile
@@ -438,9 +457,7 @@ static void home_gauge_sweep(void) {
   }
   for (int i = 0; i < 1 + home_ui.receiver_count; i++) {
     if (arcs[i] != NULL) {
-      lv_obj_set_user_data(arcs[i],
-                           (void *)(intptr_t)lv_arc_get_value(arcs[i]));
-      gauge_anim(arcs[i], 0);
+      gauge_anim(arcs[i], 0); // to the target gauge_set left in user_data
     }
   }
 }
@@ -467,15 +484,19 @@ lv_obj_t *ui_get_remote_arc(void) { return home_ui.remote_arc; }
 static lv_color_t shutdown_track; // the arc's own background, put back after
 #define SHUTDOWN_GREEN lv_color_hex(0x04de71)
 
-void ui_set_shutdown_progress(int32_t pct) {
+_Static_assert(SHUTDOWN_PROGRESS_MAX == 100 * GAUGE_FINE,
+               "the shutdown fill writes arc units directly");
+
+void ui_set_shutdown_progress(int32_t progress) {
   if (home_ui.remote_arc == NULL) {
     return;
   }
-  lv_arc_set_value(home_ui.remote_arc, pct);
+  arc_set_fine(home_ui.remote_arc, progress);
   /* The green drains to grey as the red fill takes over. */
   lv_obj_set_style_arc_color(
       home_ui.remote_arc,
-      lv_color_mix(shutdown_track, SHUTDOWN_GREEN, (uint8_t)(pct * 255 / 100)),
+      lv_color_mix(shutdown_track, SHUTDOWN_GREEN,
+                   (uint8_t)(progress * 255 / SHUTDOWN_PROGRESS_MAX)),
       LV_PART_MAIN);
 }
 

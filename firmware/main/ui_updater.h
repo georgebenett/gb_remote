@@ -79,7 +79,10 @@ void ui_set_shutdown_pending_icon(bool pending);
 /** Home remote arc as a shutdown progress bar: red fill, "shut off" text.
  *  Off puts the battery reading back. Caller holds the LVGL mutex. */
 void ui_show_shutdown_progress(bool on);
-void ui_set_shutdown_progress(int32_t pct);
+/* Shutdown fill in tenths of a percent, the arc's full resolution, so the
+ * eased fill's slow tail glides instead of stepping. */
+#define SHUTDOWN_PROGRESS_MAX 1000
+void ui_set_shutdown_progress(int32_t progress); // 0..SHUTDOWN_PROGRESS_MAX
 lv_obj_t *ui_get_remote_arc(void);
 /** The UI's ease: a quick start that settles slowly (cubic bezier). */
 void ui_ease_curve(lv_anim_t *a);
