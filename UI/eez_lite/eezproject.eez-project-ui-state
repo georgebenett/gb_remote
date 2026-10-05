@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/5",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/3",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -195,10 +195,20 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 47.584420055520035,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
+                {
+                  "type": "tab",
+                  "id": "#14bddffc-143b-46e2-bd09-bb59a64a4590",
+                  "name": "low battery screen",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[eezproject.eez-project]:/userPages/3",
+                    "permanent": false
+                  },
+                  "icon": "svg:page"
+                },
                 {
                   "type": "tab",
                   "id": "#6c429f27-a7a7-428f-9fd5-d457b5338a75",
@@ -209,17 +219,6 @@
                     "permanent": false
                   },
                   "icon": "material:font_download"
-                },
-                {
-                  "type": "tab",
-                  "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "home screen_dual",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/5",
-                    "permanent": false
-                  },
-                  "icon": "svg:page"
                 },
                 {
                   "type": "tab",

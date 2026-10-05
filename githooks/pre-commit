@@ -51,8 +51,9 @@ for file in $staged_files; do
             ;;
     esac
 
-    # Skip EEZ generated UI files
-    if echo "$file" | grep -qE '/(ui_lite|ui_dual_throttle)/'; then
+    # Skip EEZ generated UI files and vendored IDF components (the component
+    # manager rejects managed components whose files changed)
+    if echo "$file" | grep -qE '/(ui_lite|ui_dual_throttle|managed_components)/'; then
         continue
     fi
 
@@ -86,7 +87,7 @@ fi
 # Run clang-format on staged C/C++ files
 for file in $staged_files; do
     [ ! -f "$file" ] && continue
-    if echo "$file" | grep -qE '/(ui_lite|ui_dual_throttle)/'; then continue; fi
+    if echo "$file" | grep -qE '/(ui_lite|ui_dual_throttle|managed_components)/'; then continue; fi
     case "$file" in
         *.c|*.h|*.cpp|*.cc|*.cxx|*.hpp)
             if command -v clang-format >/dev/null 2>&1; then

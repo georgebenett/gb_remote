@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/2",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -213,10 +213,10 @@
                 {
                   "type": "tab",
                   "id": "#3ee77e2b-1d6b-4981-b7a6-5171c80b0fab",
-                  "name": "splash screen",
+                  "name": "home screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/1",
+                    "objectPath": "[eezproject.eez-project]:/userPages/2",
                     "permanent": false
                   },
                   "icon": "svg:page"

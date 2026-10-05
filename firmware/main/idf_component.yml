@@ -1,9 +1,13 @@
 ## IDF Component Manager Manifest File
 dependencies:
   lvgl/lvgl:
-    version: "^8.3.0"
+    # 9.1.x only: esp_lvgl_port builds its ESP32-S3 SIMD blend routines for
+    # 9.1 and nothing newer.
+    version: "9.1.0"
     public: true
+  # Only for its SIMD routines (see sdkconfig.defaults). Later releases need
+  # LVGL 9.2+ (LV_COLOR_FORMAT_RGB565_SWAPPED) and won't build against 9.1.
+  espressif/esp_lvgl_port: "2.4.4"
   ## Required IDF version
   idf:
     version: ">=4.1.0"
-

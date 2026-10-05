@@ -3,6 +3,13 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+# LVGL's object pool (CONFIG_LV_MEM_SIZE_KILOBYTES) is malloc'd at lv_init()
+# instead of being a static array in internal RAM, which Bluetooth needs.
+# Blocks over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL go to PSRAM.
+idf_build_set_property(COMPILE_DEFINITIONS "-DLV_MEM_POOL_INCLUDE=<stdlib.h>" APPEND)
+idf_build_set_property(COMPILE_DEFINITIONS "-DLV_MEM_POOL_ALLOC=malloc" APPEND)
+
 project(gb_controller_lite)
 
 set(PARTITION_TABLE_CSV "partitions.csv")

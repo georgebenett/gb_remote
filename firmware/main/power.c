@@ -73,6 +73,7 @@ static void shutdown_completion_timer_cb(lv_timer_t *timer) {
     lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
     lv_disp_load_scr(objects.charging_screen);
     lv_obj_invalidate(objects.charging_screen);
+    ui_charging_arc_sweep();
     /* One-shot timer: let LVGL draw the charging screen, then fade up */
     lv_timer_t *t =
         lv_timer_create(charging_screen_fade_up_timer_cb, 300, NULL);
@@ -195,8 +196,9 @@ static void power_button_callback(button_event_t event, void *user_data) {
         lv_anim_init(&arc_anim);
         lv_anim_set_var(&arc_anim, ui_get_remote_arc());
         lv_anim_set_exec_cb(&arc_anim, set_arc_value);
-        lv_anim_set_time(&arc_anim, SHUTDOWN_ANIMATION_TIME);
+        lv_anim_set_duration(&arc_anim, SHUTDOWN_ANIMATION_TIME);
         lv_anim_set_values(&arc_anim, 0, 100);
+        ui_ease_curve(&arc_anim);
         lv_anim_start(&arc_anim);
         arc_animation_active = true;
         give_lvgl_mutex();
@@ -304,6 +306,7 @@ void power_run_charging_mode(void) {
   if (take_lvgl_mutex()) {
     lv_disp_load_scr(objects.charging_screen);
     lv_obj_invalidate(objects.charging_screen);
+    ui_charging_arc_sweep();
     give_lvgl_mutex();
   }
   vTaskDelay(pdMS_TO_TICKS(800));

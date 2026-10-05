@@ -81,8 +81,14 @@ void ui_set_shutdown_pending_icon(bool pending);
 void ui_show_shutdown_progress(bool on);
 void ui_set_shutdown_progress(int32_t pct);
 lv_obj_t *ui_get_remote_arc(void);
+/** The UI's ease: a quick start that settles slowly (cubic bezier). */
+void ui_ease_curve(lv_anim_t *a);
+/** Sweep the charging arc up to the battery reading once the backlight is
+ *  up. Caller holds the LVGL mutex. */
+void ui_charging_arc_sweep(void);
 
 // Splash screen
+/** Blank, show the splash, fade up, then home. Caller holds the LVGL mutex. */
 void ui_show_splash_screen(void);
 /** Show splash then auto-switch to home after 4s (for mode 1→2 transition).
  * Call with LVGL mutex held. */

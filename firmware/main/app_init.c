@@ -44,7 +44,12 @@ static void init_system(void) {
 }
 
 static void init_ui(void) {
+  /* lcd_init() already started the LVGL task on the other core. LVGL 9
+   * allocates on every draw and its allocator isn't thread-safe, so build the
+   * screens under the same mutex or the two corrupt its heap. */
+  xSemaphoreTake(get_lvgl_mutex_handle(), portMAX_DELAY);
   ui_init();
+  give_lvgl_mutex();
   vesc_config_t config;
   bool have_config = (vesc_config_load(&config) == ESP_OK);
   // Bind the home-screen widgets before anything tries to update them.
@@ -94,6 +99,8 @@ void app_init_after_charging(void) {
   usb_serial_start_task();
   spp_client_demo_init();
   ESP_LOGI(TAG, "BLE initialization complete");
+  xSemaphoreTake(get_lvgl_mutex_handle(), portMAX_DELAY);
   ui_show_splash_screen();
+  give_lvgl_mutex();
   viber_play_startup_song();
 }

@@ -73,6 +73,7 @@ typedef struct {
   lv_obj_t *screen;
   lv_obj_t *speedlabel;
   lv_obj_t *static_speed;
+  lv_obj_t *static_odometer_text;
   lv_obj_t *throttle_warning;
   lv_obj_t *remote_arc;
   lv_obj_t *remote_battery_text;
@@ -101,6 +102,9 @@ static volatile uint32_t config_epoch = 0;
 // Shared UI state (volatile ensures visibility across tasks)
 static volatile bool speed_unit_mph = false;
 static volatile float total_trip_km = 0.0f;
+/* Per widget column, the last distance, so a unit change can redraw it. */
+static float column_km[UI_MAX_RECEIVERS];
+static int8_t rendered_unit = -1; // unit shown on the bound screen, -1 = stale
 
 static lv_obj_t *get_current_screen(void) { return lv_scr_act(); }
 
@@ -109,6 +113,7 @@ static void bind_single_home_widgets(void) {
   home_ui.screen = objects.home_screen;
   home_ui.speedlabel = objects.speedlabel;
   home_ui.static_speed = objects.static_speed;
+  home_ui.static_odometer_text = objects.static_odometer_text;
   home_ui.throttle_warning = objects.throttle_not_calibrated_text;
   home_ui.remote_arc = objects.remote_arc;
   home_ui.remote_battery_text = objects.controller_battery_text;
@@ -131,6 +136,7 @@ static void bind_dual_home_widgets(void) {
   home_ui.screen = objects.home_screen_dual;
   home_ui.speedlabel = objects.speedlabel_1;
   home_ui.static_speed = objects.static_speed_1;
+  home_ui.static_odometer_text = objects.static_odometer_text_1;
   home_ui.throttle_warning = objects.throttle_not_calibrated_text_1;
   home_ui.remote_arc = objects.remote_arc_1;
   home_ui.remote_battery_text = objects.controller_battery_text_1;
@@ -180,6 +186,7 @@ void ui_set_dual_home_screen(bool enabled) {
   } else {
     bind_single_home_widgets();
   }
+  rendered_unit = -1;
 
   // Swap live if a home screen is what the user is currently looking at.
   if (previous != NULL && previous != home_ui.screen &&
@@ -190,6 +197,11 @@ void ui_set_dual_home_screen(bool enabled) {
 
   if (locked)
     give_lvgl_mutex();
+
+  // The other layout's widgets are stale; refresh what won't update soon.
+  ui_update_speed_unit(speed_unit_mph); // also redraws the distances
+  ui_update_connection_icon();
+  ui_update_aux_output_indicator();
 
   ESP_LOGI(TAG, "Home screen layout: %s receiver",
            home_ui.receiver_count > 1 ? "dual" : "single");
@@ -262,6 +274,132 @@ static void set_arc_indicator_color_for_pct(lv_obj_t *arc, int pct) {
   lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
 }
 
+/* Gauges ease to each reading instead of jumping: the boot sweep runs 0 ->
+ * reading, and a reading that lands mid-sweep retargets it. The target lives
+ * in the gauge's user_data. The signal icon is a gauge too, stepping through
+ * its bar images. */
+#define GAUGE_EASE_MS 1200
+#define CHARGING_SWEEP_DELAY_MS 1300 // after the backlight has faded up
+
+static const void *const signal_imgs[] = {
+    &img_no_connection, &img_connection_0, &img_33_connection,
+    &img_66_connection, &img_100_connection};
+
+static bool is_signal_icon(lv_obj_t *obj) {
+  for (int i = 0; i < UI_MAX_RECEIVERS; i++) {
+    if (obj == home_ui.connection_icon[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool is_skate_arc(lv_obj_t *obj) {
+  for (int i = 0; i < UI_MAX_RECEIVERS; i++) {
+    if (obj == home_ui.skate_arc[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void gauge_show(lv_obj_t *gauge, int32_t v) {
+  if (is_signal_icon(gauge)) {
+    if (lv_image_get_src(gauge) != signal_imgs[v]) {
+      lv_image_set_src(gauge, signal_imgs[v]);
+    }
+    return;
+  }
+  lv_arc_set_value(gauge, (int16_t)v);
+  if (gauge != objects.charging_arc) { // charging keeps its orange
+    set_arc_indicator_color_for_pct(gauge, v);
+  }
+}
+
+static void gauge_settle_cb(lv_anim_t *a, int32_t v) { gauge_show(a->var, v); }
+
+static void gauge_settle_done(lv_anim_t *a) {
+  gauge_show(a->var, (intptr_t)lv_obj_get_user_data(a->var));
+}
+
+void ui_ease_curve(lv_anim_t *a) {
+  lv_anim_set_path_cb(a, lv_anim_path_custom_bezier3);
+  lv_anim_set_bezier3_param(a, LV_BEZIER_VAL_FLOAT(0.33), LV_BEZIER_VAL_MAX,
+                            LV_BEZIER_VAL_FLOAT(0.68), LV_BEZIER_VAL_MAX);
+}
+
+static void gauge_anim(lv_obj_t *gauge, uint32_t delay_ms) {
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, gauge);
+  lv_anim_set_delay(&a, delay_ms);
+  lv_anim_set_duration(&a, GAUGE_EASE_MS);
+  ui_ease_curve(&a);
+  lv_anim_set_custom_exec_cb(&a, gauge_settle_cb);
+  lv_anim_set_values(&a, 0, (intptr_t)lv_obj_get_user_data(gauge));
+  lv_anim_set_completed_cb(&a, gauge_settle_done);
+  lv_anim_start(&a);
+}
+
+/** Show a reading, or retarget the sweep already running. Caller holds
+ *  lvgl_mutex. */
+static void gauge_set(lv_obj_t *gauge, int value) {
+  lv_obj_set_user_data(gauge, (void *)(intptr_t)value);
+  lv_anim_t *a = lv_anim_get(gauge, NULL);
+  if (a != NULL) {
+    if (a->custom_exec_cb == gauge_settle_cb && a->end_value != value) {
+      a->start_value = lv_arc_get_value(gauge);
+      a->end_value = value;
+      a->act_time = LV_MIN(a->act_time, 0);
+    }
+    return; // the shutdown fill owns the remote arc meanwhile
+  }
+  // A board's first reading sweeps up from empty, like at boot.
+  if (value > 0 && is_skate_arc(gauge) && lv_arc_get_value(gauge) == 0) {
+    gauge_anim(gauge, 0);
+  } else {
+    gauge_show(gauge, value);
+  }
+}
+
+static const uint8_t signal_steps[] = {1, 2, 3, 4};
+#define SIGNAL_SWEEP_STEPS (sizeof(signal_steps) / sizeof(signal_steps[0]))
+
+static void signal_sweep_cb(lv_anim_t *a, int32_t v) {
+  gauge_show(a->var, signal_steps[LV_MIN(v, SIGNAL_SWEEP_STEPS - 1)]);
+}
+
+/* The bars climb to full once, then settle on the live reading. */
+static void signal_sweep(lv_obj_t *icon) {
+  lv_obj_set_user_data(icon, (void *)(intptr_t)0);
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, icon);
+  lv_anim_set_custom_exec_cb(&a, signal_sweep_cb);
+  lv_anim_set_values(&a, 0, SIGNAL_SWEEP_STEPS);
+  lv_anim_set_duration(&a, GAUGE_EASE_MS);
+  lv_anim_set_completed_cb(&a, gauge_settle_done);
+  lv_anim_start(&a);
+}
+
+static void text_fade_cb(void *label, int32_t v) {
+  lv_obj_set_style_text_opa(label, (lv_opa_t)v, 0);
+}
+
+static void text_fade_in(lv_obj_t *label) {
+  if (label == NULL) {
+    return;
+  }
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, label);
+  lv_anim_set_exec_cb(&a, text_fade_cb);
+  lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
+  lv_anim_set_duration(&a, GAUGE_EASE_MS);
+  ui_ease_curve(&a);
+  lv_anim_start(&a);
+}
+
 static int remote_pct;
 static bool remote_charging;
 static bool shutdown_progress; // battery updates leave the arc alone meanwhile
@@ -274,9 +412,54 @@ static void render_remote_battery(void) {
                           remote_pct);
   }
   if (home_ui.remote_arc != NULL) {
-    lv_arc_set_value(home_ui.remote_arc, (int16_t)remote_pct);
-    set_arc_indicator_color_for_pct(home_ui.remote_arc, remote_pct);
+    gauge_set(home_ui.remote_arc, remote_pct);
   }
+}
+
+/* Arriving home: arcs sweep up to their readings, signal bars climb, text
+ * fades in. Caller holds lvgl_mutex. */
+static void home_gauge_sweep(void) {
+  if (shutdown_progress) {
+    return;
+  }
+  render_remote_battery();
+  text_fade_in(home_ui.speedlabel);
+  text_fade_in(home_ui.static_speed);
+  text_fade_in(home_ui.static_odometer_text);
+  text_fade_in(home_ui.remote_battery_text);
+  lv_obj_t *arcs[1 + UI_MAX_RECEIVERS] = {home_ui.remote_arc};
+  for (int i = 0; i < home_ui.receiver_count; i++) {
+    text_fade_in(home_ui.odometer[i]);
+    text_fade_in(home_ui.skate_battery_text[i]);
+    arcs[1 + i] = home_ui.skate_arc[i];
+    if (home_ui.connection_icon[i] != NULL) {
+      signal_sweep(home_ui.connection_icon[i]);
+    }
+  }
+  for (int i = 0; i < 1 + home_ui.receiver_count; i++) {
+    if (arcs[i] != NULL) {
+      lv_obj_set_user_data(arcs[i],
+                           (void *)(intptr_t)lv_arc_get_value(arcs[i]));
+      gauge_anim(arcs[i], 0);
+    }
+  }
+}
+
+void ui_charging_arc_sweep(void) {
+  if (objects.charging_arc != NULL) {
+    lv_obj_set_user_data(objects.charging_arc, (void *)(intptr_t)remote_pct);
+    gauge_anim(objects.charging_arc, CHARGING_SWEEP_DELAY_MS);
+  }
+}
+
+/* Draws one column's distance in the active unit. Caller holds lvgl_mutex. */
+static void render_distance(int slot) {
+  if (slot < 0 || home_ui.odometer[slot] == NULL)
+    return;
+  char buf[16];
+  float km = column_km[slot];
+  snprintf(buf, sizeof(buf), "%.1f", speed_unit_mph ? km * KM_TO_MI : km);
+  lv_label_set_text(home_ui.odometer[slot], buf);
 }
 
 lv_obj_t *ui_get_remote_arc(void) { return home_ui.remote_arc; }
@@ -308,6 +491,7 @@ void ui_show_shutdown_progress(bool on) {
     return;
   }
   if (home_ui.remote_arc != NULL) {
+    lv_anim_delete(home_ui.remote_arc, NULL);
     if (!was_on) {
       shutdown_track =
           lv_obj_get_style_arc_color(home_ui.remote_arc, LV_PART_MAIN);
@@ -650,10 +834,22 @@ static void ui_cmd_processor_task(void *pvParameters) {
           break;
 
         case UI_CMD_UPDATE_SPEED_UNIT:
+          // Re-sent at 20 Hz while connected, so only touch the labels when
+          // the unit differs from what the bound screen shows.
           speed_unit_mph = cmd.data.speed_unit_mph;
-          if (on_home && home_ui.static_speed != NULL) {
-            lv_label_set_text(home_ui.static_speed,
-                              cmd.data.speed_unit_mph ? "mph" : "km/h");
+          if (rendered_unit != (int8_t)cmd.data.speed_unit_mph) {
+            if (home_ui.static_speed != NULL) {
+              lv_label_set_text(home_ui.static_speed,
+                                cmd.data.speed_unit_mph ? "mph" : "km/h");
+            }
+            if (home_ui.static_odometer_text != NULL) {
+              lv_label_set_text(home_ui.static_odometer_text,
+                                cmd.data.speed_unit_mph ? "odo mi" : "odo km");
+            }
+            for (int i = 0; i < home_ui.receiver_count; i++) {
+              render_distance(i);
+            }
+            rendered_unit = (int8_t)cmd.data.speed_unit_mph;
           }
           break;
 
@@ -668,12 +864,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
             lv_label_set_text_fmt(objects.charging_screen_percentage,
                                   "%d%% charged", cmd.data.battery.percentage);
             if (objects.charging_arc != NULL) {
-              int pct = cmd.data.battery.percentage;
-              if (pct < 0)
-                pct = 0;
-              if (pct > 100)
-                pct = 100;
-              lv_arc_set_value(objects.charging_arc, (int16_t)pct);
+              gauge_set(objects.charging_arc, remote_pct);
             }
           }
           break;
@@ -690,13 +881,8 @@ static void ui_cmd_processor_task(void *pvParameters) {
                                         LV_PART_MAIN);
           }
           if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
-            int pct = cmd.data.skate_percentage;
-            if (pct < 0)
-              pct = 0;
-            if (pct > 100)
-              pct = 100;
-            lv_arc_set_value(home_ui.skate_arc[slot], (int16_t)pct);
-            set_arc_indicator_color_for_pct(home_ui.skate_arc[slot], pct);
+            gauge_set(home_ui.skate_arc[slot],
+                      LV_CLAMP(0, cmd.data.skate_percentage, 100));
           }
           break;
 
@@ -721,46 +907,32 @@ static void ui_cmd_processor_task(void *pvParameters) {
 
         case UI_CMD_UPDATE_CONNECTION_ICON:
           if (on_home && slot >= 0 && home_ui.connection_icon[slot] != NULL) {
-            const void *icon_src = NULL;
-            if (!cmd.data.connection.connected) {
-              icon_src = &img_no_connection;
-            } else if (cmd.data.connection.quality >= 30) {
-              icon_src = &img_100_connection;
-            } else if (cmd.data.connection.quality >= 15) {
-              icon_src = &img_66_connection;
-            } else if (cmd.data.connection.quality >= 5) {
-              icon_src = &img_33_connection;
-            } else {
-              icon_src = &img_connection_0;
+            int level = 0; // signal_imgs index
+            if (cmd.data.connection.connected) {
+              int q = cmd.data.connection.quality;
+              level = q >= 30 ? 4 : q >= 15 ? 3 : q >= 5 ? 2 : 1;
             }
-            lv_img_set_src(home_ui.connection_icon[slot], icon_src);
+            gauge_set(home_ui.connection_icon[slot], level);
           }
           if (on_home && slot >= 0 && home_ui.skateboard_icon[slot] != NULL) {
-            lv_img_set_src(home_ui.skateboard_icon[slot],
-                           cmd.data.connection.connected
-                               ? &img_skateboard_icon_connected
-                               : &img_skateboard_no_connection);
+            lv_image_set_src(home_ui.skateboard_icon[slot],
+                             cmd.data.connection.connected
+                                 ? &img_skateboard_icon_connected
+                                 : &img_skateboard_no_connection);
           }
           break;
 
-        case UI_CMD_UPDATE_TRIP_DISTANCE:
-          if (on_home && slot >= 0 && home_ui.odometer[slot] != NULL) {
-            if (speed_unit_mph) {
-              snprintf(str_buf, sizeof(str_buf), "%.1f mi",
-                       cmd.data.trip_km * KM_TO_MI);
-            } else {
-              snprintf(str_buf, sizeof(str_buf), "%.1f km", cmd.data.trip_km);
-            }
-            lv_label_set_text(home_ui.odometer[slot], str_buf);
-            lv_obj_invalidate(home_ui.odometer[slot]);
+        case UI_CMD_UPDATE_TRIP_DISTANCE: // off-screen too: kept for return
+          if (slot >= 0) {
+            column_km[slot] = cmd.data.trip_km;
+            render_distance(slot);
           }
           break;
 
         case UI_CMD_RESET_TRIP_DISTANCE:
-          if (on_home && slot >= 0 && home_ui.odometer[slot] != NULL) {
-            lv_label_set_text(home_ui.odometer[slot],
-                              speed_unit_mph ? "0.0 mi" : "0.0 km");
-            lv_obj_invalidate(home_ui.odometer[slot]);
+          if (slot >= 0) {
+            column_km[slot] = 0.0f;
+            render_distance(slot);
           }
           break;
 
@@ -776,9 +948,9 @@ static void ui_cmd_processor_task(void *pvParameters) {
 
         case UI_CMD_UPDATE_REMOTE_ICON:
           if (home_ui.remote_icon != NULL) {
-            lv_img_set_src(home_ui.remote_icon, cmd.data.shutdown_pending
-                                                    ? &img_power
-                                                    : &img_remote_icon);
+            lv_image_set_src(home_ui.remote_icon, cmd.data.shutdown_pending
+                                                      ? &img_power
+                                                      : &img_remote_icon);
             // The power glyph sits lower in its image; lift it to centre.
             lv_obj_set_style_translate_y(home_ui.remote_icon,
                                          cmd.data.shutdown_pending ? -3 : 0,
@@ -795,7 +967,7 @@ static void ui_cmd_processor_task(void *pvParameters) {
                                         LV_PART_MAIN);
           }
           if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
-            lv_arc_set_value(home_ui.skate_arc[slot], 0);
+            gauge_set(home_ui.skate_arc[slot], 0);
           }
           // Aux is a remote-wide indicator; clear it once no receiver is left.
           if (home_ui.aux_output != NULL && !ble_is_connected()) {
@@ -876,6 +1048,7 @@ static void splash_timer_cb(lv_timer_t *timer) {
 
   lv_obj_t *home = ui_get_home_screen();
   lv_disp_load_scr(home);
+  home_gauge_sweep();
 
   // Home screen reached — activate BLE scanning and connection
   ble_resume();

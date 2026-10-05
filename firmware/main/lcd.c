@@ -21,19 +21,29 @@
 static uint8_t current_backlight_pwm =
     0; // Track current backlight PWM duty (0-255)
 static esp_lcd_panel_handle_t panel_handle = NULL;
-static lv_color_t *buf1 = NULL;
-static lv_color_t *buf2 = NULL;
-static lv_disp_draw_buf_t draw_buf;
-static lv_disp_drv_t disp_drv;
-static esp_timer_handle_t periodic_timer;
+static lv_display_t *disp;
 
-#define UI_TASK_WDT_TIMEOUT_SECONDS 5
-#define LVGL_UPDATE_MS 16
+// LVGL draw buffers: 64 rows of RGB565, two so drawing overlaps sending.
+// Fewer, bigger chunks per frame; one SPI DMA transfer caps out at 32 KB,
+// which 64 rows of the 240 px wide panel stay under.
+#define LVGL_BUFFER_BYTES (LV_HOR_RES_MAX * 64 * 2)
 
-static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area,
-                     lv_color_t *color_map);
-static void lv_tick_task(void *arg);
+/* The LVGL task sleeps until LVGL's next timer is due, at most this long, so
+ * CONFIG_LV_DEF_REFR_PERIOD is the real frame cap rather than rounding up to
+ * a fixed wake-up beat. */
+#define LVGL_MAX_SLEEP_MS 10
+
+static void flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_map);
+static uint32_t lv_tick_ms(void);
 static void lvgl_handler_task(void *pvParameters);
+
+// The SPI transfer finished: LVGL may reuse the buffer it just sent.
+static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
+                                    esp_lcd_panel_io_event_data_t *edata,
+                                    void *user_ctx) {
+  lv_display_flush_ready(disp);
+  return false;
+}
 
 void lcd_init(void) {
 
@@ -42,7 +52,7 @@ void lcd_init(void) {
                              .miso_io_num = -1,
                              .quadwp_io_num = -1,
                              .quadhd_io_num = -1,
-                             .max_transfer_sz = SOC_SPI_MAXIMUM_BUFFER_SIZE};
+                             .max_transfer_sz = LVGL_BUFFER_BYTES};
   ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
   esp_lcd_panel_io_spi_config_t io_config = {
@@ -53,6 +63,7 @@ void lcd_init(void) {
       .trans_queue_depth = 10,
       .lcd_cmd_bits = 8,
       .lcd_param_bits = 8,
+      .on_color_trans_done = notify_lvgl_flush_ready,
   };
 
   esp_lcd_panel_io_handle_t io_handle;
@@ -99,125 +110,72 @@ void lcd_init(void) {
 
   lv_init();
 
-  buf1 = heap_caps_malloc(LV_HOR_RES_MAX * (LV_VER_RES_MAX / 8) *
-                              sizeof(lv_color_t),
-                          MALLOC_CAP_DMA);
-  if (buf1 == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate display buffer 1 - system cannot start");
-    esp_restart();
-  }
-  buf2 = heap_caps_malloc(LV_HOR_RES_MAX * (LV_VER_RES_MAX / 8) *
-                              sizeof(lv_color_t),
-                          MALLOC_CAP_DMA);
-  if (buf2 == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate display buffer 2 - system cannot start");
-    free(buf1);
+  void *buf1 = heap_caps_malloc(LVGL_BUFFER_BYTES, MALLOC_CAP_DMA);
+  void *buf2 = heap_caps_malloc(LVGL_BUFFER_BYTES, MALLOC_CAP_DMA);
+  if (buf1 == NULL || buf2 == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate display buffers - system cannot start");
     esp_restart();
   }
 
-  lv_disp_draw_buf_init(&draw_buf, buf1, buf2,
-                        LV_HOR_RES_MAX * (LV_VER_RES_MAX / 8));
+  disp = lv_display_create(LV_HOR_RES_MAX, LV_VER_RES_MAX);
+  lv_display_set_offset(disp, LCD_OFFSET_X, LCD_OFFSET_Y);
+  lv_display_set_flush_cb(disp, flush_cb);
+  lv_display_set_buffers(disp, buf1, buf2, LVGL_BUFFER_BYTES,
+                         LV_DISPLAY_RENDER_MODE_PARTIAL);
 
-  lv_disp_drv_init(&disp_drv);
-  disp_drv.flush_cb = flush_cb;
-  disp_drv.draw_buf = &draw_buf;
-  disp_drv.hor_res = LV_HOR_RES_MAX;
-  disp_drv.ver_res = LV_VER_RES_MAX;
-  disp_drv.physical_hor_res = LV_HOR_RES_MAX;
-  disp_drv.physical_ver_res = LV_VER_RES_MAX;
-  disp_drv.offset_x = LCD_OFFSET_X;
-  disp_drv.offset_y = LCD_OFFSET_Y;
-  lv_disp_drv_register(&disp_drv);
-
-  const esp_timer_create_args_t periodic_timer_args = {
-      .callback = &lv_tick_task, .name = "periodic_gui"};
-  ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
-  ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 1000));
+  lv_tick_set_cb(lv_tick_ms); // 1 ms resolution, no periodic timer
 
   ui_updater_init();
   lcd_start_tasks();
 }
 
-static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area,
-                     lv_color_t *color_map) {
+static void flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_map) {
+  (void)d;
+  /* The panel takes RGB565 high byte first; LVGL 9 dropped LV_COLOR_16_SWAP. */
+  lv_draw_sw_rgb565_swap(px_map, lv_area_get_size(area));
   esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x2 + 1,
-                            area->y2 + 1, color_map);
-  lv_disp_flush_ready(drv);
+                            area->y2 + 1, px_map);
+  // lv_display_flush_ready() comes from notify_lvgl_flush_ready()
 }
 
-static void lv_tick_task(void *arg) {
-  (void)arg;
-  lv_tick_inc(1);
+static uint32_t lv_tick_ms(void) {
+  return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
 static void lvgl_handler_task(void *pvParameters) {
-  TickType_t last_wake_time = xTaskGetTickCount();
-
-  // Ensure frequency is never zero (minimum 1 tick)
-  const TickType_t frequency = pdMS_TO_TICKS(LVGL_UPDATE_MS);
-  const TickType_t actual_frequency = (frequency > 0) ? frequency : 1;
-
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
   ESP_ERROR_CHECK(esp_task_wdt_reset());
 
-  TickType_t last_wdt_reset = xTaskGetTickCount();
-  const TickType_t WDT_RESET_INTERVAL = pdMS_TO_TICKS(2000);
-
   while (1) {
-    vTaskDelayUntil(&last_wake_time, actual_frequency);
-
-    TickType_t current_time = xTaskGetTickCount();
-    if ((current_time - last_wdt_reset) >= WDT_RESET_INTERVAL) {
-      esp_task_wdt_reset();
-      last_wdt_reset = current_time;
-    }
-
-    const TickType_t mutex_timeout = pdMS_TO_TICKS(100); // Total timeout
-    TickType_t start_wait = xTaskGetTickCount();
-    bool got_mutex = false;
+    uint32_t sleep_ms = LVGL_MAX_SLEEP_MS;
+    esp_task_wdt_reset();
 
     SemaphoreHandle_t mutex = get_lvgl_mutex_handle();
-
-    while ((xTaskGetTickCount() - start_wait) < mutex_timeout) {
-
-      if (mutex != NULL && xSemaphoreTake(mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        got_mutex = true;
-        break;
-      }
-
-      current_time = xTaskGetTickCount();
-      if ((current_time - last_wdt_reset) >= pdMS_TO_TICKS(1000)) {
-        esp_task_wdt_reset();
-        last_wdt_reset = current_time;
-      }
-      vTaskDelay(pdMS_TO_TICKS(1));
-    }
-
-    if (got_mutex) {
-      lv_timer_handler();
+    if (mutex != NULL && xSemaphoreTake(mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      sleep_ms = lv_timer_handler(); // until the next LVGL timer is due
       give_lvgl_mutex();
-      esp_task_wdt_reset();
-      last_wdt_reset = xTaskGetTickCount();
     } else {
       static uint32_t mutex_fail_count = 0;
-      mutex_fail_count++;
-      if (mutex_fail_count % 100 == 0) {
-        ESP_LOGW("LCD", "Failed to get LVGL mutex for handler (count: %lu)",
-                 mutex_fail_count);
+      if (++mutex_fail_count % 100 == 0) {
+        ESP_LOGW(TAG, "Failed to get LVGL mutex for handler (count: %lu)",
+                 (unsigned long)mutex_fail_count);
       }
     }
+    /* At least a tick, so lower-priority tasks on this core still run. */
+    TickType_t ticks = pdMS_TO_TICKS(LV_MIN(sleep_ms, LVGL_MAX_SLEEP_MS));
+    vTaskDelay(ticks > 0 ? ticks : 1);
   }
 }
 
 void lcd_start_tasks(void) {
   TaskHandle_t lvgl_handler_handle = NULL;
-  BaseType_t result =
-      xTaskCreatePinnedToCore(lvgl_handler_task, "lvgl_handler", 4096, NULL, 8,
-                              &lvgl_handler_handle, 0);
+  BaseType_t result = xTaskCreatePinnedToCore(
+      lvgl_handler_task, "lvgl_handler", 8192, NULL, 8, &lvgl_handler_handle,
+      1 /* Bluetooth owns core 0; drawing gets core 1 */);
   if (result != pdPASS) {
     ESP_LOGE("LCD", "Failed to create lvgl_handler task");
   } else {
-    ESP_LOGI("LCD", "lvgl_handler task created with priority 10 on CPU 0");
+    ESP_LOGI("LCD", "lvgl_handler task created with priority 8 on CPU 1");
   }
   ui_start_update_tasks();
 }

@@ -85,7 +85,8 @@ typedef struct {
 
   snake_cell_t cells[SNAKE_MAX_SEGMENTS];
   lv_point_t points[SNAKE_MAX_SEGMENTS];
-  lv_point_t interp_pts[SNAKE_MAX_SEGMENTS + 1];
+  lv_point_precise_t
+      interp_pts[SNAKE_MAX_SEGMENTS + 1]; // lv_line wants precise
   snake_cell_t food;
 
   lv_point_t prev_head_px;

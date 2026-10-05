@@ -479,7 +479,7 @@ static void snake_render_cb(lv_timer_t *timer) {
   }
 
   for (uint16_t i = 0; i < snake.length; i++) {
-    snake.interp_pts[i] = snake.points[i];
+    snake.interp_pts[i] = lv_point_to_precise(&snake.points[i]);
   }
 
   // Slide head forward from previous position to current

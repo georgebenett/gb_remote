@@ -24,14 +24,30 @@ CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_TYPE_AUTO=y
-CONFIG_SPIRAM_SPEED_40M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 
-# LVGL
+# LVGL 9.1. The object pool is malloc'd into PSRAM (see CMakeLists.txt), so
+# it can be big without costing Bluetooth internal RAM.
 CONFIG_LV_CONF_SKIP=y
-CONFIG_LV_COLOR_16_SWAP=y
+CONFIG_LV_MEM_SIZE_KILOBYTES=128
+CONFIG_LV_USE_CLIB_STRING=y
+# Frames as often as the SPI can send them; idle screens redraw nothing.
+CONFIG_LV_DEF_REFR_PERIOD=15
+# ESP32-S3 SIMD fills and RGB565 blends, from esp_lvgl_port.
+CONFIG_LV_DRAW_SW_ASM_CUSTOM=y
+CONFIG_LV_DRAW_SW_ASM_CUSTOM_INCLUDE="esp_lvgl_port_lv_blend.h"
+# Display smoothness: -O2, full clock, big caches, fast PSRAM. Bluetooth
+# allocates from PSRAM first, leaving internal RAM to the radio controller.
+# 1 kHz ticks so the LVGL task can sleep exactly until its next timer.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
+CONFIG_FREERTOS_HZ=1000
 
 # Bluetooth Configuration
 CONFIG_BT_ENABLED=y
