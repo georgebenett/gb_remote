@@ -67,6 +67,11 @@ typedef enum {
   CMD_SET_THROTTLE_CURVE = 0x2B, // Curve (payload: [mode, acc, brake], the two
                                  // curves signed tenths)
   CMD_GET_THROTTLE_CURVE = 0x2C, // Read the curve back
+  CMD_SET_RIDE_SETTINGS = 0x2D,  // Payload: [ride profile 0-3 (Beginner..
+                                 // Rocket), speed limit mode 0-4 (Off, 20/25
+                                 // km/h, 20/25 mph)]
+  CMD_GET_ALL = 0x2F,            // Everything the config tool shows, in one
+                                 // tagged answer (see ALL_TAG_*)
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code
@@ -81,7 +86,32 @@ typedef enum {
   RSP_STREAM_DATA = 0x90,          // Real-time streaming data
   RSP_ASSIST_PARAMS = 0x91,        // Assist tuning: [strength%, decay rpm/s]
   RSP_THROTTLE_CURVE = 0x92,       // Curve: [mode, acc, brake]
+  RSP_ALL = 0x94,                  // Tagged config snapshot, see ALL_TAG_*
 } packet_command_t;
+
+// GET_ALL answer: RSP_ALL = [format version][entries...], each entry
+// [tag][len][value, little-endian]. A tool skips tags it does not know and a
+// device omits what it does not have, so fields can be added without breaking
+// either side. Format version 1.
+#define ALL_FORMAT_VERSION 1
+#define ALL_TAG_FLAGS                                                          \
+  0x01                         // 1: bit0 mph, bit1 inverted, bit2 receiver
+                               // connected, bit3 calibrated, bit4 dual
+                               // connection, bit5 smart reverse, bit6 assist
+                               // push, bit7 reverse disabled
+#define ALL_TAG_BACKLIGHT 0x02 // 1: percent
+#define ALL_TAG_MOTOR 0x03     // 5: poles, gear ratio x1000 u16, wheel mm u16
+#define ALL_TAG_SPEED 0x04     // 4: current speed, i32
+#define ALL_TAG_BLE_TRIM 0x05  // 1: i8
+#define ALL_TAG_HAPTIC 0x06    // 1: percent
+#define ALL_TAG_BATTERY 0x07   // 2: series cells (0 unset), cell type
+#define ALL_TAG_CALIBRATION                                                    \
+  0x08                      // 9 or 17: [1, throttle min u32, max u32,
+                            // (brake min u32, max u32)]; omitted if
+                            // not calibrated
+#define ALL_TAG_ASSIST 0x09 // 2: strength %, decay rpm/s
+#define ALL_TAG_CURVE 0x0A  // 3: mode, acc, brake (signed tenths)
+#define ALL_TAG_RIDE 0x0B   // 2: ride profile 0-3, speed limit mode 0-4
 
 // Response/Error codes
 typedef enum {

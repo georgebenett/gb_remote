@@ -262,6 +262,65 @@ static void set_arc_indicator_color_for_pct(lv_obj_t *arc, int pct) {
   lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
 }
 
+static int remote_pct;
+static bool remote_charging;
+static bool shutdown_progress; // battery updates leave the arc alone meanwhile
+
+/** Caller holds lvgl_mutex. */
+static void render_remote_battery(void) {
+  if (home_ui.remote_battery_text != NULL) {
+    lv_label_set_text_fmt(home_ui.remote_battery_text, "%s%d%%",
+                          remote_charging ? LV_SYMBOL_CHARGE " " : "",
+                          remote_pct);
+  }
+  if (home_ui.remote_arc != NULL) {
+    lv_arc_set_value(home_ui.remote_arc, (int16_t)remote_pct);
+    set_arc_indicator_color_for_pct(home_ui.remote_arc, remote_pct);
+  }
+}
+
+lv_obj_t *ui_get_remote_arc(void) { return home_ui.remote_arc; }
+
+static lv_color_t shutdown_track; // the arc's own background, put back after
+#define SHUTDOWN_GREEN lv_color_hex(0x04de71)
+
+void ui_set_shutdown_progress(int32_t pct) {
+  if (home_ui.remote_arc == NULL) {
+    return;
+  }
+  lv_arc_set_value(home_ui.remote_arc, pct);
+  /* The green drains to grey as the red fill takes over. */
+  lv_obj_set_style_arc_color(
+      home_ui.remote_arc,
+      lv_color_mix(shutdown_track, SHUTDOWN_GREEN, (uint8_t)(pct * 255 / 100)),
+      LV_PART_MAIN);
+}
+
+void ui_show_shutdown_progress(bool on) {
+  bool was_on = shutdown_progress;
+  shutdown_progress = on;
+  if (!on) {
+    if (was_on && home_ui.remote_arc != NULL) {
+      lv_obj_set_style_arc_color(home_ui.remote_arc, shutdown_track,
+                                 LV_PART_MAIN);
+    }
+    render_remote_battery();
+    return;
+  }
+  if (home_ui.remote_arc != NULL) {
+    if (!was_on) {
+      shutdown_track =
+          lv_obj_get_style_arc_color(home_ui.remote_arc, LV_PART_MAIN);
+    }
+    lv_obj_set_style_arc_color(home_ui.remote_arc, lv_color_make(255, 59, 48),
+                               LV_PART_INDICATOR);
+    ui_set_shutdown_progress(0); // all green, no red yet
+  }
+  if (home_ui.remote_battery_text != NULL) {
+    lv_label_set_text(home_ui.remote_battery_text, "shut off");
+  }
+}
+
 static void splash_fade_up_timer_cb(lv_timer_t *timer) {
   (void)timer;
   lcd_fade_to_saved_brightness();
@@ -599,20 +658,10 @@ static void ui_cmd_processor_task(void *pvParameters) {
           break;
 
         case UI_CMD_UPDATE_BATTERY_PERCENTAGE:
-          if (on_home && home_ui.remote_battery_text != NULL) {
-            lv_label_set_text_fmt(
-                home_ui.remote_battery_text, "%s%d%%",
-                cmd.data.battery.is_charging ? LV_SYMBOL_CHARGE " " : "",
-                cmd.data.battery.percentage);
-          }
-          if (on_home && home_ui.remote_arc != NULL) {
-            int pct = cmd.data.battery.percentage;
-            if (pct < 0)
-              pct = 0;
-            if (pct > 100)
-              pct = 100;
-            lv_arc_set_value(home_ui.remote_arc, (int16_t)pct);
-            set_arc_indicator_color_for_pct(home_ui.remote_arc, pct);
+          remote_pct = LV_CLAMP(0, cmd.data.battery.percentage, 100);
+          remote_charging = cmd.data.battery.is_charging;
+          if (on_home && !shutdown_progress) {
+            render_remote_battery();
           }
           if (get_current_screen() == objects.charging_screen &&
               objects.charging_screen_percentage != NULL) {
@@ -730,6 +779,10 @@ static void ui_cmd_processor_task(void *pvParameters) {
             lv_img_set_src(home_ui.remote_icon, cmd.data.shutdown_pending
                                                     ? &img_power
                                                     : &img_remote_icon);
+            // The power glyph sits lower in its image; lift it to centre.
+            lv_obj_set_style_translate_y(home_ui.remote_icon,
+                                         cmd.data.shutdown_pending ? -3 : 0,
+                                         LV_PART_MAIN);
           }
           break;
 

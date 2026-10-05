@@ -12,6 +12,7 @@
 #include "power.h"
 #include "target_config.h"
 #include "vesc_config.h"
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -108,6 +109,8 @@ esp_err_t adc_init(void) {
     if (vesc_config_load(&cfg) == ESP_OK) {
       throttle_set_curve(cfg.throttle_curve_acc, cfg.throttle_curve_brake,
                          cfg.throttle_curve_mode);
+      throttle_set_ride_profile(
+          vesc_config_ride_profile_ramp_ms(cfg.ride_profile));
     }
   }
 
@@ -637,6 +640,40 @@ bool throttle_should_use_neutral(void) {
 uint8_t throttle_shape_output(uint8_t value, int8_t trim) {
   return throttle_apply_trim(
       throttle_apply_curve(value, curve_acc, curve_brake, curve_mode), trim);
+}
+
+/* Counts per sample, averaged over the ramp; 0 = off (Rocket). ramp_value keeps
+ * the slewed position between samples. */
+static float ramp_ms_total = 0.0f;
+static float ramp_value = VESC_NEUTRAL_VALUE;
+
+void throttle_set_ride_profile(uint16_t ramp_ms) {
+  ramp_ms_total = ramp_ms;
+  ESP_LOGI(TAG, "Ride profile ramp: %u ms", ramp_ms);
+}
+
+uint8_t throttle_apply_ramp(uint8_t value, uint8_t neutral) {
+  if (value <= neutral) {
+    ramp_value = value;
+    return value;
+  }
+  if (ramp_value < neutral) {
+    ramp_value = neutral;
+  }
+  if (ramp_ms_total <= 0.0f || value <= ramp_value) {
+    ramp_value = value;
+    return value;
+  }
+  float span = 255.0f - neutral;
+  float step = span * ADC_SAMPLE_PERIOD_MS / ramp_ms_total;
+  // Ease-in: step grows with sqrt of progress so position follows t^2; the
+  // floor lets it leave neutral.
+  float ease = 2.0f * sqrtf((ramp_value - neutral) / span);
+  ramp_value += step * (ease < 0.25f ? 0.25f : ease);
+  if (ramp_value > value) {
+    ramp_value = value;
+  }
+  return (uint8_t)(ramp_value + 0.5f);
 }
 
 void throttle_set_curve(int8_t acc, int8_t brake, uint8_t mode) {

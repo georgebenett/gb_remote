@@ -62,6 +62,8 @@ static void handle_cmd_get_assist_params(const binary_packet_t *packet);
 static void handle_cmd_toggle_no_reverse(const binary_packet_t *packet);
 static void handle_cmd_set_throttle_curve(const binary_packet_t *packet);
 static void handle_cmd_get_throttle_curve(const binary_packet_t *packet);
+static void handle_cmd_set_ride_settings(const binary_packet_t *packet);
+static void handle_cmd_get_all(const binary_packet_t *packet);
 static void handle_cmd_set_battery_cells(const binary_packet_t *packet);
 static void handle_cmd_start_streaming(const binary_packet_t *packet);
 static void handle_cmd_stop_streaming(const binary_packet_t *packet);
@@ -408,6 +410,14 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
   case CMD_GET_ASSIST_PARAMS:
     handle_cmd_get_assist_params(packet);
     break;
+
+  case CMD_SET_RIDE_SETTINGS:
+    handle_cmd_set_ride_settings(packet);
+    break;
+
+  case CMD_GET_ALL:
+    handle_cmd_get_all(packet);
+    break;
   case CMD_SET_BATTERY_CELLS:
     handle_cmd_set_battery_cells(packet);
     break;
@@ -483,17 +493,7 @@ static void handle_cmd_get_firmware_version(const binary_packet_t *packet) {
   usb_serial_send_response(RSP_FIRMWARE_VERSION, payload, idx);
 }
 
-static void handle_cmd_get_config(const binary_packet_t *packet) {
-  // Reload configuration to ensure we have the latest settings
-  esp_err_t err = vesc_config_load(&hand_controller_config);
-  if (err != ESP_OK) {
-    usb_serial_send_ack(CMD_GET_CONFIG, ERR_SAVE_FAILED);
-    return;
-  }
-
-  uint8_t payload[256];
-  uint16_t idx = 0;
-
+static uint8_t config_flags(void) {
   uint8_t flags = 0;
   if (hand_controller_config.speed_unit_mph)
     flags |= 0x01;
@@ -513,6 +513,21 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
     flags |= 0x40;
   if (hand_controller_config.no_reverse)
     flags |= 0x80;
+  return flags;
+}
+
+static void handle_cmd_get_config(const binary_packet_t *packet) {
+  // Reload configuration to ensure we have the latest settings
+  esp_err_t err = vesc_config_load(&hand_controller_config);
+  if (err != ESP_OK) {
+    usb_serial_send_ack(CMD_GET_CONFIG, ERR_SAVE_FAILED);
+    return;
+  }
+
+  uint8_t payload[256];
+  uint16_t idx = 0;
+
+  uint8_t flags = config_flags();
   payload[idx++] = flags;
 
   payload[idx++] = lcd_load_saved_brightness();
@@ -560,6 +575,82 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
   }
 
   usb_serial_send_response(RSP_CONFIG, payload, idx);
+}
+
+/* One tagged snapshot of everything the config tool shows, taken from NVS so a
+ * change made elsewhere is picked up. Layout: ALL_TAG_* in the header. */
+static void put_tlv(uint8_t *p, uint16_t *idx, uint8_t tag, const uint8_t *val,
+                    uint8_t len) {
+  p[(*idx)++] = tag;
+  p[(*idx)++] = len;
+  memcpy(&p[*idx], val, len);
+  *idx += len;
+}
+
+static void handle_cmd_get_all(const binary_packet_t *packet) {
+  if (vesc_config_load(&hand_controller_config) != ESP_OK) {
+    usb_serial_send_ack(CMD_GET_ALL, ERR_SAVE_FAILED);
+    return;
+  }
+  const vesc_config_t *c = &hand_controller_config;
+  uint8_t payload[128];
+  uint16_t idx = 0;
+  uint8_t v[20];
+  payload[idx++] = ALL_FORMAT_VERSION;
+
+  v[0] = config_flags();
+  put_tlv(payload, &idx, ALL_TAG_FLAGS, v, 1);
+
+  v[0] = lcd_load_saved_brightness();
+  put_tlv(payload, &idx, ALL_TAG_BACKLIGHT, v, 1);
+
+  v[0] = c->motor_poles;
+  put_u16(&v[1], c->gear_ratio_x1000);
+  put_u16(&v[3], c->wheel_diameter_mm);
+  put_tlv(payload, &idx, ALL_TAG_MOTOR, v, 5);
+
+  put_u32(v, ble_is_connected() ? (uint32_t)vesc_config_get_speed(c) : 0);
+  put_tlv(payload, &idx, ALL_TAG_SPEED, v, 4);
+
+  v[0] = (uint8_t)ble_get_trim_offset();
+  put_tlv(payload, &idx, ALL_TAG_BLE_TRIM, v, 1);
+
+  v[0] = viber_get_intensity();
+  put_tlv(payload, &idx, ALL_TAG_HAPTIC, v, 1);
+
+  v[0] = c->battery_cells;
+  v[1] = c->battery_cell_type;
+  put_tlv(payload, &idx, ALL_TAG_BATTERY, v, 2);
+
+  if (throttle_is_calibrated()) {
+    uint16_t n = 0;
+    uint32_t lo, hi;
+    v[n++] = 1;
+    throttle_get_calibration_values(&lo, &hi);
+    n += put_u32(&v[n], lo);
+    n += put_u32(&v[n], hi);
+#ifdef CONFIG_TARGET_DUAL_THROTTLE
+    brake_get_calibration_values(&lo, &hi);
+    n += put_u32(&v[n], lo);
+    n += put_u32(&v[n], hi);
+#endif
+    put_tlv(payload, &idx, ALL_TAG_CALIBRATION, v, (uint8_t)n);
+  }
+
+  v[0] = c->assist_strength;
+  v[1] = c->assist_decay;
+  put_tlv(payload, &idx, ALL_TAG_ASSIST, v, 2);
+
+  v[0] = c->throttle_curve_mode;
+  v[1] = (uint8_t)c->throttle_curve_acc;
+  v[2] = (uint8_t)c->throttle_curve_brake;
+  put_tlv(payload, &idx, ALL_TAG_CURVE, v, 3);
+
+  v[0] = c->ride_profile;
+  v[1] = c->speed_limit_mode;
+  put_tlv(payload, &idx, ALL_TAG_RIDE, v, 2);
+
+  usb_serial_send_response(RSP_ALL, payload, idx);
 }
 
 static void handle_cmd_reset_odometer(const binary_packet_t *packet) {
@@ -889,6 +980,32 @@ static void handle_cmd_set_throttle_curve(const binary_packet_t *packet) {
   } else {
     usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_SAVE_FAILED);
   }
+}
+
+static void handle_cmd_set_ride_settings(const binary_packet_t *packet) {
+  if (packet->payload_length < 2) {
+    usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_INVALID_PAYLOAD);
+    return;
+  }
+  uint8_t profile = packet->payload[0];
+  uint8_t speed_mode = packet->payload[1];
+  if (profile >= RIDE_PROFILE_COUNT || speed_mode >= SPEED_LIMIT_MODE_COUNT) {
+    usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_OUT_OF_RANGE);
+    return;
+  }
+
+  hand_controller_config.ride_profile = profile;
+  hand_controller_config.speed_limit_mode = speed_mode;
+  if (vesc_config_save(&hand_controller_config) != ESP_OK) {
+    usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_SAVE_FAILED);
+    return;
+  }
+  // Live now: the ramp on the next sample, the rest at the receiver
+  throttle_set_ride_profile(vesc_config_ride_profile_ramp_ms(profile));
+  ble_set_current_scale(vesc_config_ride_profile_current_pct(profile));
+  ble_set_speed_limit(
+      (uint8_t)(vesc_config_speed_limit_kmh(speed_mode) + 0.5f));
+  usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_OK);
 }
 
 static void handle_cmd_get_throttle_curve(const binary_packet_t *packet) {

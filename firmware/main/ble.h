@@ -74,6 +74,13 @@ void ble_set_dual_connection(bool enabled);
 /** Wakes the sender on a new sample, so it transmits once per sample. */
 void ble_notify_throttle_sample(void);
 
+/** Speed limit cap in km/h, 0 = off. The receiver enforces it on its own ERPM.
+ */
+void ble_set_speed_limit(uint8_t cap_kmh);
+
+/** Percent of the receiver's max motor current the ride profile allows. */
+void ble_set_current_scale(uint8_t pct);
+
 void ble_set_smart_reverse(bool enabled);
 
 /** Reverse lockout, sent to every receiver: they brake instead of reversing. */

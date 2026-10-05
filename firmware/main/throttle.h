@@ -70,6 +70,15 @@ bool throttle_should_use_neutral(void);
 /** Curve then trim, for everything that leaves the remote. */
 uint8_t throttle_shape_output(uint8_t value, int8_t trim);
 
+/** Ride profile ramp: ms to go from neutral to full throttle, 0 = instant.
+ *  Reloaded at adc_init() and on every config-tool change. */
+void throttle_set_ride_profile(uint16_t ramp_ms);
+
+/** Eases `value` up toward full throttle at the profile's rate. Stateful: call
+ *  once per sample, with the (trimmed) neutral. Braking, release and neutral
+ *  pass through instantly. */
+uint8_t throttle_apply_ramp(uint8_t value, uint8_t neutral);
+
 /** Throttle curve, owned by the config tool and reloaded at adc_init(). */
 void throttle_set_curve(int8_t acc, int8_t brake, uint8_t mode);
 

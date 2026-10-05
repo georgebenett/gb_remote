@@ -31,6 +31,8 @@ static const vesc_config_t default_config = {
     .assist_push = false,
     .assist_strength = ASSIST_STRENGTH_DEFAULT,
     .assist_decay = ASSIST_DECAY_DEFAULT,
+    .speed_limit_mode = 0,
+    .ride_profile = RIDE_PROFILE_ROCKET,
 #ifdef CONFIG_TARGET_LITE
     .invert_throttle = false // Throttle inversion disabled by default
 #endif
@@ -70,6 +72,8 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   config->assist_push = false;
   config->assist_strength = ASSIST_STRENGTH_DEFAULT;
   config->assist_decay = ASSIST_DECAY_DEFAULT;
+  config->speed_limit_mode = 0;
+  config->ride_profile = RIDE_PROFILE_ROCKET;
 #ifdef CONFIG_TARGET_LITE
   config->invert_throttle = false;
 #endif
@@ -151,6 +155,18 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
     config->assist_strength = assist_strength;
   }
 
+  uint8_t speed_limit_mode;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_SPEED_LIMIT, &speed_limit_mode);
+  if (err == ESP_OK && speed_limit_mode < SPEED_LIMIT_MODE_COUNT) {
+    config->speed_limit_mode = speed_limit_mode;
+  }
+
+  uint8_t ride_profile;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_RIDE_PROFILE, &ride_profile);
+  if (err == ESP_OK && ride_profile < RIDE_PROFILE_COUNT) {
+    config->ride_profile = ride_profile;
+  }
+
   uint8_t assist_decay;
   err = nvs_get_u8(nvs_handle, NVS_KEY_ASSIST_DECAY, &assist_decay);
   if (err == ESP_OK && assist_decay >= ASSIST_DECAY_MIN &&
@@ -214,6 +230,14 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
     goto cleanup;
 
   err = nvs_set_u8(nvs_handle, NVS_KEY_ASSIST_DECAY, config->assist_decay);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_LIMIT, config->speed_limit_mode);
+  if (err != ESP_OK)
+    goto cleanup;
+
+  err = nvs_set_u8(nvs_handle, NVS_KEY_RIDE_PROFILE, config->ride_profile);
   if (err != ESP_OK)
     goto cleanup;
 
@@ -295,4 +319,36 @@ int32_t vesc_config_get_speed(const vesc_config_t *config) {
   }
 
   return (int32_t)speed_kmh;
+}
+
+// No single legal EU/US cap exists (a per-country/per-state patchwork); these
+// are commonly-cited reference values, not a substitute for local law.
+float vesc_config_speed_limit_kmh(uint8_t speed_limit_mode) {
+  static const float kmh[SPEED_LIMIT_MODE_COUNT] = {
+      0.0f,              // Off
+      20.0f,             // 20 km/h
+      25.0f,             // 25 km/h
+      20.0f * 1.609344f, // 20 mph
+      25.0f * 1.609344f, // 25 mph
+  };
+  return speed_limit_mode < SPEED_LIMIT_MODE_COUNT ? kmh[speed_limit_mode]
+                                                   : 0.0f;
+}
+
+// Tuned defaults modeled on Boosted-style Beginner/Eco/Expert/Pro tiers, not a
+// certified standard. The ramp is applied as an ease-in in throttle.c.
+uint16_t vesc_config_ride_profile_ramp_ms(uint8_t ride_profile) {
+  static const uint16_t ramp_ms[RIDE_PROFILE_COUNT] = {
+      5000, // Beginner
+      2500, // Eco
+      1000, // Medium
+      0,    // Rocket: instant
+  };
+  return ride_profile < RIDE_PROFILE_COUNT ? ramp_ms[ride_profile] : 0;
+}
+
+// Share of the receiver's max motor current each profile may drive.
+uint8_t vesc_config_ride_profile_current_pct(uint8_t ride_profile) {
+  static const uint8_t pct[RIDE_PROFILE_COUNT] = {40, 60, 80, 100};
+  return ride_profile < RIDE_PROFILE_COUNT ? pct[ride_profile] : 100;
 }

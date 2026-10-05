@@ -55,8 +55,8 @@ static void charging_screen_fade_up_timer_cb(lv_timer_t *timer) {
   lcd_fade_to_saved_brightness();
 }
 
-/* One-shot timer callback: after the shutdown bar visibly reaches 100%,
- * perform the final transition to charging mode or deep sleep. */
+/* One-shot timer callback: after the home arc visibly fills, perform the final
+ * transition to charging mode or deep sleep. */
 static void shutdown_completion_timer_cb(lv_timer_t *timer) {
   (void)timer;
 
@@ -66,7 +66,10 @@ static void shutdown_completion_timer_cb(lv_timer_t *timer) {
     arc_animation_active = false;
     current_mode = POWER_MODE_CHARGING;
     ble_suspend();
-    lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
+    // The home screen we return to later shows the battery again, not "shut
+    // off".
+    ui_show_shutdown_progress(false);
+    ui_set_shutdown_pending_icon(false);
     lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
     lv_disp_load_scr(objects.charging_screen);
     lv_obj_invalidate(objects.charging_screen);
@@ -78,23 +81,24 @@ static void shutdown_completion_timer_cb(lv_timer_t *timer) {
     return;
   }
 
-  ESP_LOGI(TAG, "Bar filled - USB not connected - Shutting down");
+  ESP_LOGI(TAG, "Arc filled - USB not connected - Shutting down");
   arc_animation_active = false;
   power_shutdown();
 }
 
 /* --------------------------------------------------------------------------
- * Shutdown bar animation (full mode): USB connected → charging screen
+ * Shutdown arc animation (full mode): USB connected → charging screen
  * ----------------------------------------------------------------------- */
-static void set_bar_value(void *obj, int32_t v) {
+static void set_arc_value(void *obj, int32_t v) {
   if (entering_power_off_mode) {
     return;
   }
 
-  lv_bar_set_value(obj, v, LV_ANIM_OFF);
+  (void)obj;
+  ui_set_shutdown_progress(v);
 
   if (v >= 100) {
-    /* Give haptic feedback when the bar completes. The old shutdown song would
+    /* Give haptic feedback when the arc completes. The old shutdown song would
      * immediately stop any running haptic pattern, so completion feedback could
      * be lost. We now keep a short vibration here and defer the final shutdown
      * transition to a timer so LVGL has time to paint 100%. */
@@ -131,12 +135,10 @@ static void power_button_callback(button_event_t event, void *user_data) {
 
     if (arc_animation_active && !entering_power_off_mode) {
       if (take_lvgl_mutex()) {
-        lv_anim_del(objects.shutting_down_bar, set_bar_value);
-        lv_bar_set_value(objects.shutting_down_bar, 0, LV_ANIM_OFF);
+        lv_anim_del(ui_get_remote_arc(), set_arc_value);
+        ui_show_shutdown_progress(false); // back to the battery reading
         arc_animation_active = false;
         set_shutdown_armed(false);
-        lv_disp_load_scr(ui_get_home_screen());
-        lv_obj_invalidate(ui_get_home_screen());
         give_lvgl_mutex();
       } else {
         arc_animation_active = false;
@@ -178,16 +180,21 @@ static void power_button_callback(button_event_t event, void *user_data) {
       break;
     }
 
-    /* Step 2: long press while armed → show shutdown screen + start bar */
+    /* Step 2: long press while armed → fill the remote's arc on home in red.
+     * The power icon stays up; letting go before it is full cancels. */
     if (!long_press_triggered && shutdown_armed) {
       long_press_triggered = true;
-      set_shutdown_armed(false);
+      shutdown_armed = false;
       if (take_lvgl_mutex()) {
-        lv_disp_load_scr(objects.shutdown_screen);
-        lv_obj_invalidate(objects.shutdown_screen);
+        lv_obj_t *home = ui_get_home_screen();
+        if (lv_scr_act() != home) {
+          lv_disp_load_scr(home);
+        }
+        lv_obj_invalidate(home);
+        ui_show_shutdown_progress(true);
         lv_anim_init(&arc_anim);
-        lv_anim_set_var(&arc_anim, objects.shutting_down_bar);
-        lv_anim_set_exec_cb(&arc_anim, set_bar_value);
+        lv_anim_set_var(&arc_anim, ui_get_remote_arc());
+        lv_anim_set_exec_cb(&arc_anim, set_arc_value);
         lv_anim_set_time(&arc_anim, SHUTDOWN_ANIMATION_TIME);
         lv_anim_set_values(&arc_anim, 0, 100);
         lv_anim_start(&arc_anim);

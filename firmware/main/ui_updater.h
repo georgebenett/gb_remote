@@ -76,6 +76,11 @@ void ui_update_aux_output_indicator(void);
  *  armed and waiting for the confirming press, back to the remote when it
  *  clears. */
 void ui_set_shutdown_pending_icon(bool pending);
+/** Home remote arc as a shutdown progress bar: red fill, "shut off" text.
+ *  Off puts the battery reading back. Caller holds the LVGL mutex. */
+void ui_show_shutdown_progress(bool on);
+void ui_set_shutdown_progress(int32_t pct);
+lv_obj_t *ui_get_remote_arc(void);
 
 // Splash screen
 void ui_show_splash_screen(void);

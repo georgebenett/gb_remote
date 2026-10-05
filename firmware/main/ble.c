@@ -156,6 +156,8 @@ static float bms_nominal_capacity = 0.0f;
 #define BLE_CMD_SET_SMART_REVERSE 0x03 // [0x03, enabled]
 #define BLE_CMD_SET_ASSIST_PUSH 0x04   // [0x04, enabled, strength%, decay]
 #define BLE_CMD_SET_NO_REVERSE 0x05    // [0x05, enabled]
+#define BLE_CMD_SET_SPEED_LIMIT 0x06   // [0x06, cap_kmh] 0 = off
+#define BLE_CMD_SET_CURRENT_SCALE 0x09 // [0x09, pct] drive current share
 
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
@@ -177,6 +179,11 @@ static bool smart_reverse_enabled = false;
 static bool assist_push_enabled = false;
 static uint8_t assist_strength = ASSIST_STRENGTH_DEFAULT;
 static uint8_t assist_decay = ASSIST_DECAY_DEFAULT;
+
+/** Speed limit cap in km/h (0 = off) and the ride profile's drive current
+ *  share. The receiver enforces both; we resend them on every connect. */
+static uint8_t speed_limit_cap_kmh = 0;
+static uint8_t current_scale_pct = 100;
 
 /** Reverse lockout (USB config tool). Sent to the receiver on connect. */
 static bool no_reverse_enabled = false;
@@ -217,6 +224,19 @@ static void link_send_assist_push(receiver_link_t *link) {
     return;
   uint8_t cmd[4] = {BLE_CMD_SET_ASSIST_PUSH, assist_push_enabled ? 1 : 0,
                     assist_strength, assist_decay};
+  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
+                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
+                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
+                           ESP_GATT_AUTH_REQ_NONE);
+}
+
+static void link_send_byte_cmd(receiver_link_t *link, uint8_t cmd_id,
+                               uint8_t value) {
+  if (!link->ready ||
+      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
+        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
+    return;
+  uint8_t cmd[2] = {cmd_id, value};
   esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
                            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
                            sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
@@ -953,6 +973,8 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     link_send_smart_reverse(link);
     link_send_no_reverse(link);
     link_send_assist_push(link);
+    link_send_byte_cmd(link, BLE_CMD_SET_SPEED_LIMIT, speed_limit_cap_kmh);
+    link_send_byte_cmd(link, BLE_CMD_SET_CURRENT_SCALE, current_scale_pct);
 
     reg_work_t work = {.link_idx = (uint8_t)(link - links),
                        .attr_idx = SPP_IDX_SPP_DATA_NTY_VAL};
@@ -1093,6 +1115,10 @@ void spp_client_demo_init(void) {
       assist_push_enabled = cfg.assist_push;
       assist_strength = cfg.assist_strength;
       assist_decay = cfg.assist_decay;
+      speed_limit_cap_kmh =
+          (uint8_t)(vesc_config_speed_limit_kmh(cfg.speed_limit_mode) + 0.5f);
+      current_scale_pct =
+          vesc_config_ride_profile_current_pct(cfg.ride_profile);
     }
     ESP_LOGI(GATTC_TAG, "Dual connection %s",
              dual_connection_enabled ? "enabled" : "disabled");
@@ -1189,6 +1215,7 @@ static void adc_send_task(void *pvParameters) {
       // Sent to a link during its post-connect neutral hold period.
       uint8_t neutral_ble_value =
           throttle_shape_output(VESC_NEUTRAL_VALUE, effective_trim);
+      final_ble_value = throttle_apply_ramp(final_ble_value, neutral_ble_value);
 
       uint32_t now_ms = esp_timer_get_time() / 1000;
       for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
@@ -1411,6 +1438,22 @@ void ble_set_assist_params(uint8_t strength_pct, uint8_t decay_rpm_s) {
            strength_pct, decay_rpm_s);
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
     link_send_assist_push(&links[i]);
+  }
+}
+
+void ble_set_speed_limit(uint8_t cap_kmh) {
+  speed_limit_cap_kmh = cap_kmh;
+  ESP_LOGI(GATTC_TAG, "Speed limit: %u km/h", cap_kmh);
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    link_send_byte_cmd(&links[i], BLE_CMD_SET_SPEED_LIMIT, cap_kmh);
+  }
+}
+
+void ble_set_current_scale(uint8_t pct) {
+  current_scale_pct = pct;
+  ESP_LOGI(GATTC_TAG, "Drive current scale: %u%%", pct);
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    link_send_byte_cmd(&links[i], BLE_CMD_SET_CURRENT_SCALE, pct);
   }
 }
 
