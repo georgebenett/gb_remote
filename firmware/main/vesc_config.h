@@ -34,7 +34,7 @@
 // Assistive push tuning, clamped again by the receiver that runs it.
 #define ASSIST_STRENGTH_DEFAULT 15 // percent of the VESC current limit
 #define ASSIST_STRENGTH_MIN 5
-#define ASSIST_STRENGTH_MAX 50
+#define ASSIST_STRENGTH_MAX 80
 #define ASSIST_DECAY_DEFAULT 30 // motor rpm/s bled off the held speed
 #define ASSIST_DECAY_MIN 10
 #define ASSIST_DECAY_MAX 120
