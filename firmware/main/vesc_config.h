@@ -24,8 +24,13 @@
 #define NVS_KEY_SPEED_LIMIT "speed_limit"
 #define NVS_KEY_RIDE_PROFILE "ride_profile"
 
-// Speed limit modes: Off, 20 km/h, 25 km/h, 20 mph, 25 mph.
-#define SPEED_LIMIT_MODE_COUNT 5
+// Speed limit cap range, whole km/h; 0 means off.
+#define SPEED_LIMIT_MIN_KMH 20
+#define SPEED_LIMIT_MAX_KMH 50
+
+static inline bool speed_limit_kmh_valid(uint8_t kmh) {
+  return kmh == 0 || (kmh >= SPEED_LIMIT_MIN_KMH && kmh <= SPEED_LIMIT_MAX_KMH);
+}
 
 // Ride profiles: Beginner, Eco, Medium, Rocket.
 #define RIDE_PROFILE_COUNT 4
@@ -70,10 +75,10 @@ typedef struct {
   bool assist_push;        // Assistive push (endless mode), run by the receiver
   uint8_t assist_strength; // Assistive push strength, percent of current limit
   uint8_t assist_decay;    // Assistive push decay, motor rpm/s
-  uint8_t speed_limit_mode; // 0 off, 1 20km/h, 2 25km/h, 3 20mph, 4 25mph;
-                            // enforced by the receiver
-  uint8_t ride_profile;     // 0 Beginner .. 3 Rocket: eased throttle ramp here,
-                            // drive current cap on the receiver. Rocket = off.
+  uint8_t speed_limit_kmh; // Speed cap in whole km/h, 0 off, else
+                           // SPEED_LIMIT_MIN..MAX_KMH; enforced by the receiver
+  uint8_t ride_profile;    // 0 Beginner .. 3 Rocket: eased throttle ramp here,
+                           // drive current cap on the receiver. Rocket = off.
 #ifdef CONFIG_TARGET_LITE
   bool invert_throttle; // Whether to invert throttle direction
 #endif
@@ -84,9 +89,6 @@ esp_err_t vesc_config_load(vesc_config_t *config);
 esp_err_t
 vesc_config_save(const vesc_config_t *config); // Only saves user preferences
 int32_t vesc_config_get_speed(const vesc_config_t *config);
-
-// The cap a speed_limit_mode enforces, in km/h; 0 means no limit.
-float vesc_config_speed_limit_kmh(uint8_t speed_limit_mode);
 
 // Time (ms) a profile takes to ramp neutral -> full throttle; 0 = instant.
 // Braking is never ramped.

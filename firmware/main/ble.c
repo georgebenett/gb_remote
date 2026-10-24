@@ -1115,8 +1115,7 @@ void spp_client_demo_init(void) {
       assist_push_enabled = cfg.assist_push;
       assist_strength = cfg.assist_strength;
       assist_decay = cfg.assist_decay;
-      speed_limit_cap_kmh =
-          (uint8_t)(vesc_config_speed_limit_kmh(cfg.speed_limit_mode) + 0.5f);
+      speed_limit_cap_kmh = cfg.speed_limit_kmh;
       current_scale_pct =
           vesc_config_ride_profile_current_pct(cfg.ride_profile);
     }

@@ -647,7 +647,7 @@ static void handle_cmd_get_all(const binary_packet_t *packet) {
   put_tlv(payload, &idx, ALL_TAG_CURVE, v, 3);
 
   v[0] = c->ride_profile;
-  v[1] = c->speed_limit_mode;
+  v[1] = c->speed_limit_kmh;
   put_tlv(payload, &idx, ALL_TAG_RIDE, v, 2);
 
   usb_serial_send_response(RSP_ALL, payload, idx);
@@ -988,14 +988,14 @@ static void handle_cmd_set_ride_settings(const binary_packet_t *packet) {
     return;
   }
   uint8_t profile = packet->payload[0];
-  uint8_t speed_mode = packet->payload[1];
-  if (profile >= RIDE_PROFILE_COUNT || speed_mode >= SPEED_LIMIT_MODE_COUNT) {
+  uint8_t speed_kmh = packet->payload[1];
+  if (profile >= RIDE_PROFILE_COUNT || !speed_limit_kmh_valid(speed_kmh)) {
     usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_OUT_OF_RANGE);
     return;
   }
 
   hand_controller_config.ride_profile = profile;
-  hand_controller_config.speed_limit_mode = speed_mode;
+  hand_controller_config.speed_limit_kmh = speed_kmh;
   if (vesc_config_save(&hand_controller_config) != ESP_OK) {
     usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_SAVE_FAILED);
     return;
@@ -1003,8 +1003,7 @@ static void handle_cmd_set_ride_settings(const binary_packet_t *packet) {
   // Live now: the ramp on the next sample, the rest at the receiver
   throttle_set_ride_profile(vesc_config_ride_profile_ramp_ms(profile));
   ble_set_current_scale(vesc_config_ride_profile_current_pct(profile));
-  ble_set_speed_limit(
-      (uint8_t)(vesc_config_speed_limit_kmh(speed_mode) + 0.5f));
+  ble_set_speed_limit(speed_kmh);
   usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_OK);
 }
 

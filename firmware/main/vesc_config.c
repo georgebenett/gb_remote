@@ -31,7 +31,7 @@ static const vesc_config_t default_config = {
     .assist_push = false,
     .assist_strength = ASSIST_STRENGTH_DEFAULT,
     .assist_decay = ASSIST_DECAY_DEFAULT,
-    .speed_limit_mode = 0,
+    .speed_limit_kmh = 0,
     .ride_profile = RIDE_PROFILE_ROCKET,
 #ifdef CONFIG_TARGET_LITE
     .invert_throttle = false // Throttle inversion disabled by default
@@ -72,7 +72,7 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
   config->assist_push = false;
   config->assist_strength = ASSIST_STRENGTH_DEFAULT;
   config->assist_decay = ASSIST_DECAY_DEFAULT;
-  config->speed_limit_mode = 0;
+  config->speed_limit_kmh = 0;
   config->ride_profile = RIDE_PROFILE_ROCKET;
 #ifdef CONFIG_TARGET_LITE
   config->invert_throttle = false;
@@ -155,10 +155,17 @@ esp_err_t vesc_config_load(vesc_config_t *config) {
     config->assist_strength = assist_strength;
   }
 
-  uint8_t speed_limit_mode;
-  err = nvs_get_u8(nvs_handle, NVS_KEY_SPEED_LIMIT, &speed_limit_mode);
-  if (err == ESP_OK && speed_limit_mode < SPEED_LIMIT_MODE_COUNT) {
-    config->speed_limit_mode = speed_limit_mode;
+  uint8_t speed_limit;
+  err = nvs_get_u8(nvs_handle, NVS_KEY_SPEED_LIMIT, &speed_limit);
+  if (err == ESP_OK) {
+    // Older firmware saved a mode: Off, 20/25 km/h, 20/25 mph.
+    static const uint8_t legacy_kmh[] = {0, 20, 25, 32, 40};
+    if (speed_limit < sizeof(legacy_kmh)) {
+      speed_limit = legacy_kmh[speed_limit];
+    }
+    if (speed_limit_kmh_valid(speed_limit)) {
+      config->speed_limit_kmh = speed_limit;
+    }
   }
 
   uint8_t ride_profile;
@@ -233,7 +240,7 @@ esp_err_t vesc_config_save(const vesc_config_t *config) {
   if (err != ESP_OK)
     goto cleanup;
 
-  err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_LIMIT, config->speed_limit_mode);
+  err = nvs_set_u8(nvs_handle, NVS_KEY_SPEED_LIMIT, config->speed_limit_kmh);
   if (err != ESP_OK)
     goto cleanup;
 
@@ -319,20 +326,6 @@ int32_t vesc_config_get_speed(const vesc_config_t *config) {
   }
 
   return (int32_t)speed_kmh;
-}
-
-// No single legal EU/US cap exists (a per-country/per-state patchwork); these
-// are commonly-cited reference values, not a substitute for local law.
-float vesc_config_speed_limit_kmh(uint8_t speed_limit_mode) {
-  static const float kmh[SPEED_LIMIT_MODE_COUNT] = {
-      0.0f,              // Off
-      20.0f,             // 20 km/h
-      25.0f,             // 25 km/h
-      20.0f * 1.609344f, // 20 mph
-      25.0f * 1.609344f, // 25 mph
-  };
-  return speed_limit_mode < SPEED_LIMIT_MODE_COUNT ? kmh[speed_limit_mode]
-                                                   : 0.0f;
 }
 
 // Tuned defaults modeled on Boosted-style Beginner/Eco/Expert/Pro tiers, not a

@@ -68,8 +68,7 @@ typedef enum {
                                  // curves signed tenths)
   CMD_GET_THROTTLE_CURVE = 0x2C, // Read the curve back
   CMD_SET_RIDE_SETTINGS = 0x2D,  // Payload: [ride profile 0-3 (Beginner..
-                                 // Rocket), speed limit mode 0-4 (Off, 20/25
-                                 // km/h, 20/25 mph)]
+                                 // Rocket), speed limit km/h, 0 off or 20-50]
   CMD_GET_ALL = 0x2F,            // Everything the config tool shows, in one
                                  // tagged answer (see ALL_TAG_*)
 
@@ -111,7 +110,7 @@ typedef enum {
                             // not calibrated
 #define ALL_TAG_ASSIST 0x09 // 2: strength %, decay rpm/s
 #define ALL_TAG_CURVE 0x0A  // 3: mode, acc, brake (signed tenths)
-#define ALL_TAG_RIDE 0x0B   // 2: ride profile 0-3, speed limit mode 0-4
+#define ALL_TAG_RIDE 0x0B   // 2: ride profile 0-3, speed limit km/h (0 off)
 
 // Response/Error codes
 typedef enum {
