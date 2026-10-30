@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "gb_protocol.h"
 #include "power.h"
 #include "ui_updater.h"
 #include <stdio.h>
@@ -23,15 +24,6 @@ typedef struct {
   uint32_t z_len;   // zlib bytes after the header
   char version[32]; // the image's esp_app_desc_t version
 } rx_fw_hdr_t;
-
-// Receiver protocol (gb_receiver ble.c). Every reply on the status
-// characteristic is [cmd, status, next_offset u32 LE].
-#define CMD_OTA_BEGIN 0x0A // [0x0A, z_len u32, raw_len u32] -> ERASING, then OK
-#define CMD_OTA_DATA 0x0B  // [0x0B, offset u32, zlib bytes...]
-#define CMD_OTA_END 0x0C   // [0x0C]; before the last byte it aborts
-#define ST_OK 0
-#define ST_BAD_OFFSET 3 // next_offset says where to resume
-#define ST_ERASING 4    // BEGIN accepted; OK follows once the slot is erased
 
 #define CHUNK_HEADER 5 // cmd + offset
 #define ATT_HEADER 3
@@ -88,13 +80,6 @@ void rx_ota_init(void) {
   }
 }
 
-static void put_u32(uint8_t *p, uint32_t v) {
-  p[0] = v;
-  p[1] = v >> 8;
-  p[2] = v >> 16;
-  p[3] = v >> 24;
-}
-
 /** Wait for the reply to `cmd`; stale replies to other commands are dropped. */
 static bool wait_for(uint8_t cmd, uint32_t timeout_ms, reply_t *r) {
   TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
@@ -117,7 +102,7 @@ static bool send_and_wait(const uint8_t *buf, uint16_t len, uint32_t timeout_ms,
 
 /** Make the receiver drop a half-done update and take the throttle again. */
 static void abort_update(void) {
-  uint8_t end = CMD_OTA_END;
+  uint8_t end = GB_CMD_OTA_END;
   ble_receiver_write_cmd(target_link, &end, 1);
 }
 
@@ -126,7 +111,7 @@ static void abort_update(void) {
 static uint32_t drain(uint32_t resume) {
   reply_t r;
   while (xQueueReceive(replies, &r, pdMS_TO_TICKS(DRAIN_MS)) == pdTRUE) {
-    if (r.cmd == CMD_OTA_DATA) {
+    if (r.cmd == GB_CMD_OTA_DATA) {
       resume = r.next;
     }
   }
@@ -141,10 +126,11 @@ static void rx_ota_task(void *arg) {
 
   xQueueReset(replies);
   active = true; // throttle neutral from here: the receiver erases first
-  buf[0] = CMD_OTA_BEGIN;
-  put_u32(&buf[1], image_len);
-  put_u32(&buf[5], raw_len);
-  if (!send_and_wait(buf, 9, REPLY_TIMEOUT_MS, &r) || r.status != ST_ERASING) {
+  buf[0] = GB_CMD_OTA_BEGIN;
+  gb_wr_u32(&buf[1], image_len);
+  gb_wr_u32(&buf[5], raw_len);
+  if (!send_and_wait(buf, 9, REPLY_TIMEOUT_MS, &r) ||
+      r.status != GB_OTA_ERASING) {
     ESP_LOGW(TAG, "Receiver declined the update"); // e.g. it is moving
     abort_update();
     active = false;
@@ -153,7 +139,8 @@ static void rx_ota_task(void *arg) {
   ble_receiver_ota_link(target_link, true);
   ui_fw_update_show(from_str, to_str);
   TickType_t t0 = xTaskGetTickCount();
-  bool ok = wait_for(CMD_OTA_BEGIN, BEGIN_TIMEOUT_MS, &r) && r.status == ST_OK;
+  bool ok =
+      wait_for(GB_CMD_OTA_BEGIN, BEGIN_TIMEOUT_MS, &r) && r.status == GB_OTA_OK;
   TickType_t t_erased = xTaskGetTickCount();
 
   uint32_t chunk = ble_receiver_mtu(target_link) - ATT_HEADER - CHUNK_HEADER;
@@ -174,8 +161,8 @@ static void rx_ota_task(void *arg) {
         break;
       }
       uint32_t n = image_len - sent < chunk ? image_len - sent : chunk;
-      buf[0] = CMD_OTA_DATA;
-      put_u32(&buf[1], sent);
+      buf[0] = GB_CMD_OTA_DATA;
+      gb_wr_u32(&buf[1], sent);
       if (esp_partition_read(part, sizeof(rx_fw_hdr_t) + sent,
                              &buf[CHUNK_HEADER], n) != ESP_OK) {
         ok = false;
@@ -200,13 +187,13 @@ static void rx_ota_task(void *arg) {
       ok = ble_receiver_is_connected(target_link);
       continue;
     }
-    if (got && r.cmd != CMD_OTA_DATA) {
+    if (got && r.cmd != GB_CMD_OTA_DATA) {
       continue;
     }
     if (got && (r.next > image_len ||
-                (r.status != ST_OK && r.status != ST_BAD_OFFSET))) {
+                (r.status != GB_OTA_OK && r.status != GB_OTA_BAD_OFFSET))) {
       ok = false;
-    } else if (got && r.status == ST_OK) {
+    } else if (got && r.status == GB_OTA_OK) {
       acked = r.next;
       if (sent < acked) {
         sent = acked;
@@ -227,8 +214,8 @@ static void rx_ota_task(void *arg) {
   }
   TickType_t t_sent = xTaskGetTickCount();
   if (ok) {
-    buf[0] = CMD_OTA_END;
-    ok = send_and_wait(buf, 1, END_TIMEOUT_MS, &r) && r.status == ST_OK;
+    buf[0] = GB_CMD_OTA_END;
+    ok = send_and_wait(buf, 1, END_TIMEOUT_MS, &r) && r.status == GB_OTA_OK;
   }
   if (!ok) {
     abort_update();
@@ -274,9 +261,6 @@ void rx_ota_on_reply(const uint8_t *v, uint16_t len) {
   if (replies == NULL || len < 6) {
     return;
   }
-  reply_t r = {.cmd = v[0],
-               .status = v[1],
-               .next =
-                   v[2] | (v[3] << 8) | (v[4] << 16) | ((uint32_t)v[5] << 24)};
+  reply_t r = {.cmd = v[0], .status = v[1], .next = gb_rd_u32(&v[2])};
   xQueueSend(replies, &r, 0);
 }

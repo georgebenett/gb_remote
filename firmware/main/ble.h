@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define DEVICE_NAME "GS-THUMB"
 #define GATTC_TAG "GATTC_SPP_DEMO"
 
 #define AUX_NVS_NAMESPACE "aux_cfg"
@@ -33,7 +32,6 @@
 #define BT_BD_ADDR_STR "%02x:%02x:%02x:%02x:%02x:%02x"
 #define BT_BD_ADDR_HEX(addr)                                                   \
   addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
-#define ESP_GATT_SPP_SERVICE_UUID 0xABF0
 #define SCAN_ALL_THE_TIME 0
 
 // Thread-safe connection status check

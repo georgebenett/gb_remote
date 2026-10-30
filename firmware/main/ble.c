@@ -26,6 +26,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
+#include "gb_protocol.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "rx_ota.h"
@@ -105,7 +106,7 @@ typedef struct {
   uint32_t connect_ms; // Connection timestamp for the neutral hold period
   int8_t rssi;
   bool rssi_valid;
-  bool fw_seen; // Receiver answered BLE_CMD_GET_FW_VERSION
+  bool fw_seen; // Receiver answered GB_CMD_GET_FW_VERSION
   float vesc_voltage;
   float bms_total_voltage;
   float bms_remaining_capacity;
@@ -120,7 +121,7 @@ static receiver_link_t *link_by_bda(const esp_bd_addr_t bda);
 
 static bool is_connect = false; // True while at least one link is connected
 static SemaphoreHandle_t is_connect_mutex = NULL;
-static const char device_name[] = DEVICE_NAME;
+static const char device_name[] = GB_RECEIVER_ADV_NAME;
 /* Interface handed to us by ESP_GATTC_REG_EVT; ESP_GATT_IF_NONE until then. */
 static esp_gatt_if_t spp_gattc_if = ESP_GATT_IF_NONE;
 static bool dual_connection_enabled = false;
@@ -142,7 +143,7 @@ static esp_bt_uuid_t spp_service_uuid = {
     .len = ESP_UUID_LEN_16,
     .uuid =
         {
-            .uuid16 = ESP_GATT_SPP_SERVICE_UUID,
+            .uuid16 = GB_UUID_SERVICE,
         },
 };
 
@@ -153,17 +154,6 @@ static float bms_total_voltage = 0.0f;
 static float bms_remaining_capacity = 0.0f;
 static float bms_nominal_capacity = 0.0f;
 
-#define BLE_CMD_RESET_ODOMETER 0x01
-#define BLE_CMD_SHUTDOWN 0x02
-#define BLE_CMD_SET_SMART_REVERSE 0x03 // [0x03, enabled]
-#define BLE_CMD_SET_ASSIST_PUSH 0x04   // [0x04, enabled, strength%, decay]
-#define BLE_CMD_SET_NO_REVERSE 0x05    // [0x05, enabled]
-#define BLE_CMD_SET_SPEED_LIMIT 0x06   // [0x06, cap_kmh] 0 = off
-#define BLE_CMD_GET_FW_VERSION                                                 \
-  0x07 // [0x07] -> status [0x07, major, minor, patch, mac x6]
-#define BLE_CMD_SET_CURRENT_SCALE 0x09 // [0x09, pct] drive current share
-#define BLE_CMD_OTA_BEGIN 0x0A // 0x0A-0x0C: receiver update, see rx_ota.c
-#define BLE_CMD_OTA_END 0x0C
 #define OTA_CONN_INTERVAL 6 // 7.5 ms during receiver updates; tune on hardware
 
 static bool aux_output_state = false;
@@ -205,7 +195,7 @@ static void link_send_no_reverse(receiver_link_t *link) {
       !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
     return;
-  uint8_t cmd[2] = {BLE_CMD_SET_NO_REVERSE, no_reverse_enabled ? 1 : 0};
+  uint8_t cmd[2] = {GB_CMD_SET_NO_REVERSE, no_reverse_enabled ? 1 : 0};
   esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
                            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
                            sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
@@ -217,7 +207,7 @@ static void link_send_smart_reverse(receiver_link_t *link) {
       !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
     return;
-  uint8_t cmd[2] = {BLE_CMD_SET_SMART_REVERSE, smart_reverse_enabled ? 1 : 0};
+  uint8_t cmd[2] = {GB_CMD_SET_SMART_REVERSE, smart_reverse_enabled ? 1 : 0};
   esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
                            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
                            sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
@@ -229,7 +219,7 @@ static void link_send_assist_push(receiver_link_t *link) {
       !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
     return;
-  uint8_t cmd[4] = {BLE_CMD_SET_ASSIST_PUSH, assist_push_enabled ? 1 : 0,
+  uint8_t cmd[4] = {GB_CMD_SET_ASSIST_PUSH, assist_push_enabled ? 1 : 0,
                     assist_strength, assist_decay};
   esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
                            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
@@ -254,7 +244,7 @@ esp_err_t ble_send_reset_odometer(void) {
   if (!ble_is_connected()) {
     return ESP_ERR_INVALID_STATE;
   }
-  uint8_t cmd[1] = {BLE_CMD_RESET_ODOMETER};
+  uint8_t cmd[1] = {GB_CMD_RESET_ODOMETER};
   bool sent = false;
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
     receiver_link_t *link = &links[i];
@@ -282,7 +272,7 @@ esp_err_t ble_send_shutdown(void) {
   if (!ble_is_connected()) {
     return ESP_ERR_INVALID_STATE;
   }
-  uint8_t cmd[1] = {BLE_CMD_SHUTDOWN};
+  uint8_t cmd[1] = {GB_CMD_SHUTDOWN};
   bool sent = false;
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
     receiver_link_t *link = &links[i];
@@ -424,7 +414,7 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
 
   if (handle == db[SPP_IDX_SPP_STATUS_VAL].attribute_handle) {
     const uint8_t *v = p_data->notify.value;
-    if (p_data->notify.value_len >= 10 && v[0] == BLE_CMD_GET_FW_VERSION) {
+    if (p_data->notify.value_len >= 10 && v[0] == GB_CMD_GET_FW_VERSION) {
       char fw[12];
       link->fw_seen = true;
       snprintf(fw, sizeof(fw), "%u.%u.%u", v[1], v[2], v[3]);
@@ -432,13 +422,13 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
       rx_ota_on_version(link_idx, v[1], v[2], v[3]);
       return;
     }
-    if (p_data->notify.value_len >= 1 && v[0] >= BLE_CMD_OTA_BEGIN &&
-        v[0] <= BLE_CMD_OTA_END) {
+    if (p_data->notify.value_len >= 1 && v[0] >= GB_CMD_OTA_BEGIN &&
+        v[0] <= GB_CMD_OTA_END) {
       rx_ota_on_reply(v, p_data->notify.value_len);
       return;
     }
     if (p_data->notify.value_len >= 2 &&
-        p_data->notify.value[0] == BLE_CMD_RESET_ODOMETER) {
+        p_data->notify.value[0] == GB_CMD_RESET_ODOMETER) {
       if (p_data->notify.value[1] == 0x00) {
         latest_trip_km = 0.0f;
         link->trip_km = 0.0f;
@@ -450,112 +440,47 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
     if (!link->fw_seen) {
       // The first request lands before SMP completes and the receiver drops
       // it; its once-a-second status frame paces the retry.
-      uint8_t req = BLE_CMD_GET_FW_VERSION;
+      uint8_t req = GB_CMD_GET_FW_VERSION;
       ble_receiver_write_cmd(link_idx, &req, sizeof(req));
     }
     return;
   }
 
   if (handle == db[SPP_IDX_SPP_DATA_NTY_VAL].attribute_handle) {
-    if (p_data->notify.value_len ==
-        65) { // VESC + BMS + motor config + aux state + trip_km
-      // All values are little-endian (LSB first, MSB second). Temperatures and
-      // currents are decoded for the log only — nothing displays them.
-      int16_t temp_mos =
-          p_data->notify.value[0] | ((int16_t)p_data->notify.value[1] << 8);
-      int16_t temp_motor =
-          p_data->notify.value[2] | ((int16_t)p_data->notify.value[3] << 8);
-      int16_t current_motor =
-          p_data->notify.value[4] | ((int16_t)p_data->notify.value[5] << 8);
-      int16_t current_in =
-          p_data->notify.value[6] | ((int16_t)p_data->notify.value[7] << 8);
-
-      // rpm (bytes 8-11) - little-endian
-      int32_t rpm_raw = ((int32_t)p_data->notify.value[8]) |
-                        ((int32_t)p_data->notify.value[9] << 8) |
-                        ((int32_t)p_data->notify.value[10] << 16) |
-                        ((int32_t)p_data->notify.value[11] << 24);
-
-      latest_erpm = rpm_raw;
-
-      // voltage (bytes 12-13)
-      int16_t voltage =
-          p_data->notify.value[12] | ((int16_t)p_data->notify.value[13] << 8);
-      float decoded_voltage = voltage / 100.0f;
-      if (decoded_voltage > 1.0f) {
-        latest_voltage = decoded_voltage;
-        link->vesc_voltage = decoded_voltage;
-      }
-
-      // total_voltage (bytes 14-15)
-      int16_t total_voltage =
-          p_data->notify.value[14] | ((int16_t)p_data->notify.value[15] << 8);
-      bms_total_voltage = total_voltage / 100.0f;
-      link->bms_total_voltage = bms_total_voltage;
-
-      // current (bytes 16-17) - log only
-      int16_t bms_current_raw =
-          p_data->notify.value[16] | ((int16_t)p_data->notify.value[17] << 8);
-
-      // remaining_capacity (bytes 18-19)
-      int16_t remaining_cap =
-          p_data->notify.value[18] | ((int16_t)p_data->notify.value[19] << 8);
-      bms_remaining_capacity = remaining_cap / 100.0f;
-      link->bms_remaining_capacity = bms_remaining_capacity;
-
-      // nominal_capacity (bytes 20-21)
-      int16_t nominal_cap =
-          p_data->notify.value[20] | ((int16_t)p_data->notify.value[21] << 8);
-      bms_nominal_capacity = nominal_cap / 100.0f;
-      link->bms_nominal_capacity = bms_nominal_capacity;
-
-      // num_cells (byte 22) - log only. Bytes 23-54 hold the 16 per-cell
-      // voltages; nothing on the remote shows them, so they are not decoded.
-      uint8_t bms_num_cells = p_data->notify.value[22];
-
-      // motor_poles (byte 55)
-      uint8_t motor_poles = p_data->notify.value[55];
-
-      // gear_ratio (bytes 56-57, uint16_t, scale ÷1000) - little-endian
-      uint16_t gear_ratio_x1000 =
-          p_data->notify.value[56] | ((uint16_t)p_data->notify.value[57] << 8);
-
-      // wheel_diameter (bytes 58-59, uint16_t in mm, scale ÷1000 = meters) -
-      // little-endian
-      uint16_t wheel_diameter_mm =
-          p_data->notify.value[58] | ((uint16_t)p_data->notify.value[59] << 8);
-
-      // Update motor config from VESC (not saved to NVS, only kept in memory)
-      vesc_config_update_motor(motor_poles, gear_ratio_x1000,
-                               wheel_diameter_mm);
-
-      // aux output state (byte 60)
-      receiver_aux_output_state = (p_data->notify.value[60] != 0);
-      ui_update_aux_output_indicator();
-
-      // trip_km (bytes 61-64, int32 * 100)
-      int32_t trip_km_x100 = ((int32_t)p_data->notify.value[61]) |
-                             ((int32_t)p_data->notify.value[62] << 8) |
-                             ((int32_t)p_data->notify.value[63] << 16) |
-                             ((int32_t)p_data->notify.value[64] << 24);
-      latest_trip_km = trip_km_x100 / 100.0f;
-      link->trip_km = latest_trip_km;
-      ui_update_trip_distance(link_idx, link->trip_km);
-
-      ESP_LOGI(GATTC_TAG, "Combined Data Received:");
-      ESP_LOGI(GATTC_TAG,
-               "VESC: V=%.2fV, RPM=%ld, Motor=%.2fA, In=%.2fA, TempMos=%.2f°C, "
-               "TempMotor=%.2f°C",
-               latest_voltage, latest_erpm, current_motor / 100.0f,
-               current_in / 100.0f, temp_mos / 100.0f, temp_motor / 100.0f);
-      ESP_LOGI(GATTC_TAG,
-               "BMS: Total V=%.2fV, Current=%.2fA, Remaining=%.2fAh, Cells=%d",
-               bms_total_voltage, bms_current_raw / 100.0f,
-               bms_remaining_capacity, bms_num_cells);
-    } else {
-      ESP_LOGW(GATTC_TAG, "Unexpected data length: %d (expected 65)",
+    gb_telemetry_t t;
+    if (!gb_telemetry_decode(p_data->notify.value, p_data->notify.value_len,
+                             &t)) {
+      ESP_LOGW(GATTC_TAG, "Telemetry too short: %d bytes",
                p_data->notify.value_len);
+      return;
     }
+    latest_erpm = t.erpm;
+    float decoded_voltage = t.v_in / 100.0f;
+    if (decoded_voltage > 1.0f) {
+      latest_voltage = decoded_voltage;
+      link->vesc_voltage = decoded_voltage;
+    }
+    bms_total_voltage = t.bms_total_voltage / 100.0f;
+    link->bms_total_voltage = bms_total_voltage;
+    bms_remaining_capacity = t.bms_remaining_ah / 100.0f;
+    link->bms_remaining_capacity = bms_remaining_capacity;
+    bms_nominal_capacity = t.bms_nominal_ah / 100.0f;
+    link->bms_nominal_capacity = bms_nominal_capacity;
+
+    // Motor config from the VESC, kept in RAM only
+    vesc_config_update_motor(t.motor_poles, t.gear_ratio_x1000,
+                             t.wheel_diameter_mm);
+
+    receiver_aux_output_state = t.aux_on != 0;
+    ui_update_aux_output_indicator();
+
+    latest_trip_km = t.trip_km_x100 / 100.0f;
+    link->trip_km = latest_trip_km;
+    ui_update_trip_distance(link_idx, link->trip_km);
+
+    ESP_LOGD(GATTC_TAG, "VESC %.2f V, %ld erpm; BMS %.2f V, %.2f Ah, %d cells",
+             latest_voltage, (long)latest_erpm, bms_total_voltage,
+             bms_remaining_capacity, t.bms_cells);
   }
 }
 
@@ -698,8 +623,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
           esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
                                    ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
 
-      if (adv_name != NULL &&
-          strncmp((char *)adv_name, device_name, adv_name_len) == 0) {
+      if (gb_adv_name_matches(adv_name, adv_name_len, device_name)) {
         if (connect_pending || link_by_bda(scan_result->scan_rst.bda) != NULL ||
             link_count_connected() >= desired_link_count()) {
           break;
@@ -1017,8 +941,8 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     link_send_smart_reverse(link);
     link_send_no_reverse(link);
     link_send_assist_push(link);
-    link_send_byte_cmd(link, BLE_CMD_SET_SPEED_LIMIT, speed_limit_cap_kmh);
-    link_send_byte_cmd(link, BLE_CMD_SET_CURRENT_SCALE, current_scale_pct);
+    link_send_byte_cmd(link, GB_CMD_SET_SPEED_LIMIT, speed_limit_cap_kmh);
+    link_send_byte_cmd(link, GB_CMD_SET_CURRENT_SCALE, current_scale_pct);
 
     reg_work_t work = {.link_idx = (uint8_t)(link - links),
                        .attr_idx = SPP_IDX_SPP_DATA_NTY_VAL};
@@ -1065,7 +989,7 @@ void spp_client_reg_task(void *arg) {
           ESP_GATT_AUTH_REQ_NONE);
       if (work.attr_idx == SPP_IDX_SPP_STATUS_VAL) {
         // After the CCCD write, so the reply is not notified into the void.
-        uint8_t req = BLE_CMD_GET_FW_VERSION;
+        uint8_t req = GB_CMD_GET_FW_VERSION;
         ble_receiver_write_cmd(work.link_idx, &req, sizeof(req));
       }
     }
@@ -1557,7 +1481,7 @@ void ble_set_speed_limit(uint8_t cap_kmh) {
   speed_limit_cap_kmh = cap_kmh;
   ESP_LOGI(GATTC_TAG, "Speed limit: %u km/h", cap_kmh);
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_byte_cmd(&links[i], BLE_CMD_SET_SPEED_LIMIT, cap_kmh);
+    link_send_byte_cmd(&links[i], GB_CMD_SET_SPEED_LIMIT, cap_kmh);
   }
 }
 
@@ -1565,7 +1489,7 @@ void ble_set_current_scale(uint8_t pct) {
   current_scale_pct = pct;
   ESP_LOGI(GATTC_TAG, "Drive current scale: %u%%", pct);
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_byte_cmd(&links[i], BLE_CMD_SET_CURRENT_SCALE, pct);
+    link_send_byte_cmd(&links[i], GB_CMD_SET_CURRENT_SCALE, pct);
   }
 }
 
