@@ -114,6 +114,16 @@ float ble_receiver_get_bms_total_voltage(int idx);
 int ble_receiver_get_bms_battery_percentage(int idx);
 float ble_receiver_get_vesc_voltage(int idx);
 float ble_receiver_get_trip_km(int idx);
+/** Write a command to receiver `idx`'s command characteristic (rx_ota.c). */
+esp_err_t ble_receiver_write_cmd(int idx, const uint8_t *data, uint16_t len);
+/** Room in Bluedroid's queue for another write to receiver `idx`. A write past
+ *  it is accepted by esp_ble_gattc_write_char() but then silently dropped. */
+bool ble_receiver_can_send(int idx);
+/** Receiver update on link `idx`: `on` shortens its interval, asks for 2M PHY
+ *  and pauses scanning and the pairing advert; `off` restores them. */
+void ble_receiver_ota_link(int idx, bool on);
+/** Negotiated ATT MTU for receiver `idx`; 23 until the exchange completes. */
+uint16_t ble_receiver_mtu(int idx);
 
 /** Suspend BLE: disconnect and stop scanning.
  *  Called when leaving home screen (charging, snake, splash, etc.). */

@@ -28,6 +28,7 @@
 #include "freertos/timers.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "rx_ota.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "ui_updater.h"
@@ -104,6 +105,7 @@ typedef struct {
   uint32_t connect_ms; // Connection timestamp for the neutral hold period
   int8_t rssi;
   bool rssi_valid;
+  bool fw_seen; // Receiver answered BLE_CMD_GET_FW_VERSION
   float vesc_voltage;
   float bms_total_voltage;
   float bms_remaining_capacity;
@@ -157,7 +159,12 @@ static float bms_nominal_capacity = 0.0f;
 #define BLE_CMD_SET_ASSIST_PUSH 0x04   // [0x04, enabled, strength%, decay]
 #define BLE_CMD_SET_NO_REVERSE 0x05    // [0x05, enabled]
 #define BLE_CMD_SET_SPEED_LIMIT 0x06   // [0x06, cap_kmh] 0 = off
+#define BLE_CMD_GET_FW_VERSION                                                 \
+  0x07 // [0x07] -> status [0x07, major, minor, patch, mac x6]
 #define BLE_CMD_SET_CURRENT_SCALE 0x09 // [0x09, pct] drive current share
+#define BLE_CMD_OTA_BEGIN 0x0A // 0x0A-0x0C: receiver update, see rx_ota.c
+#define BLE_CMD_OTA_END 0x0C
+#define OTA_CONN_INTERVAL 6 // 7.5 ms during receiver updates; tune on hardware
 
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
@@ -416,6 +423,20 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   int link_idx = (int)(link - links);
 
   if (handle == db[SPP_IDX_SPP_STATUS_VAL].attribute_handle) {
+    const uint8_t *v = p_data->notify.value;
+    if (p_data->notify.value_len >= 10 && v[0] == BLE_CMD_GET_FW_VERSION) {
+      char fw[12];
+      link->fw_seen = true;
+      snprintf(fw, sizeof(fw), "%u.%u.%u", v[1], v[2], v[3]);
+      ui_set_receiver_fw(fw);
+      rx_ota_on_version(link_idx, v[1], v[2], v[3]);
+      return;
+    }
+    if (p_data->notify.value_len >= 1 && v[0] >= BLE_CMD_OTA_BEGIN &&
+        v[0] <= BLE_CMD_OTA_END) {
+      rx_ota_on_reply(v, p_data->notify.value_len);
+      return;
+    }
     if (p_data->notify.value_len >= 2 &&
         p_data->notify.value[0] == BLE_CMD_RESET_ODOMETER) {
       if (p_data->notify.value[1] == 0x00) {
@@ -425,6 +446,12 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
         ESP_LOGI(GATTC_TAG, "Odometer reset ACK received from receiver");
         printf("#>DATA odometer_reset=ok\n");
       }
+    }
+    if (!link->fw_seen) {
+      // The first request lands before SMP completes and the receiver drops
+      // it; its once-a-second status frame paces the retry.
+      uint8_t req = BLE_CMD_GET_FW_VERSION;
+      ble_receiver_write_cmd(link_idx, &req, sizeof(req));
     }
     return;
   }
@@ -533,7 +560,8 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
 }
 
 static void pairing_adv_apply(void) {
-  bool want = !ble_suspended && link_count_connected() < desired_link_count();
+  bool want = !ble_suspended && !rx_ota_active() &&
+              link_count_connected() < desired_link_count();
   if (want && !pairing_adv_active) {
     esp_ble_gap_start_advertising(&pairing_adv_params);
     pairing_adv_active = true;
@@ -606,7 +634,7 @@ static int desired_link_count(void) { return dual_connection_enabled ? 2 : 1; }
 /** Start scanning when below the desired receiver count and no
  *  stop-scan-then-open handshake is in flight. */
 static void resume_scan_if_needed(void) {
-  if (ble_suspended || scan_active || connect_pending)
+  if (ble_suspended || scan_active || connect_pending || rx_ota_active())
     return;
   if (link_count_connected() >= desired_link_count())
     return;
@@ -693,6 +721,22 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
     }
     break;
   }
+  // WARN, only during receiver updates: GATTC_TAG is filtered to WARN and
+  // these are what the update speed depends on.
+  case ESP_GAP_BLE_PHY_UPDATE_COMPLETE_EVT:
+    if (rx_ota_active()) {
+      ESP_LOGW(GATTC_TAG, "PHY tx %d rx %d (status %d)",
+               param->phy_update.tx_phy, param->phy_update.rx_phy,
+               param->phy_update.status);
+    }
+    break;
+  case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
+    if (rx_ota_active()) {
+      ESP_LOGW(GATTC_TAG, "Conn interval %u x 1.25 ms (status %d)",
+               param->update_conn_params.conn_int,
+               param->update_conn_params.status);
+    }
+    break;
   case ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT:
     if ((err = param->adv_stop_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
       ESP_LOGE(GATTC_TAG, "Adv stop failed: %s", esp_err_to_name(err));
@@ -1009,13 +1053,21 @@ void spp_client_reg_task(void *arg) {
                link->db[work.attr_idx].attribute_handle);
       esp_ble_gattc_register_for_notify(
           spp_gattc_if, link->bda, link->db[work.attr_idx].attribute_handle);
-      // Enable notifications on the server; the CCCD is the next attribute
+      // Enable notifications on the server; the CCCD is the next attribute.
+      // WRITE_TYPE_RSP, not NO_RSP: the spec requires a Write Request for a
+      // CCCD, and a rejected Write Command reports no error - the subscription
+      // just silently never happens.
       uint16_t notify_en = 1;
       esp_ble_gattc_write_char_descr(
           spp_gattc_if, link->conn_id,
           link->db[work.attr_idx + 1].attribute_handle, sizeof(notify_en),
-          (uint8_t *)&notify_en, ESP_GATT_WRITE_TYPE_NO_RSP,
+          (uint8_t *)&notify_en, ESP_GATT_WRITE_TYPE_RSP,
           ESP_GATT_AUTH_REQ_NONE);
+      if (work.attr_idx == SPP_IDX_SPP_STATUS_VAL) {
+        // After the CCCD write, so the reply is not notified into the void.
+        uint8_t req = BLE_CMD_GET_FW_VERSION;
+        ble_receiver_write_cmd(work.link_idx, &req, sizeof(req));
+      }
     }
   }
 }
@@ -1048,7 +1100,8 @@ void ble_client_appRegister(void) {
   esp_ble_gap_config_adv_data_raw((uint8_t *)pairing_adv_data,
                                   sizeof(pairing_adv_data));
 
-  esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(200);
+  // The receiver offers 500; receiver updates send MTU-sized chunks.
+  esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
   if (local_mtu_ret) {
     ESP_LOGE(GATTC_TAG, "set local  MTU failed: %s",
              esp_err_to_name_r(local_mtu_ret, err_msg, sizeof(err_msg)));
@@ -1224,10 +1277,12 @@ static void adc_send_task(void *pvParameters) {
                                ESP_GATT_CHAR_PROP_BIT_WRITE))) {
           continue;
         }
-        // Hold neutral for the first NEUTRAL_HOLD_MS after this link connects
-        uint8_t out_value = (now_ms - link->connect_ms < NEUTRAL_HOLD_MS)
-                                ? neutral_ble_value
-                                : final_ble_value;
+        // Hold neutral for the first NEUTRAL_HOLD_MS after this link connects,
+        // and while a receiver takes a firmware update.
+        uint8_t out_value =
+            (now_ms - link->connect_ms < NEUTRAL_HOLD_MS || rx_ota_active())
+                ? neutral_ble_value
+                : final_ble_value;
         data_buffer[0] = out_value;
         data_buffer[1] = 0;
         data_buffer[2] = aux_output_state ? 1 : 0;
@@ -1306,6 +1361,55 @@ static const receiver_link_t *link_for_idx(int idx) {
 bool ble_receiver_is_connected(int idx) {
   const receiver_link_t *link = link_for_idx(idx);
   return !ble_suspended && link != NULL && link->ready;
+}
+
+esp_err_t ble_receiver_write_cmd(int idx, const uint8_t *data, uint16_t len) {
+  const receiver_link_t *link = link_for_idx(idx);
+  if (link == NULL || !link->ready ||
+      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
+        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
+    return ESP_ERR_INVALID_STATE;
+  return esp_ble_gattc_write_char(
+      spp_gattc_if, link->conn_id,
+      link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle, len, (uint8_t *)data,
+      ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+}
+
+bool ble_receiver_can_send(int idx) {
+  const receiver_link_t *link = link_for_idx(idx);
+  return link != NULL && link->ready &&
+         esp_ble_get_cur_sendable_packets_num(link->conn_id) > 0;
+}
+
+void ble_receiver_ota_link(int idx, bool on) {
+  receiver_link_t *link = (receiver_link_t *)link_for_idx(idx);
+  if (link != NULL && link->ready) {
+    // 2M halves airtime but costs range, so it is only for updates.
+    esp_ble_gap_phy_mask_t phy =
+        on ? ESP_BLE_GAP_PHY_2M_PREF_MASK : ESP_BLE_GAP_PHY_1M_PREF_MASK;
+    esp_ble_gap_set_preferred_phy(link->bda, 0, phy, phy,
+                                  ESP_BLE_GAP_PHY_OPTIONS_NO_PREF);
+    esp_ble_conn_update_params_t p = {
+        .min_int = on ? OTA_CONN_INTERVAL : 16, // 16 = the usual 20 ms
+        .max_int = on ? OTA_CONN_INTERVAL : 16,
+        .latency = 0,
+        .timeout = 400,
+    };
+    memcpy(p.bda, link->bda, sizeof(p.bda));
+    esp_ble_gap_update_conn_params(&p);
+  }
+  // Scan and pairing advert share the radio with the link; rx_ota_active()
+  // holds both off while an update runs.
+  if (on && scan_active && !connect_pending) {
+    esp_ble_gap_stop_scanning();
+  }
+  pairing_adv_apply();
+  resume_scan_if_needed();
+}
+
+uint16_t ble_receiver_mtu(int idx) {
+  const receiver_link_t *link = link_for_idx(idx);
+  return (link != NULL && link->mtu >= 23) ? link->mtu : 23;
 }
 
 bool ble_receiver_get_rssi(int idx, int8_t *out_rssi) {

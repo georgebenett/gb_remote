@@ -1,6 +1,6 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/3",
+    "selectedUserPageObject": "[eezproject.eez-project]:/userPages/1",
     "selectedActionObject": "[eezproject.eez-project]:/actions/16",
     "selectedThemeObject": "[eezproject.eez-project]:/themes/1",
     "selectedThemeColorObject": "[eezproject.eez-project]:/colors/1",
@@ -201,10 +201,10 @@
                 {
                   "type": "tab",
                   "id": "#14bddffc-143b-46e2-bd09-bb59a64a4590",
-                  "name": "low battery screen",
+                  "name": "splash screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[eezproject.eez-project]:/userPages/3",
+                    "objectPath": "[eezproject.eez-project]:/userPages/1",
                     "permanent": false
                   },
                   "icon": "svg:page"

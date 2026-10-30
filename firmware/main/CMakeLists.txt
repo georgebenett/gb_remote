@@ -33,6 +33,7 @@ idf_component_register(
         "lcd.c"
         "main.c"
         "power.c"
+        "rx_ota.c"
         "snake.c"
         "throttle.c"
         "throttle_math.c"
@@ -47,4 +48,5 @@ idf_component_register(
         "ui_dual_throttle"
         "ui_lite"
     REQUIRES driver nvs_flash bt esp_adc spi_flash esp_lcd lvgl espcoredump
+             esp_partition esp_app_format bootloader_support
 )

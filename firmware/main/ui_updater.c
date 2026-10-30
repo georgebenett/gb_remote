@@ -38,6 +38,7 @@ typedef enum {
   UI_CMD_UPDATE_AUX_INDICATOR,
   UI_CMD_UPDATE_REMOTE_ICON,
   UI_CMD_RESET_SKATE_DISPLAY,
+  UI_CMD_UPDATE_RX_FW,
 } ui_cmd_type_t;
 
 typedef struct {
@@ -59,6 +60,7 @@ typedef struct {
     float trip_km;
     bool aux_state;
     bool shutdown_pending;
+    char rx_fw[12];
   } data;
 } ui_cmd_t;
 
@@ -995,6 +997,15 @@ static void ui_cmd_processor_task(void *pvParameters) {
             lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_TRANSP, 0);
           }
           break;
+
+        case UI_CMD_UPDATE_RX_FW:
+          lv_label_set_text(objects.rx_firmware_text, cmd.data.rx_fw);
+          if (splash_transition_timer != NULL) {
+            lv_timer_set_period((lv_timer_t *)splash_transition_timer,
+                                SPLASH_RX_SHOWN_MS);
+            lv_timer_reset((lv_timer_t *)splash_transition_timer);
+          }
+          break;
         }
         xSemaphoreGive(lvgl_mutex);
       } else {
@@ -1104,22 +1115,34 @@ static void splash_set_labels(void) {
              mac[1], mac[2], mac[3], mac[4], mac[5]);
     lv_label_set_text(objects.mac_addr_text, mac_str);
   }
+  // BLE starts with the splash; the version fills in if a receiver connects
+  // before it ends (UI_CMD_UPDATE_RX_FW).
+  lv_label_set_text(objects.rx_firmware_text, "---");
+}
+
+void ui_set_receiver_fw(const char *version) {
+  ui_cmd_t cmd = {.type = UI_CMD_UPDATE_RX_FW};
+  snprintf(cmd.data.rx_fw, sizeof(cmd.data.rx_fw), "%s", version);
+  ui_queue_send(&cmd);
 }
 
 /** Show splash and schedule transition to home after 4s. Caller must hold LVGL
  * mutex. */
 void ui_show_splash_then_home(void) {
   splash_set_labels();
+  ble_resume(); // early, so the splash can show the receiver's version
   ui_cancel_splash_transition_locked();
   splash_transition_active = true;
   lv_disp_load_scr(objects.splash_screen);
   lv_obj_invalidate(objects.splash_screen);
-  splash_transition_timer = lv_timer_create(splash_timer_cb, 1200, NULL);
+  splash_transition_timer =
+      lv_timer_create(splash_timer_cb, SPLASH_HOLD_MS, NULL);
   lv_timer_set_repeat_count((lv_timer_t *)splash_transition_timer, 1);
 }
 
 void ui_show_splash_screen(void) {
   splash_set_labels();
+  ble_resume(); // early, so the splash can show the receiver's version
   lcd_set_backlight(0);
   ui_cancel_splash_transition_locked();
   splash_transition_active = true;
@@ -1130,7 +1153,45 @@ void ui_show_splash_screen(void) {
       lv_timer_create(splash_fade_up_timer_cb, SPLASH_FADE_UP_DELAY_MS, NULL);
   lv_timer_set_repeat_count(fade_timer, 1);
 
-  splash_transition_timer = lv_timer_create(splash_timer_cb, 1200, NULL);
+  splash_transition_timer =
+      lv_timer_create(splash_timer_cb, SPLASH_HOLD_MS, NULL);
   lv_timer_set_repeat_count((lv_timer_t *)splash_transition_timer, 1);
   vTaskDelay(pdMS_TO_TICKS(SPLASH_SCREEN_DELAY_MS));
+}
+
+void ui_fw_update_show(const char *from, const char *to) {
+  xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
+  ui_cancel_splash_transition_locked(); // it would load home over this screen
+  lv_label_set_text(objects.fw_update_from, from);
+  lv_label_set_text(objects.fw_update_to, to);
+  lv_label_set_text(objects.fw_update_status, "0%");
+  lv_bar_set_value(objects.fw_update_bar, 0, LV_ANIM_OFF);
+  lv_disp_load_scr(objects.fw_update_screen);
+  give_lvgl_mutex();
+}
+
+void ui_fw_update_progress(int pct) {
+  xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
+  lv_bar_set_value(objects.fw_update_bar, pct, LV_ANIM_OFF);
+  lv_label_set_text_fmt(objects.fw_update_status, "%d%%", pct);
+  give_lvgl_mutex();
+}
+
+static void fw_update_home_cb(lv_timer_t *timer) {
+  (void)timer;
+  if (get_current_screen() != objects.fw_update_screen) {
+    return; // something else (charging, shutdown) took over meanwhile
+  }
+  lv_disp_load_scr(ui_get_home_screen());
+  if (!throttle_is_calibrated()) {
+    ui_show_throttle_not_calibrated_text();
+  }
+}
+
+void ui_fw_update_done(bool ok) {
+  xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
+  lv_label_set_text(objects.fw_update_status, ok ? "Updated" : "Update failed");
+  lv_timer_t *t = lv_timer_create(fw_update_home_cb, 2000, NULL);
+  lv_timer_set_repeat_count(t, 1);
+  give_lvgl_mutex();
 }

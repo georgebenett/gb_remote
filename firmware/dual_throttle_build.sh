@@ -15,6 +15,14 @@ if command -v ccache &> /dev/null; then
     echo "ccache enabled"
 fi
 
+# Build the sibling gb_receiver and bundle it into receiver_fw/ (rx_fw).
+RX_BUNDLE="$(dirname "$0")/../../gb_receiver/bundle_to_remotes.sh"
+if [ -f "$RX_BUNDLE" ]; then
+    bash "$RX_BUNDLE"
+else
+    echo "gb_receiver not checked out next to gb_remote; keeping receiver_fw/ as is"
+fi
+
 BUILD_START=$(date +%s)
 idf.py -B "$BUILD_DIR" \
     -D SDKCONFIG="$SDKCONFIG_FILE" \

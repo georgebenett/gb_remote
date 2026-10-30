@@ -54,6 +54,19 @@ if ! git diff --quiet HEAD -- 2>/dev/null || [ -n "$(git ls-files --others --exc
     exit 1
 fi
 
+# The receiver image every remote ships in rx_fw and pushes to older receivers
+# over BLE (main/rx_ota.c). It comes from gb_receiver's own release
+# (bundle_to_remotes.sh) and is committed here, so the clean-tree check above
+# guarantees the zip carries the committed one.
+RX_FW_BIN=$(ls receiver_fw/gb_receiver_v*.bin 2>/dev/null || true)
+if [ -z "$RX_FW_BIN" ] || [ "$(echo "$RX_FW_BIN" | wc -l)" -ne 1 ]; then
+    print_error "Need exactly one receiver_fw/gb_receiver_v*.bin. Release gb_receiver (it runs bundle_to_remotes.sh) and commit the bin here."
+    exit 1
+fi
+# App descriptor version string: image header (24) + segment header (8) + 16.
+RX_FW_VERSION=$(dd if="$RX_FW_BIN" bs=1 skip=48 count=32 2>/dev/null | tr -d '\0')
+print_info "Bundling receiver firmware $RX_FW_VERSION"
+
 # Also require the current commit to be pushed, so origin has the commit the tag will reference.
 if ! git diff --quiet "@{upstream}"..HEAD 2>/dev/null; then
     print_warn "Local commits are ahead of upstream. Push them before tagging so the release tag references a pushed commit."
@@ -255,6 +268,7 @@ build_target() {
     cp "$APP_BIN" "$STAGING_DIR/gb_controller_${target}.bin"
     cp "build/bootloader/bootloader.bin" "$STAGING_DIR/bootloader.bin"
     cp "build/partition_table/partition-table.bin" "$STAGING_DIR/partition-table.bin"
+    cp "build/rx_fw.bin" "$STAGING_DIR/rx_fw.bin"  # packed by pack_rx_fw.py
     if [ -f "build/gb_controller_lite.elf" ]; then
         cp "build/gb_controller_lite.elf" "$STAGING_DIR/gb_controller_${target}.elf"
     fi
@@ -264,7 +278,8 @@ build_target() {
     zip -q "$ZIP_PATH" \
         gb_controller_${target}.bin \
         bootloader.bin \
-        partition-table.bin
+        partition-table.bin \
+        rx_fw.bin
     if [ -f "gb_controller_${target}.elf" ]; then
         zip -q "$ZIP_PATH" "gb_controller_${target}.elf"
     fi
@@ -341,6 +356,8 @@ fi
 # Build the full release notes body once and reuse it for both create paths.
 RELEASE_NOTES="Firmware release v$VERSION
 
+Bundled receiver firmware: $RX_FW_VERSION (pushed to older receivers over BLE)
+
 ${CHANGELOG_HEADER}
 ${CHANGELOG}"
 
@@ -398,6 +415,7 @@ ${ARTIFACT_LIST}
 Each zip contains:
 - \`bootloader.bin\` - Bootloader binary
 - \`partition-table.bin\` - Partition table
+- \`rx_fw.bin\` - Receiver firmware for the rx_fw partition (0x240000)
 - \`gb_controller_lite.bin\` or \`gb_controller_dual_throttle.bin\` - Application binary (target-specific)
 - \`gb_controller_lite.elf\` or \`gb_controller_dual_throttle.elf\` - Application ELF (for coredump decoding)" \
         "$ARTIFACTS_DIR"/*.zip

@@ -55,6 +55,13 @@ CONFIG_BT_BLUEDROID_ENABLED=y
 CONFIG_BT_BLE_ENABLED=y
 CONFIG_BT_GATTC_ENABLE=y
 CONFIG_BT_BLE_SMP_ENABLE=y
+# 5.0 alongside 4.2 only for LE Set PHY (2M during receiver updates); scan,
+# advert and connect stay legacy, so the extended sub-features are off.
+CONFIG_BT_BLE_50_FEATURES_SUPPORTED=y
+CONFIG_BT_BLE_50_EXTEND_ADV_EN=n
+CONFIG_BT_BLE_50_PERIODIC_ADV_EN=n
+CONFIG_BT_BLE_50_EXTEND_SCAN_EN=n
+CONFIG_BT_BLE_50_EXTEND_SYNC_EN=n
 CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
 
 # Coredump: panic handler writes an ELF core dump to the coredump partition;

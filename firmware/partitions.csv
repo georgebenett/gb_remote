@@ -1,8 +1,9 @@
 # Name,   Type, SubType,   Offset,   Size,     Flags
-# 3 MB app: room for LVGL 9 at -O2. storage and coredump follow it, ending at
-# the 4 MB flash's last byte (storage is never mounted, so moving it loses nothing).
+# factory holds the remote app. rx_fw holds the packed receiver image (pack_rx_fw.py) to push over BLE;
+# it matches the receiver's ota slot size (0x1B0000), the largest image it can accept.
+# coredump ends at the 4 MB flash's last byte.
 nvs,      data, nvs,       0x9000,   0x6000,
 phy_init, data, phy,       0xf000,   0x1000,
-factory,  app,  factory,   0x10000,  0x300000,
-storage,  data, spiffs,    ,         0x0E0000,
-coredump, data, coredump,  ,         0x010000,
+factory,  app,  factory,   0x10000,  0x230000,
+rx_fw,    data, 0x40,      0x240000, 0x1B0000,
+coredump, data, coredump,  0x3F0000, 0x010000,

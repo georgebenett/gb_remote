@@ -19,6 +19,8 @@
 #define MUTEX_RETRY_DELAY_MS 5      // Delay when mutex unavailable
 #define SPLASH_SCREEN_DELAY_MS 50   // Post-splash delay
 #define SPLASH_FADE_UP_DELAY_MS 120 // Allow first splash frame to render
+#define SPLASH_HOLD_MS 4000     // Splash waits this long for the receiver fw
+#define SPLASH_RX_SHOWN_MS 1000 // ...then leaves this long after it shows
 
 // UI Command Queue for thread-safe UI updates
 #define UI_CMD_QUEUE_SIZE 32
@@ -96,6 +98,16 @@ void ui_show_splash_screen(void);
 /** Show splash then auto-switch to home after 4s (for mode 1→2 transition).
  * Call with LVGL mutex held. */
 void ui_show_splash_then_home(void);
+
+/** Receiver firmware version on the splash ("---" until one reports). Safe
+ *  from any task. */
+void ui_set_receiver_fw(const char *version);
+
+// Receiver firmware update screen (rx_ota.c). Take the LVGL mutex themselves.
+void ui_fw_update_show(const char *from, const char *to);
+void ui_fw_update_progress(int pct); // 0..100
+/** Show the outcome, then return to home after 2 s. */
+void ui_fw_update_done(bool ok);
 
 // Easter egg: consume power-button events for splash combo and snake controls.
 bool ui_handle_easter_egg_button_event(int event);

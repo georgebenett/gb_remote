@@ -13,6 +13,7 @@
 #include "lcd.h"
 #include "nvs_flash.h"
 #include "power.h"
+#include "rx_ota.h"
 #include "throttle.h"
 #include "ui.h"
 #include "ui_updater.h"
@@ -97,6 +98,7 @@ void app_init_after_charging(void) {
   }
   usb_serial_init();
   usb_serial_start_task();
+  rx_ota_init();
   spp_client_demo_init();
   ESP_LOGI(TAG, "BLE initialization complete");
   xSemaphoreTake(get_lvgl_mutex_handle(), portMAX_DELAY);

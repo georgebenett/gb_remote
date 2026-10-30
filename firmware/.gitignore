@@ -7,6 +7,8 @@
 *~
 
 gb_*
+# ...except the receiver image bundled into rx_fw
+!receiver_fw/gb_receiver_v*.bin
 
 # Build artifacts
 build/
