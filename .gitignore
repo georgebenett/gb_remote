@@ -27,8 +27,6 @@ ble_spp_client.code-workspace
 
 # Dependencies
 *.d
-firmware/dependencies.lock
-dependencies.lock
 
 # Libraries
 *.lib

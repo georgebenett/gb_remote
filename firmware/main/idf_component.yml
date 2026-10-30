@@ -8,6 +8,6 @@ dependencies:
   # Only for its SIMD routines (see sdkconfig.defaults). Later releases need
   # LVGL 9.2+ (LV_COLOR_FORMAT_RGB565_SWAPPED) and won't build against 9.1.
   espressif/esp_lvgl_port: "2.4.4"
-  ## Required IDF version
+  # What CI builds and dependencies.lock was resolved with.
   idf:
-    version: ">=4.1.0"
+    version: ">=5.5,<5.6"
