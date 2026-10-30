@@ -4,7 +4,6 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nvs.h"
@@ -21,7 +20,6 @@
 static adc_oneshot_unit_handle_t adc1_handle;
 static adc_oneshot_unit_init_cfg_t init_config1;
 static adc_oneshot_chan_cfg_t config;
-static QueueHandle_t adc_display_queue = NULL;
 static SemaphoreHandle_t adc_mutex = NULL;
 /* Neutral, not 0: 0 is full brake, and the radio sends this if the task dies.
  */
@@ -71,12 +69,6 @@ esp_err_t adc_init(void) {
       ESP_LOGE(TAG, "Failed to create ADC mutex");
       return ESP_FAIL;
     }
-  }
-
-  adc_display_queue = xQueueCreate(10, sizeof(uint32_t));
-  if (adc_display_queue == NULL) {
-    ESP_LOGE(TAG, "Failed to create queue");
-    return ESP_FAIL;
   }
 
   init_config1.unit_id = ADC_UNIT_1;
@@ -245,12 +237,6 @@ static void adc_task(void *pvParameters) {
       }
     }
 
-    if (xQueueSend(adc_display_queue, &mapped_value, 0) != pdTRUE) {
-      uint32_t dummy;
-      xQueueReceive(adc_display_queue, &dummy, 0);
-      xQueueSend(adc_display_queue, &mapped_value, 0);
-    }
-
     esp_task_wdt_reset();
     /* Fixed cadence so a variable sampling burst does not stack onto the
      * period. On overrun take the next slot fresh: catching up would burst
@@ -304,11 +290,6 @@ static void adc_deinit(void) {
   if (adc1_handle) {
     adc_oneshot_del_unit(adc1_handle);
     adc1_handle = NULL;
-  }
-
-  if (adc_display_queue) {
-    vQueueDelete(adc_display_queue);
-    adc_display_queue = NULL;
   }
 
   if (adc_mutex) {
