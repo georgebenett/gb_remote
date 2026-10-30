@@ -10,13 +10,12 @@
 #include <stdint.h>
 
 // Task update intervals
+#define UI_CMD_PERIOD_MS 20       // queued UI commands are applied this often
 #define SPEED_UPDATE_MS 50        // 20Hz for smooth speed display
 #define BATTERY_UPDATE_MS 1000    // 1Hz for battery
 #define CONNECTION_UPDATE_MS 3000 // 0.33Hz for connection icon
 
 // Timing constants
-#define UI_TASK_STARTUP_DELAY_MS 20 // Staggered task startup delay
-#define MUTEX_RETRY_DELAY_MS 5      // Delay when mutex unavailable
 #define SPLASH_FADE_UP_DELAY_MS 120 // Allow first splash frame to render
 #define SPLASH_HOLD_MS 4000     // Splash waits this long for the receiver fw
 #define SPLASH_RX_SHOWN_MS 1000 // ...then leaves this long after it shows

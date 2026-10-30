@@ -6,7 +6,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_mac.h"
-#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -415,12 +414,21 @@ static int remote_pct;
 static bool remote_charging;
 static bool shutdown_progress; // battery updates leave the arc alone meanwhile
 
+/* Setting a label invalidates it even when the text is the same; the periodic
+ * updates mostly resend what is shown. */
+static void label_set(lv_obj_t *label, const char *text) {
+  if (strcmp(lv_label_get_text(label), text) != 0) {
+    lv_label_set_text(label, text);
+  }
+}
+
 /** Caller holds lvgl_mutex. */
 static void render_remote_battery(void) {
   if (home_ui.remote_battery_text != NULL) {
-    lv_label_set_text_fmt(home_ui.remote_battery_text, "%s%d%%",
-                          remote_charging ? LV_SYMBOL_CHARGE " " : "",
-                          remote_pct);
+    char text[16];
+    snprintf(text, sizeof(text), "%s%d%%",
+             remote_charging ? LV_SYMBOL_CHARGE " " : "", remote_pct);
+    label_set(home_ui.remote_battery_text, text);
   }
   if (home_ui.remote_arc != NULL) {
     gauge_set(home_ui.remote_arc, remote_pct);
@@ -690,338 +698,276 @@ void ui_update_speed_unit(bool is_mph) {
   ui_queue_send(&cmd);
 }
 
-static void speed_update_task(void *pvParameters) {
-  ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
-
-  settings_t config;
-  settings_get(&config);
-  uint32_t seen_epoch = settings_epoch();
-
-  TickType_t last_wake_time = xTaskGetTickCount();
-  const TickType_t frequency = pdMS_TO_TICKS(SPEED_UPDATE_MS);
-
-  while (1) {
-    vTaskDelayUntil(&last_wake_time, frequency);
-
-    if (seen_epoch != settings_epoch()) {
-      seen_epoch = settings_epoch();
-      settings_get(&config);
-    }
-
-    if (ble_is_connected()) {
-      int32_t speed = settings_speed(&config, get_latest_erpm());
-      if (speed >= 0) {
-        ui_update_speed(speed);
-        ui_update_speed_unit(config.speed_unit_mph);
-      }
-    }
-    esp_task_wdt_reset();
+static void speed_timer_cb(lv_timer_t *t) {
+  (void)t;
+  static settings_t config;
+  static uint32_t seen_epoch = UINT32_MAX;
+  if (seen_epoch != settings_epoch()) {
+    seen_epoch = settings_epoch();
+    settings_get(&config);
+    ui_update_speed_unit(config.speed_unit_mph);
+  }
+  if (ble_is_connected()) {
+    ui_update_speed(settings_speed(&config, get_latest_erpm()));
   }
 }
 
-static void battery_update_task(void *pvParameters) {
-  ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
-
+static void battery_timer_cb(lv_timer_t *t) {
+  (void)t;
   static int displayed_percentage = -1;
   static uint32_t last_change_time = 0;
   const uint32_t RATE_LIMIT_MS = 5000;
-  bool was_connected[UI_MAX_RECEIVERS] = {false};
+  static bool was_connected[UI_MAX_RECEIVERS];
+  static settings_t config;
+  static uint32_t seen_epoch = UINT32_MAX;
 
-  settings_t config;
-  settings_get(&config);
-  uint32_t seen_epoch = settings_epoch();
+  if (seen_epoch != settings_epoch()) {
+    seen_epoch = settings_epoch();
+    settings_get(&config);
+  }
 
-  while (1) {
-    if (seen_epoch != settings_epoch()) {
-      seen_epoch = settings_epoch();
-      settings_get(&config);
-    }
+  int battery_percentage = battery_get_percentage();
 
-    int battery_percentage = battery_get_percentage();
+  if (battery_percentage >= 0) {
+    int display_percentage = battery_percentage;
 
-    if (battery_percentage >= 0) {
-      int display_percentage = battery_percentage;
+    if (displayed_percentage >= 0) {
+      uint32_t current_time = esp_timer_get_time() / 1000;
 
-      if (displayed_percentage >= 0) {
-        uint32_t current_time = esp_timer_get_time() / 1000;
-
-        if (current_time - last_change_time >= RATE_LIMIT_MS) {
-          if (battery_percentage > displayed_percentage) {
-            display_percentage = displayed_percentage + 1;
-            last_change_time = current_time;
-          } else if (battery_percentage < displayed_percentage) {
-            display_percentage = displayed_percentage - 1;
-            last_change_time = current_time;
-          } else {
-            display_percentage = displayed_percentage;
-          }
+      if (current_time - last_change_time >= RATE_LIMIT_MS) {
+        if (battery_percentage > displayed_percentage) {
+          display_percentage = displayed_percentage + 1;
+          last_change_time = current_time;
+        } else if (battery_percentage < displayed_percentage) {
+          display_percentage = displayed_percentage - 1;
+          last_change_time = current_time;
         } else {
           display_percentage = displayed_percentage;
         }
+      } else {
+        display_percentage = displayed_percentage;
       }
-
-      displayed_percentage = display_percentage;
-      ui_update_battery_percentage(display_percentage);
     }
 
-    for (int i = 0; i < home_ui.receiver_count; i++) {
-      if (receiver_is_connected(i)) {
-        was_connected[i] = true;
-        float bms_voltage = receiver_bms_voltage(i);
-        bool bms_connected = (bms_voltage > 0.1f);
+    displayed_percentage = display_percentage;
+    ui_update_battery_percentage(display_percentage);
+  }
 
-        if (!bms_connected) {
-          // No BMS: fall back to the VESC pack voltage. If the user told us
-          // the cell count we can turn that into a percentage, else show volts.
-          float vesc_voltage = receiver_vesc_voltage(i);
-          if (vesc_voltage > 0.1f) {
-            int estimated = battery_pack_percentage(
-                vesc_voltage, config.battery_cells, config.battery_cell_type);
-            if (estimated >= 0) {
-              ui_update_skate_battery_percentage(i, estimated);
-            } else {
-              ui_update_skate_battery_voltage_display(i, vesc_voltage);
-            }
-          }
-        } else {
-          int skate_battery_percentage = receiver_bms_percentage(i);
-          if (skate_battery_percentage >= 0) {
-            ui_update_skate_battery_percentage(i, skate_battery_percentage);
+  for (int i = 0; i < home_ui.receiver_count; i++) {
+    if (receiver_is_connected(i)) {
+      was_connected[i] = true;
+      float bms_voltage = receiver_bms_voltage(i);
+      bool bms_connected = (bms_voltage > 0.1f);
+
+      if (!bms_connected) {
+        // No BMS: fall back to the VESC pack voltage. If the user told us
+        // the cell count we can turn that into a percentage, else show volts.
+        float vesc_voltage = receiver_vesc_voltage(i);
+        if (vesc_voltage > 0.1f) {
+          int estimated = battery_pack_percentage(
+              vesc_voltage, config.battery_cells, config.battery_cell_type);
+          if (estimated >= 0) {
+            ui_update_skate_battery_percentage(i, estimated);
+          } else {
+            ui_update_skate_battery_voltage_display(i, vesc_voltage);
           }
         }
-      } else if (was_connected[i]) {
-        was_connected[i] = false;
-        ui_reset_skate_display(i);
+      } else {
+        int skate_battery_percentage = receiver_bms_percentage(i);
+        if (skate_battery_percentage >= 0) {
+          ui_update_skate_battery_percentage(i, skate_battery_percentage);
+        }
       }
+    } else if (was_connected[i]) {
+      was_connected[i] = false;
+      ui_reset_skate_display(i);
     }
-    esp_task_wdt_reset();
-    vTaskDelay(pdMS_TO_TICKS(BATTERY_UPDATE_MS));
   }
 }
 
-static void connection_update_task(void *pvParameters) {
-  // Not registered with watchdog - this is a non-critical UI task
-  // and its 5s update interval would conflict with watchdog timeout
-
-  while (1) {
-    ui_update_connection_icon();
-    vTaskDelay(pdMS_TO_TICKS(CONNECTION_UPDATE_MS));
-  }
+static void connection_timer_cb(lv_timer_t *t) {
+  (void)t;
+  ui_update_connection_icon();
 }
 
-// UI Command Processor Task - handles queued UI updates
-static void ui_cmd_processor_task(void *pvParameters) {
-  ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
-
+/* Applies queued UI commands. An LVGL timer, so it runs in the LVGL task with
+ * the mutex already held. */
+static void ui_cmd_timer_cb(lv_timer_t *t) {
+  (void)t;
   ui_cmd_t cmd;
   char str_buf[16];
 
-  while (1) {
-    esp_task_wdt_reset();
+  while (xQueueReceive(ui_cmd_queue, &cmd, 0) == pdTRUE) {
+    // Only update if on home screen (for most commands)
+    bool on_home = (get_current_screen() == home_ui.screen);
+    // Widget column this command targets; commands without a receiver
+    // leave `receiver` at 0, which is always a valid column.
+    int slot = cmd.receiver < home_ui.receiver_count ? cmd.receiver : -1;
 
-    // Block waiting for commands with timeout to allow watchdog reset
-    if (xQueueReceive(ui_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) == pdTRUE) {
-      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        // Only update if on home screen (for most commands)
-        bool on_home = (get_current_screen() == home_ui.screen);
-        // Widget column this command targets; commands without a receiver
-        // leave `receiver` at 0, which is always a valid column.
-        int slot = cmd.receiver < home_ui.receiver_count ? cmd.receiver : -1;
-
-        switch (cmd.type) {
-        case UI_CMD_UPDATE_SPEED:
-          if (on_home && home_ui.speedlabel != NULL) {
-            lv_label_set_text_fmt(home_ui.speedlabel, "%ld", cmd.data.speed);
-          }
-          break;
-
-        case UI_CMD_UPDATE_SPEED_UNIT:
-          // Re-sent at 20 Hz while connected, so only touch the labels when
-          // the unit differs from what the bound screen shows.
-          speed_unit_mph = cmd.data.speed_unit_mph;
-          if (rendered_unit != (int8_t)cmd.data.speed_unit_mph) {
-            if (home_ui.static_speed != NULL) {
-              lv_label_set_text(home_ui.static_speed,
-                                cmd.data.speed_unit_mph ? "mph" : "km/h");
-            }
-            if (home_ui.static_odometer_text != NULL) {
-              lv_label_set_text(home_ui.static_odometer_text,
-                                cmd.data.speed_unit_mph ? "odo mi" : "odo km");
-            }
-            for (int i = 0; i < home_ui.receiver_count; i++) {
-              render_distance(i);
-            }
-            rendered_unit = (int8_t)cmd.data.speed_unit_mph;
-          }
-          break;
-
-        case UI_CMD_UPDATE_BATTERY_PERCENTAGE:
-          remote_pct = LV_CLAMP(0, cmd.data.battery.percentage, 100);
-          remote_charging = cmd.data.battery.is_charging;
-          if (on_home && !shutdown_progress) {
-            render_remote_battery();
-          }
-          if (get_current_screen() == objects.charging_screen &&
-              objects.charging_screen_percentage != NULL) {
-            lv_label_set_text_fmt(objects.charging_screen_percentage,
-                                  "%d%% charged", cmd.data.battery.percentage);
-            if (objects.charging_arc != NULL) {
-              gauge_set(objects.charging_arc, remote_pct);
-            }
-          }
-          break;
-
-        case UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE:
-          if (on_home && slot >= 0 &&
-              home_ui.skate_battery_text[slot] != NULL) {
-            lv_label_set_text_fmt(home_ui.skate_battery_text[slot], "%d%%",
-                                  cmd.data.skate_percentage);
-            lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
-                                        receiver_is_connected(slot)
-                                            ? lv_color_white()
-                                            : lv_color_make(48, 48, 48),
-                                        LV_PART_MAIN);
-          }
-          if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
-            gauge_set(home_ui.skate_arc[slot],
-                      LV_CLAMP(0, cmd.data.skate_percentage, 100));
-          }
-          break;
-
-        case UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE:
-          if (on_home && slot >= 0 &&
-              home_ui.skate_battery_text[slot] != NULL) {
-            int volts = (int)cmd.data.skate_voltage;
-            int tenths = (int)((cmd.data.skate_voltage - volts) * 10 + 0.5f);
-            if (tenths >= 10) {
-              tenths = 0;
-              volts++;
-            }
-            snprintf(str_buf, sizeof(str_buf), "%d.%dV", volts, tenths);
-            lv_label_set_text(home_ui.skate_battery_text[slot], str_buf);
-            lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
-                                        receiver_is_connected(slot)
-                                            ? lv_color_white()
-                                            : lv_color_make(48, 48, 48),
-                                        LV_PART_MAIN);
-          }
-          break;
-
-        case UI_CMD_UPDATE_CONNECTION_ICON:
-          if (on_home && slot >= 0 && home_ui.connection_icon[slot] != NULL) {
-            int level = 0; // signal_imgs index
-            if (cmd.data.connection.connected) {
-              int q = cmd.data.connection.quality;
-              level = q >= 30 ? 4 : q >= 15 ? 3 : q >= 5 ? 2 : 1;
-            }
-            gauge_set(home_ui.connection_icon[slot], level);
-          }
-          if (on_home && slot >= 0 && home_ui.skateboard_icon[slot] != NULL) {
-            lv_image_set_src(home_ui.skateboard_icon[slot],
-                             cmd.data.connection.connected
-                                 ? &img_skateboard_icon_connected
-                                 : &img_skateboard_no_connection);
-          }
-          break;
-
-        case UI_CMD_UPDATE_TRIP_DISTANCE: // off-screen too: kept for return
-          if (slot >= 0) {
-            column_km[slot] = cmd.data.trip_km;
-            render_distance(slot);
-          }
-          break;
-
-        case UI_CMD_RESET_TRIP_DISTANCE:
-          if (slot >= 0) {
-            column_km[slot] = 0.0f;
-            render_distance(slot);
-          }
-          break;
-
-        case UI_CMD_UPDATE_AUX_INDICATOR:
-          if (home_ui.aux_output != NULL) {
-            if (cmd.data.aux_state) {
-              lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_COVER, 0);
-            } else {
-              lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_TRANSP, 0);
-            }
-          }
-          break;
-
-        case UI_CMD_UPDATE_REMOTE_ICON:
-          if (home_ui.remote_icon != NULL) {
-            lv_image_set_src(home_ui.remote_icon, cmd.data.shutdown_pending
-                                                      ? &img_power
-                                                      : &img_remote_icon);
-            // The power glyph sits lower in its image; lift it to centre.
-            lv_obj_set_style_translate_y(home_ui.remote_icon,
-                                         cmd.data.shutdown_pending ? -3 : 0,
-                                         LV_PART_MAIN);
-          }
-          break;
-
-        case UI_CMD_RESET_SKATE_DISPLAY:
-          if (on_home && slot >= 0 &&
-              home_ui.skate_battery_text[slot] != NULL) {
-            lv_label_set_text(home_ui.skate_battery_text[slot], "--");
-            lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
-                                        lv_color_make(48, 48, 48),
-                                        LV_PART_MAIN);
-          }
-          if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
-            gauge_set(home_ui.skate_arc[slot], 0);
-          }
-          // Aux is a remote-wide indicator; clear it once no receiver is left.
-          if (home_ui.aux_output != NULL && !ble_is_connected()) {
-            lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_TRANSP, 0);
-          }
-          break;
-
-        case UI_CMD_UPDATE_RX_FW:
-          lv_label_set_text(objects.rx_firmware_text, cmd.data.rx_fw);
-          if (splash_transition_timer != NULL) {
-            lv_timer_set_period(splash_transition_timer, SPLASH_RX_SHOWN_MS);
-            lv_timer_reset(splash_transition_timer);
-          }
-          break;
-        }
-        xSemaphoreGive(lvgl_mutex);
-      } else {
-        // Re-queue the command if we couldn't get mutex (rare case)
-        if (xQueueSendToFront(ui_cmd_queue, &cmd, 0) != pdTRUE) {
-          ESP_LOGW(TAG, "Failed to re-queue UI command, update dropped");
-        }
-        vTaskDelay(pdMS_TO_TICKS(MUTEX_RETRY_DELAY_MS));
+    switch (cmd.type) {
+    case UI_CMD_UPDATE_SPEED:
+      if (on_home && home_ui.speedlabel != NULL) {
+        lv_label_set_text_fmt(home_ui.speedlabel, "%ld", cmd.data.speed);
       }
+      break;
+
+    case UI_CMD_UPDATE_SPEED_UNIT:
+      // Re-sent at 20 Hz while connected, so only touch the labels when
+      // the unit differs from what the bound screen shows.
+      speed_unit_mph = cmd.data.speed_unit_mph;
+      if (rendered_unit != (int8_t)cmd.data.speed_unit_mph) {
+        if (home_ui.static_speed != NULL) {
+          lv_label_set_text(home_ui.static_speed,
+                            cmd.data.speed_unit_mph ? "mph" : "km/h");
+        }
+        if (home_ui.static_odometer_text != NULL) {
+          lv_label_set_text(home_ui.static_odometer_text,
+                            cmd.data.speed_unit_mph ? "odo mi" : "odo km");
+        }
+        for (int i = 0; i < home_ui.receiver_count; i++) {
+          render_distance(i);
+        }
+        rendered_unit = (int8_t)cmd.data.speed_unit_mph;
+      }
+      break;
+
+    case UI_CMD_UPDATE_BATTERY_PERCENTAGE:
+      remote_pct = LV_CLAMP(0, cmd.data.battery.percentage, 100);
+      remote_charging = cmd.data.battery.is_charging;
+      if (on_home && !shutdown_progress) {
+        render_remote_battery();
+      }
+      if (get_current_screen() == objects.charging_screen &&
+          objects.charging_screen_percentage != NULL) {
+        snprintf(str_buf, sizeof(str_buf), "%d%% charged",
+                 cmd.data.battery.percentage);
+        label_set(objects.charging_screen_percentage, str_buf);
+        if (objects.charging_arc != NULL) {
+          gauge_set(objects.charging_arc, remote_pct);
+        }
+      }
+      break;
+
+    case UI_CMD_UPDATE_SKATE_BATTERY_PERCENTAGE:
+      if (on_home && slot >= 0 && home_ui.skate_battery_text[slot] != NULL) {
+        snprintf(str_buf, sizeof(str_buf), "%d%%", cmd.data.skate_percentage);
+        label_set(home_ui.skate_battery_text[slot], str_buf);
+        lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
+                                    receiver_is_connected(slot)
+                                        ? lv_color_white()
+                                        : lv_color_make(48, 48, 48),
+                                    LV_PART_MAIN);
+      }
+      if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
+        gauge_set(home_ui.skate_arc[slot],
+                  LV_CLAMP(0, cmd.data.skate_percentage, 100));
+      }
+      break;
+
+    case UI_CMD_UPDATE_SKATE_BATTERY_VOLTAGE:
+      if (on_home && slot >= 0 && home_ui.skate_battery_text[slot] != NULL) {
+        int volts = (int)cmd.data.skate_voltage;
+        int tenths = (int)((cmd.data.skate_voltage - volts) * 10 + 0.5f);
+        if (tenths >= 10) {
+          tenths = 0;
+          volts++;
+        }
+        snprintf(str_buf, sizeof(str_buf), "%d.%dV", volts, tenths);
+        label_set(home_ui.skate_battery_text[slot], str_buf);
+        lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
+                                    receiver_is_connected(slot)
+                                        ? lv_color_white()
+                                        : lv_color_make(48, 48, 48),
+                                    LV_PART_MAIN);
+      }
+      break;
+
+    case UI_CMD_UPDATE_CONNECTION_ICON:
+      if (on_home && slot >= 0 && home_ui.connection_icon[slot] != NULL) {
+        int level = 0; // signal_imgs index
+        if (cmd.data.connection.connected) {
+          int q = cmd.data.connection.quality;
+          level = q >= 30 ? 4 : q >= 15 ? 3 : q >= 5 ? 2 : 1;
+        }
+        gauge_set(home_ui.connection_icon[slot], level);
+      }
+      if (on_home && slot >= 0 && home_ui.skateboard_icon[slot] != NULL) {
+        lv_image_set_src(home_ui.skateboard_icon[slot],
+                         cmd.data.connection.connected
+                             ? &img_skateboard_icon_connected
+                             : &img_skateboard_no_connection);
+      }
+      break;
+
+    case UI_CMD_UPDATE_TRIP_DISTANCE: // off-screen too: kept for return
+      if (slot >= 0) {
+        column_km[slot] = cmd.data.trip_km;
+        render_distance(slot);
+      }
+      break;
+
+    case UI_CMD_RESET_TRIP_DISTANCE:
+      if (slot >= 0) {
+        column_km[slot] = 0.0f;
+        render_distance(slot);
+      }
+      break;
+
+    case UI_CMD_UPDATE_AUX_INDICATOR:
+      if (home_ui.aux_output != NULL) {
+        if (cmd.data.aux_state) {
+          lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_COVER, 0);
+        } else {
+          lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_TRANSP, 0);
+        }
+      }
+      break;
+
+    case UI_CMD_UPDATE_REMOTE_ICON:
+      if (home_ui.remote_icon != NULL) {
+        lv_image_set_src(home_ui.remote_icon, cmd.data.shutdown_pending
+                                                  ? &img_power
+                                                  : &img_remote_icon);
+        // The power glyph sits lower in its image; lift it to centre.
+        lv_obj_set_style_translate_y(home_ui.remote_icon,
+                                     cmd.data.shutdown_pending ? -3 : 0,
+                                     LV_PART_MAIN);
+      }
+      break;
+
+    case UI_CMD_RESET_SKATE_DISPLAY:
+      if (on_home && slot >= 0 && home_ui.skate_battery_text[slot] != NULL) {
+        lv_label_set_text(home_ui.skate_battery_text[slot], "--");
+        lv_obj_set_style_text_color(home_ui.skate_battery_text[slot],
+                                    lv_color_make(48, 48, 48), LV_PART_MAIN);
+      }
+      if (on_home && slot >= 0 && home_ui.skate_arc[slot] != NULL) {
+        gauge_set(home_ui.skate_arc[slot], 0);
+      }
+      // Aux is a remote-wide indicator; clear it once no receiver is left.
+      if (home_ui.aux_output != NULL && !ble_is_connected()) {
+        lv_obj_set_style_opa(home_ui.aux_output, LV_OPA_TRANSP, 0);
+      }
+      break;
+
+    case UI_CMD_UPDATE_RX_FW:
+      lv_label_set_text(objects.rx_firmware_text, cmd.data.rx_fw);
+      if (splash_transition_timer != NULL) {
+        lv_timer_set_period(splash_transition_timer, SPLASH_RX_SHOWN_MS);
+        lv_timer_reset(splash_transition_timer);
+      }
+      break;
     }
   }
 }
 
 void ui_start_update_tasks(void) {
-  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
-
-  // Start the UI command processor task first (highest priority for UI
-  // responsiveness)
-  ESP_ERROR_CHECK(xTaskCreate(ui_cmd_processor_task, "ui_cmd_proc", 3072, NULL,
-                              5, NULL) == pdPASS
-                      ? ESP_OK
-                      : ESP_ERR_NO_MEM);
-  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
-
-  ESP_ERROR_CHECK(xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4,
-                              NULL) == pdPASS
-                      ? ESP_OK
-                      : ESP_ERR_NO_MEM);
-  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
-  ESP_ERROR_CHECK(xTaskCreate(battery_update_task, "battery_update", 4096, NULL,
-                              2, NULL) == pdPASS
-                      ? ESP_OK
-                      : ESP_ERR_NO_MEM);
-  vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
-  ESP_ERROR_CHECK(xTaskCreate(connection_update_task, "conn_update", 4096, NULL,
-                              2, NULL) == pdPASS
-                      ? ESP_OK
-                      : ESP_ERR_NO_MEM);
+  xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
+  lv_timer_create(ui_cmd_timer_cb, UI_CMD_PERIOD_MS, NULL);
+  lv_timer_create(speed_timer_cb, SPEED_UPDATE_MS, NULL);
+  lv_timer_create(battery_timer_cb, BATTERY_UPDATE_MS, NULL);
+  lv_timer_create(connection_timer_cb, CONNECTION_UPDATE_MS, NULL);
+  give_lvgl_mutex();
 }
 
 void ui_hide_throttle_not_calibrated_text(void) {

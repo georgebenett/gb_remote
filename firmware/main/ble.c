@@ -58,7 +58,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
                                         esp_ble_gattc_cb_param_t *param);
 static void adc_send_task(void *pvParameters);
 static TaskHandle_t adc_send_task_handle = NULL;
-static void log_rssi_task(void *pvParameters);
+static void read_rssi_cb(void *arg);
 static int link_count_connected(void);
 static int desired_link_count(void);
 static void resume_scan_if_needed(void);
@@ -1029,10 +1029,12 @@ void spp_client_demo_init(void) {
                               &adc_send_task_handle) == pdPASS
                       ? ESP_OK
                       : ESP_ERR_NO_MEM);
+  const esp_timer_create_args_t rssi_timer_args = {.callback = read_rssi_cb,
+                                                   .name = "ble_rssi"};
+  esp_timer_handle_t rssi_timer;
+  ESP_ERROR_CHECK(esp_timer_create(&rssi_timer_args, &rssi_timer));
   ESP_ERROR_CHECK(
-      xTaskCreate(log_rssi_task, "log_rssi_task", 2048, NULL, 4, NULL) == pdPASS
-          ? ESP_OK
-          : ESP_ERR_NO_MEM);
+      esp_timer_start_periodic(rssi_timer, RSSI_READ_INTERVAL_MS * 1000));
 }
 
 static void adc_send_task(void *pvParameters) {
@@ -1105,24 +1107,14 @@ int32_t get_latest_erpm(void) { return latest_erpm; }
 
 float get_bms_total_voltage(void) { return bms_total_voltage; }
 
-static void log_rssi_task(void *pvParameters) {
-  while (1) {
-    if (ble_suspended) {
-      vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
-      continue;
+static void read_rssi_cb(void *arg) {
+  if (ble_suspended || !is_connect || spp_gattc_if == ESP_GATT_IF_NONE) {
+    return;
+  }
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    if (links[i].in_use && esp_ble_gap_read_rssi(links[i].bda) != ESP_OK) {
+      ESP_LOGE(GATTC_TAG, "Read RSSI failed");
     }
-    if (ble_is_connected() && spp_gattc_if != ESP_GATT_IF_NONE) {
-      for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-        if (!links[i].in_use) {
-          continue;
-        }
-        esp_err_t ret = esp_ble_gap_read_rssi(links[i].bda);
-        if (ret != ESP_OK) {
-          ESP_LOGE(GATTC_TAG, "Read RSSI failed: %s", esp_err_to_name(ret));
-        }
-      }
-    }
-    vTaskDelay(pdMS_TO_TICKS(RSSI_READ_INTERVAL_MS));
   }
 }
 
