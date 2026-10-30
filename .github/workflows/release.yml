@@ -1,0 +1,79 @@
+name: release
+
+# Pushing a v* tag (firmware/release.sh does it) builds both variants and
+# publishes them. The zip layout is what the web updater expects.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [lite, dual_throttle]
+    steps:
+      - uses: actions/checkout@v4
+      - name: tag matches main/version.h
+        run: |
+          v=$(sed -nE 's/^#define FW_VERSION "([^"]+)".*/\1/p' firmware/main/version.h)
+          test "v$v" = "${GITHUB_REF_NAME}"
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.3
+          target: esp32s3
+          path: firmware
+          command: >-
+            idf.py -B build_${{ matrix.variant }}
+            -D SDKCONFIG=sdkconfig.${{ matrix.variant }}
+            -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.${{ matrix.variant }}"
+            build
+      - name: package
+        working-directory: firmware
+        run: |
+          b=build_${{ matrix.variant }}
+          # Byte 12 of an ESP-IDF image header is the chip id; 0x09 = esp32s3.
+          # A wrong-SoC bootloader bricks the updater's recovery flow.
+          test "$(xxd -p -s 12 -l 1 $b/bootloader/bootloader.bin)" = 09
+          mkdir pkg
+          cp $b/gb_remote.bin pkg/gb_controller_${{ matrix.variant }}.bin
+          cp $b/gb_remote.elf pkg/gb_controller_${{ matrix.variant }}.elf
+          cp $b/bootloader/bootloader.bin $b/partition_table/partition-table.bin $b/rx_fw.bin pkg/
+          (cd pkg && zip -q ../${{ matrix.variant }}_${GITHUB_REF_NAME}.zip *)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zip-${{ matrix.variant }}
+          path: firmware/${{ matrix.variant }}_${{ github.ref_name }}.zip
+
+  publish:
+    needs: firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rx=$(ls firmware/receiver_fw/gb_receiver_v*.bin | sed -E 's/.*_v(.*)\.bin/\1/')
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          {
+            echo "Firmware release ${GITHUB_REF_NAME}"
+            echo
+            echo "Bundled receiver firmware: $rx (pushed to older receivers over BLE)"
+            echo
+            echo "## Changes${prev:+ since $prev}"
+            git log --pretty=format:"- %s (%h)" --no-merges ${prev:+$prev..}"${GITHUB_REF_NAME}"
+            echo
+            echo
+            echo "Each zip holds bootloader.bin, partition-table.bin, rx_fw.bin (0x240000),"
+            echo "gb_controller_<variant>.bin and its .elf for coredump decoding."
+          } > notes.md
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file notes.md *.zip

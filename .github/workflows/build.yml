@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [lite, dual_throttle]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.3
+          target: esp32s3
+          path: firmware
+          command: >-
+            idf.py -B build_${{ matrix.variant }}
+            -D SDKCONFIG=sdkconfig.${{ matrix.variant }}
+            -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.${{ matrix.variant }}"
+            build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.variant }}
+          path: |
+            firmware/build_${{ matrix.variant }}/gb_remote.bin
+            firmware/build_${{ matrix.variant }}/gb_remote.elf
+            firmware/build_${{ matrix.variant }}/rx_fw.bin
+            firmware/build_${{ matrix.variant }}/bootloader/bootloader.bin
+            firmware/build_${{ matrix.variant }}/partition_table/partition-table.bin
+
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: throttle math
+        working-directory: firmware
+        run: |
+          cc -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -o t main/throttle_math.c test/test_throttle_math.c -lm && ./t
+          cc -Wall -Wextra -Werror -fsanitize=address,undefined -Itest/stubs -o s main/settings_rules.c test/test_settings.c && ./s
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Same major as the pre-commit hook users run; versions format differently.
+      - run: pip install clang-format==21.1.8
+      - run: clang-format --dry-run --Werror firmware/main/*.c firmware/main/*.h firmware/test/*.c
