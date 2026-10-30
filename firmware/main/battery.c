@@ -22,6 +22,7 @@
 
 #define TAG "BATTERY"
 static bool battery_initialized = false;
+static adc_cali_handle_t adc_cali = NULL;
 static float latest_battery_voltage = 0.0f;
 static bool low_voltage_alerted = false;
 static bool low_voltage_shutdown_triggered = false;
@@ -126,6 +127,17 @@ esp_err_t adc_battery_init(void) {
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Battery ADC channel configuration failed");
     return ret;
+  }
+
+  adc_cali_curve_fitting_config_t cali_cfg = {
+      .unit_id = ADC_UNIT_1,
+      .chan = BATTERY_VOLTAGE_PIN,
+      .atten = ADC_ATTEN_DB_12,
+      .bitwidth = ADC_BITWIDTH_12,
+  };
+  if (adc_cali_create_scheme_curve_fitting(&cali_cfg, &adc_cali) != ESP_OK) {
+    adc_cali = NULL;
+    ESP_LOGW(TAG, "No ADC calibration eFuses, battery voltage is estimated");
   }
 
   ESP_LOGI(TAG, "Battery ADC initialized successfully on ADC1_CH%d",
@@ -261,15 +273,17 @@ float battery_read_voltage(void) {
     return -1.0f;
   }
 
-  float adc_voltage =
-      ((float)adc_value / ADC_RESOLUTION) * ADC_REFERENCE_VOLTAGE;
-
-  float divided_voltage = adc_voltage * VOLTAGE_DIVIDER_RATIO;
-
-  float calibrated_voltage =
-      divided_voltage * BATTERY_VOLTAGE_SCALE + BATTERY_VOLTAGE_OFFSET;
-
-  return calibrated_voltage;
+  float adc_voltage;
+  int mv;
+  if (adc_cali != NULL &&
+      adc_cali_raw_to_voltage(adc_cali, adc_value, &mv) == ESP_OK) {
+    adc_voltage = mv / 1000.0f;
+  } else {
+    adc_voltage = ((float)adc_value / ADC_RESOLUTION) * ADC_REFERENCE_VOLTAGE *
+                  BATTERY_UNCALIBRATED_SCALE;
+  }
+  return adc_voltage * VOLTAGE_DIVIDER_RATIO * BATTERY_VOLTAGE_SCALE +
+         BATTERY_VOLTAGE_OFFSET;
 }
 
 float battery_get_voltage(void) {

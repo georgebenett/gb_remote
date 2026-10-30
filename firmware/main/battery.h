@@ -6,8 +6,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Trim against a multimeter. With eFuse calibration the ADC itself reads
+ * true; this only absorbs divider tolerance. */
 #define BATTERY_VOLTAGE_OFFSET 0.0f
-#define BATTERY_VOLTAGE_SCALE 1.075f
+#define BATTERY_VOLTAGE_SCALE 1.0f
+// Used only if the chip has no ADC calibration eFuses.
+#define BATTERY_UNCALIBRATED_SCALE 1.075f
 
 #define VOLTAGE_DIVIDER_RATIO 2.0f
 #define ADC_REFERENCE_VOLTAGE 3.3f
