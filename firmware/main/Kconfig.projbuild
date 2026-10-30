@@ -54,4 +54,12 @@ menu "Hardware Target Configuration"
             sdkconfig for builds you ship. Bonded receivers keep working
             after a change, new pairings need the matching value.
 
+    config GB_SNAKE_GAME
+        bool "Snake easter egg"
+        default n
+        help
+            Pressing the power button three times on the splash screen opens
+            a Snake game steered with the throttle (BLE is suspended while
+            it runs).
+
 endmenu

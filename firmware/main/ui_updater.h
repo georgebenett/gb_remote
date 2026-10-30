@@ -112,7 +112,4 @@ void ui_fw_update_progress(int pct); // 0..100
 /** Show the outcome, then return to home after 2 s. */
 void ui_fw_update_done(bool ok);
 
-// Easter egg: consume power-button events for splash combo and snake controls.
-bool ui_handle_easter_egg_button_event(int event);
-
 #endif // UI_UPDATER_H

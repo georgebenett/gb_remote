@@ -129,6 +129,9 @@ typedef struct {
 } snake_t;
 
 // Public API
+/* Power-button events during the splash (3 presses start the game) and
+ * in-game; true when consumed. Without CONFIG_GB_SNAKE_GAME it only swallows
+ * presses during the splash (ui_updater.c). */
 bool ui_handle_easter_egg_button_event(int event_raw);
 bool snake_is_running(void);
 

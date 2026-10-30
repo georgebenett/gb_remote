@@ -1143,3 +1143,12 @@ void ui_show_low_battery_screen(void) {
   }
   give_lvgl_mutex();
 }
+
+#ifndef CONFIG_GB_SNAKE_GAME
+bool ui_handle_easter_egg_button_event(int event_raw) {
+  (void)event_raw;
+  return ui_splash_is_active();
+}
+
+bool snake_is_running(void) { return false; }
+#endif

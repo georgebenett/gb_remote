@@ -1,4 +1,6 @@
 #include "snake.h"
+
+#ifdef CONFIG_GB_SNAKE_GAME
 #include "battery.h"
 #include "ble.h"
 #include "button.h"
@@ -1203,3 +1205,5 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
   // Consume all button events while splash is active
   return true;
 }
+
+#endif // CONFIG_GB_SNAKE_GAME
