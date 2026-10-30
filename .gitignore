@@ -53,3 +53,9 @@ __pycache__/
 ehthumbs.db
 Thumbs.db
 
+
+# EEZ Studio: editor state and backups, and the CMakeLists.txt it writes into
+# the generated UI (main/CMakeLists.txt compiles those folders itself)
+*.eez-project-ui-state
+*.eez-project.bak
+firmware/main/ui_*/CMakeLists.txt
