@@ -17,6 +17,9 @@ typedef enum {
 #define SHUTDOWN_FEEDBACK_DELAY_MS 100
 #define BUTTON_DEBOUNCE_DELAY_MS 50
 #define BUTTON_POLL_INTERVAL_MS 10
+#define LOW_BATTERY_ALERT_DELAY_MS 500 // Haptic feedback delay
+#define LOW_BATTERY_WARNING_MS 2000    // Show warning before shutdown
+#define POWER_OFF_SETTLE_MS 100        // Delay after power pin toggle
 
 bool power_is_entering_off_mode(void);
 power_mode_t power_get_mode(void);
@@ -34,6 +37,10 @@ void power_run_charging_mode(void);
 
 void power_reset_inactivity_timer(void);
 void power_check_inactivity(bool is_ble_connected);
+
+/** Battery critical → low battery screen and power off, without the BLE
+ *  shutdown command, so the receiver's link-loss failsafe brakes. */
+void power_check_battery(void);
 
 /** When in full mode with charging screen visible, USB disconnect → sleep. */
 void power_check_charging_screen_usb(void);

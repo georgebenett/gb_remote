@@ -92,6 +92,8 @@ void ui_charging_arc_sweep(void);
 // Splash screen
 /** True while the splash is up and will move on to home by itself. */
 bool ui_splash_is_active(void);
+/** Show the low battery warning. Takes the LVGL mutex. */
+void ui_show_low_battery_screen(void);
 /** Keep the splash from moving on to home. Caller holds the LVGL mutex. */
 void ui_splash_cancel(void);
 /** Blank, show the splash, fade up, then home. Caller holds the LVGL mutex. */

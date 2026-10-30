@@ -22,9 +22,6 @@
 // Timing constants
 #define BATTERY_TASK_STARTUP_DELAY_MS 100 // Delay for task initialization
 #define BATTERY_MONITOR_INTERVAL_MS 500   // Battery monitoring poll rate
-#define LOW_BATTERY_ALERT_DELAY_MS 500    // Haptic feedback delay
-#define LOW_BATTERY_WARNING_MS 2000       // Show warning before shutdown
-#define POWER_OFF_SETTLE_MS 100           // Delay after power pin toggle
 
 // Cell chemistry families the skate pack SoC estimate can use. Cells listed for
 // each entry sit within ~1-2% SoC of one another at the same resting voltage.
@@ -45,7 +42,10 @@ int battery_get_percentage(void);
 // and cell chemistry. Returns -1 when cells is 0 or the voltage is invalid.
 int battery_pack_percentage(float pack_voltage, uint8_t cells,
                             uint8_t cell_type);
+/** Low enough that the throttle is cut (brake only). */
 bool battery_is_low_voltage(void);
+/** Confirmed low over several readings: the remote must power off. */
+bool battery_is_critical(void);
 
 // Battery ADC functions (internal use)
 esp_err_t adc_battery_init(void);

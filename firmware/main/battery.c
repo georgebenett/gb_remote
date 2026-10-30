@@ -4,18 +4,13 @@
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
-#include "esp_sleep.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hw_config.h"
-#include "lcd.h"
-#include "power.h"
 #include "throttle.h"
-#include "ui.h"
-#include "ui_updater.h"
-#include "viber.h"
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,8 +19,7 @@
 static bool battery_initialized = false;
 static adc_cali_handle_t adc_cali = NULL;
 static float latest_battery_voltage = 0.0f;
-static bool low_voltage_alerted = false;
-static bool low_voltage_shutdown_triggered = false;
+static atomic_bool critical; // confirmed low: power.c shuts the remote down
 
 // Battery state of charge lookup tables: resting per-cell voltage -> SoC.
 // Cells inside one chemistry family track each other within ~1-2% SoC, which is
@@ -107,7 +101,6 @@ static int battery_sample_index = 0;
 static bool battery_samples_filled = false;
 
 static void battery_monitoring_task(void *pvParameters);
-static void battery_low_voltage_shutdown(void);
 
 float battery_read_voltage(void);
 
@@ -325,28 +318,14 @@ static void battery_monitoring_task(void *pvParameters) {
       }
 
       if (voltage < BATTERY_LOW_VOLTAGE_THRESHOLD) {
-        low_voltage_count++;
-
-        if (!low_voltage_alerted) {
+        if (++low_voltage_count == LOW_VOLTAGE_CONFIRM_COUNT) {
           ESP_LOGW(TAG, "Battery voltage low: %.2fV (threshold: %.2fV)",
                    voltage, BATTERY_LOW_VOLTAGE_THRESHOLD);
-          viber_play_pattern(VIBER_PATTERN_ALERT);
-          low_voltage_alerted = true;
+          critical = true;
         }
-
-        // Shutdown after confirming low voltage for multiple readings
-        if (low_voltage_count >= LOW_VOLTAGE_CONFIRM_COUNT) {
-          battery_low_voltage_shutdown();
-          // Should not reach here, but break just in case
-          break;
-        }
-      } else {
-        // Voltage recovered, reset counters
-        if (low_voltage_count > 0) {
-          ESP_LOGI(TAG, "Battery voltage recovered: %.2fV", voltage);
-          low_voltage_count = 0;
-          low_voltage_alerted = false;
-        }
+      } else if (low_voltage_count > 0 && !critical) {
+        ESP_LOGI(TAG, "Battery voltage recovered: %.2fV", voltage);
+        low_voltage_count = 0;
       }
     } else {
       ESP_LOGW(TAG, "Invalid battery reading");
@@ -356,8 +335,6 @@ static void battery_monitoring_task(void *pvParameters) {
     vTaskDelayUntil(&last_wake_time,
                     pdMS_TO_TICKS(BATTERY_MONITOR_INTERVAL_MS));
   }
-
-  vTaskDelete(NULL);
 }
 
 int battery_get_percentage(void) {
@@ -388,39 +365,8 @@ int battery_pack_percentage(float pack_voltage, uint8_t cells,
 
 bool battery_is_low_voltage(void) {
   float voltage = battery_get_voltage();
-  return (voltage > 0.0f && voltage < BATTERY_LOW_VOLTAGE_THRESHOLD);
+  return critical ||
+         (voltage > 0.0f && voltage < BATTERY_LOW_VOLTAGE_THRESHOLD);
 }
 
-static void battery_low_voltage_shutdown(void) {
-  if (low_voltage_shutdown_triggered) {
-    return; // Already triggered shutdown
-  }
-
-  low_voltage_shutdown_triggered = true;
-
-  viber_play_pattern(VIBER_PATTERN_ALERT);
-  vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_ALERT_DELAY_MS));
-
-  if (take_lvgl_mutex()) {
-    if (objects.low_battery_screen != NULL) {
-      lv_disp_load_scr(objects.low_battery_screen);
-      lv_obj_invalidate(objects.low_battery_screen);
-    }
-    give_lvgl_mutex();
-  }
-
-  // Give user a moment to see the warning
-  vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_WARNING_MS));
-
-  lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);
-
-  // Turn off power hold pin to prevent over-discharge
-  ESP_LOGI(TAG, "Turning off power hold pin to prevent battery over-discharge");
-  gpio_set_level(POWER_HOLD_GPIO, 0);
-
-  // Small delay to ensure power is cut
-  vTaskDelay(pdMS_TO_TICKS(POWER_OFF_SETTLE_MS));
-
-  // Force deep sleep as final safety measure
-  esp_deep_sleep_start();
-}
+bool battery_is_critical(void) { return critical; }

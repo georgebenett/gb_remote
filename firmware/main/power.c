@@ -1,4 +1,5 @@
 #include "power.h"
+#include "battery.h"
 #include "ble.h"
 #include "button.h"
 #include "driver/gpio.h"
@@ -432,6 +433,23 @@ void power_check_charging_screen_usb(void) {
   lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);
   power_enter_sleep();
   /* never returns */
+}
+
+void power_check_battery(void) {
+  if (!battery_is_critical()) {
+    return;
+  }
+  ESP_LOGW(TAG, "Battery critical - powering off");
+  viber_play_pattern(VIBER_PATTERN_ALERT);
+  vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_ALERT_DELAY_MS));
+  ui_show_low_battery_screen();
+  vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_WARNING_MS));
+  lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);
+  // Cut the power hold before the cell over-discharges; deep sleep if the
+  // USB supply keeps us up.
+  gpio_set_level(POWER_HOLD_GPIO, 0);
+  vTaskDelay(pdMS_TO_TICKS(POWER_OFF_SETTLE_MS));
+  esp_deep_sleep_start();
 }
 
 /* --------------------------------------------------------------------------

@@ -1129,3 +1129,11 @@ void ui_fw_update_done(bool ok) {
   lv_timer_set_repeat_count(t, 1);
   give_lvgl_mutex();
 }
+
+void ui_show_low_battery_screen(void) {
+  xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
+  if (objects.low_battery_screen != NULL) {
+    lv_screen_load(objects.low_battery_screen);
+  }
+  give_lvgl_mutex();
+}

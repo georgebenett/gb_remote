@@ -23,6 +23,7 @@ void app_main(void) {
   app_init_after_charging();
 
   for (;;) {
+    power_check_battery();
     power_check_charging_screen_usb();
     /* Inactivity only considers BLE when in full mode; on charging screen BLE
      * is off. */
