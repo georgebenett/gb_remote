@@ -2,6 +2,7 @@
 #include "driver/ledc.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "hw_config.h"
 #include "settings.h"
@@ -41,24 +42,12 @@ static const song_note_t startup_song[] = {
 static bool viber_initialized = false;
 static uint8_t haptic_intensity = SETTINGS_HAPTIC_DEFAULT; // 0-100%
 
-typedef struct {
-  const uint32_t *durations;
-  uint8_t count;
-  volatile bool is_running;
-} viber_task_params_t;
+/* One request slot, overwritten: the newest request replaces a queued one
+ * and pre-empts the one playing. Callers never block. */
+#define REQ_STARTUP_SONG 0xFF
+static QueueHandle_t req_queue;
 
-static viber_task_params_t task_params = {0};
-
-static void viber_task(void *pvParameters);
-static void buzzer_off(void);
-
-static void buzzer_on(uint32_t freq_hz) {
-  ledc_set_freq(BUZZER_LEDC_MODE, BUZZER_LEDC_TIMER, freq_hz);
-  ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, BUZZER_DUTY);
-  ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
-}
-
-esp_err_t viber_play_early_boot_ack(void) {
+static esp_err_t ledc_setup(void) {
   ledc_timer_config_t timer_conf = {
       .speed_mode = BUZZER_LEDC_MODE,
       .timer_num = BUZZER_LEDC_TIMER,
@@ -70,7 +59,6 @@ esp_err_t viber_play_early_boot_ack(void) {
   if (err != ESP_OK) {
     return err;
   }
-
   ledc_channel_config_t channel_conf = {
       .speed_mode = BUZZER_LEDC_MODE,
       .channel = BUZZER_LEDC_CHANNEL,
@@ -80,65 +68,50 @@ esp_err_t viber_play_early_boot_ack(void) {
       .duty = 0,
       .hpoint = 0,
   };
-  err = ledc_channel_config(&channel_conf);
-  if (err != ESP_OK) {
-    return err;
-  }
-
-  ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, BUZZER_DUTY_FULL);
-  ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
-  vTaskDelay(pdMS_TO_TICKS(SHORT_DURATION));
-  buzzer_off();
-
-  return ESP_OK;
+  return ledc_channel_config(&channel_conf);
 }
 
-static void haptic_on(void) {
-  uint32_t duty = ((uint32_t)haptic_intensity * BUZZER_DUTY_FULL) / 100;
+static void output(uint32_t freq_hz, uint32_t duty) {
+  ledc_set_freq(BUZZER_LEDC_MODE, BUZZER_LEDC_TIMER, freq_hz);
   ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, duty);
   ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
 }
 
-static void buzzer_off(void) {
+static void output_off(void) {
   ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, 0);
   ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
 }
+
+esp_err_t viber_play_early_boot_ack(void) {
+  esp_err_t err = ledc_setup();
+  if (err != ESP_OK) {
+    return err;
+  }
+  output(BUZZER_HAPTIC_FREQ, BUZZER_DUTY_FULL);
+  vTaskDelay(pdMS_TO_TICKS(SHORT_DURATION));
+  output_off();
+  return ESP_OK;
+}
+
+static void viber_task(void *pvParameters);
 
 esp_err_t viber_init(void) {
   if (viber_initialized) {
     return ESP_OK;
   }
-
-  ledc_timer_config_t timer_conf = {
-      .speed_mode = BUZZER_LEDC_MODE,
-      .timer_num = BUZZER_LEDC_TIMER,
-      .duty_resolution = BUZZER_DUTY_RES,
-      .freq_hz = BUZZER_HAPTIC_FREQ,
-      .clk_cfg = LEDC_AUTO_CLK,
-  };
-  ESP_ERROR_CHECK(ledc_timer_config(&timer_conf));
-
-  ledc_channel_config_t channel_conf = {
-      .speed_mode = BUZZER_LEDC_MODE,
-      .channel = BUZZER_LEDC_CHANNEL,
-      .timer_sel = BUZZER_LEDC_TIMER,
-      .intr_type = LEDC_INTR_DISABLE,
-      .gpio_num = VIBER_PIN,
-      .duty = 0,
-      .hpoint = 0,
-  };
-  ESP_ERROR_CHECK(ledc_channel_config(&channel_conf));
-
+  esp_err_t err = ledc_setup();
+  if (err != ESP_OK) {
+    return err;
+  }
   settings_t cfg;
   settings_get(&cfg);
   haptic_intensity = cfg.haptic_pct;
 
-  task_params.is_running = false;
-  task_params.durations = NULL;
-  task_params.count = 0;
-
-  xTaskCreate(viber_task, "viber_task", 2048, NULL, 2, NULL);
-
+  req_queue = xQueueCreate(1, sizeof(uint8_t));
+  if (req_queue == NULL ||
+      xTaskCreate(viber_task, "viber_task", 2048, NULL, 2, NULL) != pdPASS) {
+    return ESP_ERR_NO_MEM;
+  }
   viber_initialized = true;
   ESP_LOGI(TAG, "Viber/buzzer initialized on GPIO %d, intensity=%d%%",
            VIBER_PIN, haptic_intensity);
@@ -173,39 +146,22 @@ static const struct {
 };
 #undef PATTERN_ENTRY
 
+static esp_err_t request(uint8_t req) {
+  if (!viber_initialized) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  xQueueOverwrite(req_queue, &req);
+  return ESP_OK;
+}
+
 esp_err_t viber_play_pattern(viber_pattern_t pattern) {
   if ((unsigned)pattern >= sizeof(pattern_table) / sizeof(pattern_table[0])) {
     return ESP_ERR_INVALID_ARG;
   }
-  if (!viber_initialized) {
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  task_params.is_running = false;
-  buzzer_off();
-  vTaskDelay(pdMS_TO_TICKS(10));
-
-  task_params.durations = pattern_table[pattern].durations;
-  task_params.count = pattern_table[pattern].count;
-  task_params.is_running = true;
-
-  return ESP_OK;
+  return request((uint8_t)pattern);
 }
 
-static void play_note(uint32_t freq_hz, uint32_t duration_ms) {
-  buzzer_on(freq_hz);
-  vTaskDelay(pdMS_TO_TICKS(duration_ms));
-  buzzer_off();
-  vTaskDelay(pdMS_TO_TICKS(SONG_NOTE_GAP_MS));
-}
-
-static void play_song(const song_note_t *notes, uint8_t count) {
-  task_params.is_running = false;
-  buzzer_off();
-  for (uint8_t i = 0; i < count; i++) {
-    play_note(notes[i].freq_hz, notes[i].duration_ms);
-  }
-}
+esp_err_t viber_play_startup_song(void) { return request(REQ_STARTUP_SONG); }
 
 esp_err_t viber_set_intensity(uint8_t percent) {
   if (percent > 100) {
@@ -220,35 +176,40 @@ esp_err_t viber_set_intensity(uint8_t percent) {
 
 uint8_t viber_get_intensity(void) { return haptic_intensity; }
 
-esp_err_t viber_play_startup_song(void) {
-  if (!viber_initialized) {
-    return ESP_ERR_INVALID_STATE;
-  }
-  play_song(startup_song, sizeof(startup_song) / sizeof(startup_song[0]));
-  return ESP_OK;
+/* Holds the current output for `ms`; true (with the request in *next) if a
+ * new request cut it short. */
+static bool hold(uint32_t ms, uint8_t *next) {
+  return xQueueReceive(req_queue, next, pdMS_TO_TICKS(ms)) == pdTRUE;
 }
 
 static void viber_task(void *pvParameters) {
-  while (1) {
-    if (task_params.is_running && task_params.durations &&
-        task_params.count > 0) {
-      for (uint8_t i = 0; i < task_params.count; i++) {
-        if (!task_params.is_running) {
-          break;
-        }
-
-        if (i % 2 == 0) {
-          // Even indices: full-power spin for physical vibration
-          haptic_on();
-          vTaskDelay(pdMS_TO_TICKS(task_params.durations[i]));
-          buzzer_off();
-        } else {
-          // Odd indices: pause
-          vTaskDelay(pdMS_TO_TICKS(task_params.durations[i]));
+  uint8_t req;
+  bool pending = false;
+  for (;;) {
+    if (!pending) {
+      xQueueReceive(req_queue, &req, portMAX_DELAY);
+    }
+    pending = false;
+    if (req == REQ_STARTUP_SONG) {
+      size_t n = sizeof(startup_song) / sizeof(startup_song[0]);
+      for (size_t i = 0; i < n && !pending; i++) {
+        output(startup_song[i].freq_hz, BUZZER_DUTY);
+        pending = hold(startup_song[i].duration_ms, &req);
+        output_off();
+        if (!pending) {
+          pending = hold(SONG_NOTE_GAP_MS, &req);
         }
       }
-      task_params.is_running = false;
+    } else {
+      const uint32_t *d = pattern_table[req].durations;
+      for (uint8_t i = 0; i < pattern_table[req].count && !pending; i++) {
+        if (i % 2 == 0) {
+          output(BUZZER_HAPTIC_FREQ,
+                 (uint32_t)haptic_intensity * BUZZER_DUTY_FULL / 100);
+        }
+        pending = hold(d[i], &req);
+        output_off();
+      }
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
