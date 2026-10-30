@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) George Benett. MIT so both the GPL receiver and the
+// PolyForm-licensed remotes can include it.
 /*
  * Remote <-> receiver BLE protocol. gb_receiver owns this file;
  * bundle_to_remotes.sh copies it into gb_remote and gb_remote_dual_pro, so
