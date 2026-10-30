@@ -312,10 +312,10 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
   uint16_t handle = 0;
 
   if (p_data->notify.is_notify == true) {
-    ESP_LOGI(GATTC_TAG, "+NOTIFY:handle = %d,length = %d ",
+    ESP_LOGD(GATTC_TAG, "+NOTIFY:handle = %d,length = %d ",
              p_data->notify.handle, p_data->notify.value_len);
   } else {
-    ESP_LOGI(GATTC_TAG, "+INDICATE:handle = %d,length = %d ",
+    ESP_LOGD(GATTC_TAG, "+INDICATE:handle = %d,length = %d ",
              p_data->notify.handle, p_data->notify.value_len);
   }
 
@@ -654,7 +654,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
 
 static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                          esp_ble_gattc_cb_param_t *param) {
-  ESP_LOGI(GATTC_TAG, "EVT %d, gattc if %d", event, gattc_if);
+  ESP_LOGD(GATTC_TAG, "EVT %d, gattc if %d", event, gattc_if);
 
   if (event == ESP_GATTC_REG_EVT) {
     if (param->reg.status != ESP_GATT_OK) {
@@ -787,14 +787,14 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
     }
     break;
   case ESP_GATTC_NOTIFY_EVT:
-    ESP_LOGI(GATTC_TAG, "ESP_GATTC_NOTIFY_EVT");
+    ESP_LOGD(GATTC_TAG, "ESP_GATTC_NOTIFY_EVT");
     notify_event_handler(p_data);
     break;
   case ESP_GATTC_READ_CHAR_EVT:
-    ESP_LOGI(GATTC_TAG, "ESP_GATTC_READ_CHAR_EVT");
+    ESP_LOGD(GATTC_TAG, "ESP_GATTC_READ_CHAR_EVT");
     break;
   case ESP_GATTC_WRITE_CHAR_EVT:
-    ESP_LOGI(GATTC_TAG, "ESP_GATTC_WRITE_CHAR_EVT:status = %d,handle = %d",
+    ESP_LOGD(GATTC_TAG, "ESP_GATTC_WRITE_CHAR_EVT:status = %d,handle = %d",
              param->write.status, param->write.handle);
     if (param->write.status != ESP_GATT_OK) {
       ESP_LOGE(GATTC_TAG, "ESP_GATTC_WRITE_CHAR_EVT, error status = %d",
@@ -807,7 +807,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
   case ESP_GATTC_EXEC_EVT:
     break;
   case ESP_GATTC_WRITE_DESCR_EVT:
-    ESP_LOGI(GATTC_TAG, "ESP_GATTC_WRITE_DESCR_EVT: status =%d,handle = %d",
+    ESP_LOGD(GATTC_TAG, "ESP_GATTC_WRITE_DESCR_EVT: status =%d,handle = %d",
              p_data->write.status, p_data->write.handle);
     if (p_data->write.status != ESP_GATT_OK) {
       ESP_LOGE(GATTC_TAG, "ESP_GATTC_WRITE_DESCR_EVT, error status = %d",
@@ -882,7 +882,7 @@ static void spp_client_reg_task(void *arg) {
       if (!link->ready) {
         continue; // Link dropped before registration ran
       }
-      ESP_LOGI(GATTC_TAG, "Index = %d,UUID = 0x%04x, handle = %d",
+      ESP_LOGD(GATTC_TAG, "Index = %d,UUID = 0x%04x, handle = %d",
                work.attr_idx, link->db[work.attr_idx].uuid.uuid.uuid16,
                link->db[work.attr_idx].attribute_handle);
       esp_ble_gattc_register_for_notify(
@@ -1087,7 +1087,10 @@ static void adc_send_task(void *pvParameters) {
             link->db[SPP_IDX_SPP_DATA_RECV_VAL].attribute_handle,
             sizeof(data_buffer), // 3 bytes
             data_buffer, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
-        if (ret != ESP_OK) {
+        static int64_t last_fail_us;
+        int64_t now_us = esp_timer_get_time();
+        if (ret != ESP_OK && now_us - last_fail_us > 1000000) {
+          last_fail_us = now_us;
           ESP_LOGW(GATTC_TAG, "Failed to send throttle value: %s",
                    esp_err_to_name(ret));
         }

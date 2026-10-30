@@ -4,6 +4,7 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -125,6 +126,17 @@ esp_err_t adc_init(void) {
   return ESP_OK;
 }
 
+/* At 50 Hz a persistent fault would flood the console; once a second is
+ * plenty. */
+static bool log_due(int64_t *last_us) {
+  int64_t now = esp_timer_get_time();
+  if (now - *last_us < 1000000) {
+    return false;
+  }
+  *last_us = now;
+  return true;
+}
+
 /** Averaged read of one ADC channel. Returns -1 when too few samples come back
  *  valid; a stuck rail is logged but still returned (calibration copes). */
 static int32_t adc_read_avg(adc_channel_t channel, const char *what) {
@@ -152,9 +164,11 @@ static int32_t adc_read_avg(adc_channel_t channel, const char *what) {
     }
   }
 
+  static int64_t last_log_us;
   if (valid_samples < MIN_VALID_SAMPLES) {
-    ESP_LOGW(TAG, "Insufficient valid %s ADC samples: %d/%d", what,
-             valid_samples, NUM_SAMPLES);
+    if (log_due(&last_log_us))
+      ESP_LOGW(TAG, "Insufficient valid %s ADC samples: %d/%d", what,
+               valid_samples, NUM_SAMPLES);
     return -1;
   }
 
@@ -166,7 +180,7 @@ static int32_t adc_read_avg(adc_channel_t channel, const char *what) {
     if (samples[i] < 4085)
       all_at_max = false;
   }
-  if (all_at_min || all_at_max) {
+  if ((all_at_min || all_at_max) && log_due(&last_log_us)) {
     ESP_LOGW(TAG, "%s ADC appears stuck at %s", what,
              all_at_min ? "minimum" : "maximum");
   }
