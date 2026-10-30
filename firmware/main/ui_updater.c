@@ -94,8 +94,8 @@ static home_widgets_t home_ui;
 static QueueHandle_t ui_cmd_queue = NULL;
 static SemaphoreHandle_t lvgl_mutex = NULL;
 static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(50);
-volatile lv_timer_t *splash_transition_timer = NULL;
-volatile bool splash_transition_active = false;
+static lv_timer_t *splash_transition_timer = NULL;
+static bool splash_transition_active = false;
 
 // Bumped on every config change; each consumer task tracks its own last-seen
 // value so one task reloading doesn't swallow the notification for the others.
@@ -1001,9 +1001,8 @@ static void ui_cmd_processor_task(void *pvParameters) {
         case UI_CMD_UPDATE_RX_FW:
           lv_label_set_text(objects.rx_firmware_text, cmd.data.rx_fw);
           if (splash_transition_timer != NULL) {
-            lv_timer_set_period((lv_timer_t *)splash_transition_timer,
-                                SPLASH_RX_SHOWN_MS);
-            lv_timer_reset((lv_timer_t *)splash_transition_timer);
+            lv_timer_set_period(splash_transition_timer, SPLASH_RX_SHOWN_MS);
+            lv_timer_reset(splash_transition_timer);
           }
           break;
         }
@@ -1090,10 +1089,11 @@ static void splash_timer_cb(lv_timer_t *timer) {
   lv_obj_invalidate(home);
 }
 
-/** Cancel any pending splash transition. Caller must hold LVGL mutex. */
-static void ui_cancel_splash_transition_locked(void) {
+bool ui_splash_is_active(void) { return splash_transition_active; }
+
+void ui_splash_cancel(void) {
   if (splash_transition_timer != NULL) {
-    lv_timer_del((lv_timer_t *)splash_transition_timer);
+    lv_timer_del(splash_transition_timer);
     splash_transition_timer = NULL;
   }
   splash_transition_active = false;
@@ -1131,20 +1131,20 @@ void ui_set_receiver_fw(const char *version) {
 void ui_show_splash_then_home(void) {
   splash_set_labels();
   ble_resume(); // early, so the splash can show the receiver's version
-  ui_cancel_splash_transition_locked();
+  ui_splash_cancel();
   splash_transition_active = true;
   lv_disp_load_scr(objects.splash_screen);
   lv_obj_invalidate(objects.splash_screen);
   splash_transition_timer =
       lv_timer_create(splash_timer_cb, SPLASH_HOLD_MS, NULL);
-  lv_timer_set_repeat_count((lv_timer_t *)splash_transition_timer, 1);
+  lv_timer_set_repeat_count(splash_transition_timer, 1);
 }
 
 void ui_show_splash_screen(void) {
   splash_set_labels();
   ble_resume(); // early, so the splash can show the receiver's version
   lcd_set_backlight(0);
-  ui_cancel_splash_transition_locked();
+  ui_splash_cancel();
   splash_transition_active = true;
   lv_disp_load_scr(objects.splash_screen);
   lv_obj_invalidate(objects.splash_screen);
@@ -1155,13 +1155,13 @@ void ui_show_splash_screen(void) {
 
   splash_transition_timer =
       lv_timer_create(splash_timer_cb, SPLASH_HOLD_MS, NULL);
-  lv_timer_set_repeat_count((lv_timer_t *)splash_transition_timer, 1);
+  lv_timer_set_repeat_count(splash_transition_timer, 1);
   vTaskDelay(pdMS_TO_TICKS(SPLASH_SCREEN_DELAY_MS));
 }
 
 void ui_fw_update_show(const char *from, const char *to) {
   xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
-  ui_cancel_splash_transition_locked(); // it would load home over this screen
+  ui_splash_cancel(); // it would load home over this screen
   lv_label_set_text(objects.fw_update_from, from);
   lv_label_set_text(objects.fw_update_to, to);
   lv_label_set_text(objects.fw_update_status, "0%");

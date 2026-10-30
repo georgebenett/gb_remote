@@ -28,8 +28,6 @@ static const uint32_t DIFFICULTY_SPEED_MS[SNAKE_DIFFICULTY_TIERS] = {
 static snake_t snake = {0};
 
 // External state from ui_updater
-extern volatile bool splash_transition_active;
-extern lv_timer_t *splash_transition_timer;
 
 static void snake_rebuild_polyline(void);
 static void snake_spawn_food(void);
@@ -1179,7 +1177,7 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
   }
 
   // Handle splash screen combo
-  if (!splash_transition_active) {
+  if (!ui_splash_is_active()) {
     splash_combo_count = 0;
     splash_combo_last_press_ms = 0;
     return false;
@@ -1206,12 +1204,7 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
         lv_obj_invalidate(snake.screen);
         snake_show_difficulty_menu();
 
-        // Cancel splash transition
-        if (splash_transition_timer != NULL) {
-          lv_timer_del(splash_transition_timer);
-          splash_transition_timer = NULL;
-        }
-        splash_transition_active = false;
+        ui_splash_cancel();
 
         give_lvgl_mutex();
       }

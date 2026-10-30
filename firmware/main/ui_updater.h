@@ -93,6 +93,10 @@ void ui_ease_curve(lv_anim_t *a);
 void ui_charging_arc_sweep(void);
 
 // Splash screen
+/** True while the splash is up and will move on to home by itself. */
+bool ui_splash_is_active(void);
+/** Keep the splash from moving on to home. Caller holds the LVGL mutex. */
+void ui_splash_cancel(void);
 /** Blank, show the splash, fade up, then home. Caller holds the LVGL mutex. */
 void ui_show_splash_screen(void);
 /** Show splash then auto-switch to home after 4s (for mode 1→2 transition).
