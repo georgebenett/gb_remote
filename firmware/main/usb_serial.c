@@ -833,8 +833,7 @@ static void handle_cmd_set_backlight(const binary_packet_t *packet) {
 
   // Map percentage (0-100) to PWM duty (0-255) and fade to new value
   uint8_t pwm_value = (brightness * 255) / 100;
-  lcd_fade_backlight(lcd_get_backlight(), pwm_value,
-                     LCD_BACKLIGHT_FADE_DURATION_MS);
+  lcd_fade_backlight(pwm_value, LCD_BACKLIGHT_FADE_DURATION_MS, false);
 
   hand_controller_config.backlight_pct = brightness;
   esp_err_t err = settings_set(&hand_controller_config);

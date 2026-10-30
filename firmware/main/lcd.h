@@ -30,7 +30,8 @@ void lcd_start_tasks(void);
 void lcd_set_backlight(uint8_t brightness); // Set backlight brightness (0-255,
                                             // where 255 is full brightness)
 uint8_t lcd_get_backlight(void); // Get current backlight PWM duty (0-255)
-void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms);
+/** Fade to `end` (0-255) in hardware; `wait` blocks until it is done. */
+void lcd_fade_backlight(uint8_t end, uint16_t duration_ms, bool wait);
 uint8_t lcd_load_saved_brightness(
     void); // Load backlight brightness from NVS (returns default if not found)
 void lcd_fade_to_saved_brightness(

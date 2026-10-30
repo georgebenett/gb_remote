@@ -1145,7 +1145,6 @@ void ui_show_splash_screen(void) {
   splash_transition_timer =
       lv_timer_create(splash_timer_cb, SPLASH_HOLD_MS, NULL);
   lv_timer_set_repeat_count(splash_transition_timer, 1);
-  vTaskDelay(pdMS_TO_TICKS(SPLASH_SCREEN_DELAY_MS));
 }
 
 void ui_fw_update_show(const char *from, const char *to) {

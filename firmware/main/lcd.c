@@ -96,6 +96,7 @@ void lcd_init(void) {
   current_backlight_pwm = 0;
   ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 0));
   ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+  ESP_ERROR_CHECK(ledc_fade_func_install(0));
 
   vTaskDelay(pdMS_TO_TICKS(50));
   ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
@@ -179,6 +180,7 @@ void lcd_start_tasks(void) {
 }
 
 void lcd_set_backlight(uint8_t brightness) {
+  ledc_fade_stop(LEDC_MODE, LEDC_CHANNEL);
   ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, brightness));
   ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
   current_backlight_pwm = brightness;
@@ -186,36 +188,18 @@ void lcd_set_backlight(uint8_t brightness) {
 
 uint8_t lcd_get_backlight(void) { return current_backlight_pwm; }
 
-void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms) {
-  if (start == end) {
-    lcd_set_backlight(end);
-    return;
-  }
-
-  const uint16_t num_steps = 100;
-  const uint16_t step_delay_ms = duration_ms / num_steps;
-
-  int16_t start_val = (int16_t)start;
-  int16_t end_val = (int16_t)end;
-  int16_t delta = end_val - start_val;
-
-  for (uint16_t i = 0; i <= num_steps; i++) {
-    int16_t current = start_val + (delta * i) / num_steps;
-
-    if (current < 0)
-      current = 0;
-    if (current > 255)
-      current = 255;
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, (uint8_t)current));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
-
-    if (i < num_steps) {
-      vTaskDelay(pdMS_TO_TICKS(step_delay_ms));
-    }
-  }
-
+/* LEDC hardware fade: no task sleeps through it, so it is safe from LVGL
+ * timers. A new fade replaces one in progress. */
+void lcd_fade_backlight(uint8_t end, uint16_t duration_ms, bool wait) {
+  ledc_fade_stop(LEDC_MODE, LEDC_CHANNEL);
   current_backlight_pwm = end;
+  if (ledc_set_fade_with_time(LEDC_MODE, LEDC_CHANNEL, end, duration_ms) !=
+          ESP_OK ||
+      ledc_fade_start(LEDC_MODE, LEDC_CHANNEL,
+                      wait ? LEDC_FADE_WAIT_DONE : LEDC_FADE_NO_WAIT) !=
+          ESP_OK) {
+    lcd_set_backlight(end);
+  }
 }
 
 uint8_t lcd_load_saved_brightness(void) {
@@ -240,5 +224,5 @@ void lcd_fade_to_saved_brightness(void) {
     return;
   }
 
-  lcd_fade_backlight(current_pwm, target_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
+  lcd_fade_backlight(target_pwm, LCD_BACKLIGHT_FADE_DURATION_MS, false);
 }

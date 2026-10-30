@@ -17,7 +17,6 @@
 // Timing constants
 #define UI_TASK_STARTUP_DELAY_MS 20 // Staggered task startup delay
 #define MUTEX_RETRY_DELAY_MS 5      // Delay when mutex unavailable
-#define SPLASH_SCREEN_DELAY_MS 50   // Post-splash delay
 #define SPLASH_FADE_UP_DELAY_MS 120 // Allow first splash frame to render
 #define SPLASH_HOLD_MS 4000     // Splash waits this long for the receiver fw
 #define SPLASH_RX_SHOWN_MS 1000 // ...then leaves this long after it shows

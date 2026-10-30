@@ -56,6 +56,17 @@ static void charging_screen_fade_up_timer_cb(lv_timer_t *timer) {
   lcd_fade_to_saved_brightness();
 }
 
+/* After the fade-out: charging screen, then fade back up once it is drawn. */
+static void show_charging_screen_timer_cb(lv_timer_t *timer) {
+  (void)timer;
+  lv_screen_load(objects.charging_screen);
+  lv_obj_invalidate(objects.charging_screen);
+  ui_charging_arc_sweep();
+  lv_timer_t *t = lv_timer_create(charging_screen_fade_up_timer_cb, 300, NULL);
+  lv_timer_set_repeat_count(t, 1);
+  entering_power_off_mode = false;
+}
+
 /* One-shot timer callback: after the home arc visibly fills, perform the final
  * transition to charging mode or deep sleep. */
 static void shutdown_completion_timer_cb(lv_timer_t *timer) {
@@ -71,15 +82,10 @@ static void shutdown_completion_timer_cb(lv_timer_t *timer) {
     // off".
     ui_show_shutdown_progress(false);
     ui_set_shutdown_pending_icon(false);
-    lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
-    lv_disp_load_scr(objects.charging_screen);
-    lv_obj_invalidate(objects.charging_screen);
-    ui_charging_arc_sweep();
-    /* One-shot timer: let LVGL draw the charging screen, then fade up */
-    lv_timer_t *t =
-        lv_timer_create(charging_screen_fade_up_timer_cb, 300, NULL);
+    lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, false);
+    lv_timer_t *t = lv_timer_create(show_charging_screen_timer_cb,
+                                    LCD_BACKLIGHT_FADE_DURATION_MS, NULL);
     lv_timer_set_repeat_count(t, 1);
-    entering_power_off_mode = false;
     return;
   }
 
@@ -319,8 +325,7 @@ void power_run_charging_mode(void) {
     if (gpio_get_level(USB_DETECT_GPIO) == 0) {
       current_mode = POWER_MODE_FULL;
       ESP_LOGI(TAG, "Charging mode: USB disconnected - powering off");
-      lcd_fade_backlight(lcd_get_backlight(), 0,
-                         LCD_BACKLIGHT_FADE_DURATION_MS);
+      lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);
       power_enter_sleep();
       /* never returns */
     }
@@ -424,7 +429,7 @@ void power_check_charging_screen_usb(void) {
   }
   ESP_LOGI(TAG, "USB disconnected on charging screen - powering off");
 
-  lcd_fade_backlight(lcd_get_backlight(), 0, LCD_BACKLIGHT_FADE_DURATION_MS);
+  lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);
   power_enter_sleep();
   /* never returns */
 }
@@ -455,12 +460,8 @@ void power_shutdown(void) {
   ble_send_shutdown(); // Lets receiver skip its failsafe brake ramp on
                        // disconnect
 
-  uint8_t current_pwm = lcd_get_backlight();
-  uint8_t min_pwm = (LCD_BACKLIGHT_MIN * 255) / 100;
-  lcd_fade_backlight(current_pwm, min_pwm, LCD_BACKLIGHT_FADE_DURATION_MS);
-
-  // Allow sufficient time for any pending NVS operations to complete
-  vTaskDelay(pdMS_TO_TICKS(NVS_FLUSH_DELAY_MS));
+  // NVS writes are synchronous: nothing is pending once they return.
+  lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);
 
   power_enter_sleep();
 }
