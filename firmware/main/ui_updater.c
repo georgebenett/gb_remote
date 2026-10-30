@@ -104,7 +104,7 @@ static _Atomic float total_trip_km;
 static float column_km[UI_MAX_RECEIVERS];
 static int8_t rendered_unit = -1; // unit shown on the bound screen, -1 = stale
 
-static lv_obj_t *get_current_screen(void) { return lv_scr_act(); }
+static lv_obj_t *get_current_screen(void) { return lv_screen_active(); }
 
 static void bind_single_home_widgets(void) {
   memset(&home_ui, 0, sizeof(home_ui));
@@ -183,7 +183,7 @@ void ui_set_dual_home_screen(bool enabled) {
   // Swap live if a home screen is what the user is currently looking at.
   if (previous != NULL && previous != home_ui.screen &&
       home_ui.screen != NULL && get_current_screen() == previous) {
-    lv_disp_load_scr(home_ui.screen);
+    lv_screen_load(home_ui.screen);
     lv_obj_invalidate(home_ui.screen);
   }
 
@@ -337,7 +337,7 @@ void ui_ease_curve(lv_anim_t *a) {
                             LV_BEZIER_VAL_FLOAT(0.68), LV_BEZIER_VAL_MAX);
 }
 
-static void gauge_anim(lv_obj_t *gauge, uint32_t delay_ms) {
+static void gauge_anim_from(lv_obj_t *gauge, int32_t from, uint32_t delay_ms) {
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, gauge);
@@ -345,9 +345,14 @@ static void gauge_anim(lv_obj_t *gauge, uint32_t delay_ms) {
   lv_anim_set_duration(&a, GAUGE_EASE_MS);
   ui_ease_curve(&a);
   lv_anim_set_custom_exec_cb(&a, gauge_settle_cb);
-  lv_anim_set_values(&a, 0, (intptr_t)lv_obj_get_user_data(gauge) * GAUGE_FINE);
+  lv_anim_set_values(&a, from,
+                     (intptr_t)lv_obj_get_user_data(gauge) * GAUGE_FINE);
   lv_anim_set_completed_cb(&a, gauge_settle_done);
   lv_anim_start(&a);
+}
+
+static void gauge_anim(lv_obj_t *gauge, uint32_t delay_ms) {
+  gauge_anim_from(gauge, 0, delay_ms);
 }
 
 /** Show a reading, or retarget the sweep already running. Caller holds
@@ -358,9 +363,10 @@ static void gauge_set(lv_obj_t *gauge, int value) {
   if (a != NULL) {
     if (a->custom_exec_cb == gauge_settle_cb &&
         a->end_value != value * GAUGE_FINE) {
-      a->start_value = lv_arc_get_value(gauge);
-      a->end_value = value * GAUGE_FINE;
-      a->act_time = LV_MIN(a->act_time, 0);
+      // Restart from where the sweep is, toward the new reading.
+      int32_t from = lv_arc_get_value(gauge);
+      lv_anim_custom_delete(a, gauge_settle_cb);
+      gauge_anim_from(gauge, from, 0);
     }
     return; // the shutdown fill owns the remote arc meanwhile
   }
@@ -1013,7 +1019,7 @@ static void splash_timer_cb(lv_timer_t *timer) {
   }
 
   lv_obj_t *home = ui_get_home_screen();
-  lv_disp_load_scr(home);
+  lv_screen_load(home);
   home_gauge_sweep();
 
   // Home screen reached — activate BLE scanning and connection
@@ -1028,7 +1034,7 @@ bool ui_splash_is_active(void) { return splash_transition_active; }
 
 void ui_splash_cancel(void) {
   if (splash_transition_timer != NULL) {
-    lv_timer_del(splash_transition_timer);
+    lv_timer_delete(splash_transition_timer);
     splash_transition_timer = NULL;
   }
   splash_transition_active = false;
@@ -1068,7 +1074,7 @@ void ui_show_splash_then_home(void) {
   ble_resume(); // early, so the splash can show the receiver's version
   ui_splash_cancel();
   splash_transition_active = true;
-  lv_disp_load_scr(objects.splash_screen);
+  lv_screen_load(objects.splash_screen);
   lv_obj_invalidate(objects.splash_screen);
   splash_transition_timer =
       lv_timer_create(splash_timer_cb, SPLASH_HOLD_MS, NULL);
@@ -1081,7 +1087,7 @@ void ui_show_splash_screen(void) {
   lcd_set_backlight(0);
   ui_splash_cancel();
   splash_transition_active = true;
-  lv_disp_load_scr(objects.splash_screen);
+  lv_screen_load(objects.splash_screen);
   lv_obj_invalidate(objects.splash_screen);
 
   lv_timer_t *fade_timer =
@@ -1100,7 +1106,7 @@ void ui_fw_update_show(const char *from, const char *to) {
   lv_label_set_text(objects.fw_update_to, to);
   lv_label_set_text(objects.fw_update_status, "0%");
   lv_bar_set_value(objects.fw_update_bar, 0, LV_ANIM_OFF);
-  lv_disp_load_scr(objects.fw_update_screen);
+  lv_screen_load(objects.fw_update_screen);
   give_lvgl_mutex();
 }
 
@@ -1116,7 +1122,7 @@ static void fw_update_home_cb(lv_timer_t *timer) {
   if (get_current_screen() != objects.fw_update_screen) {
     return; // something else (charging, shutdown) took over meanwhile
   }
-  lv_disp_load_scr(ui_get_home_screen());
+  lv_screen_load(ui_get_home_screen());
   if (!throttle_is_calibrated()) {
     ui_show_throttle_not_calibrated_text();
   }

@@ -1076,7 +1076,7 @@ static void snake_exit_to_home_locked(void) {
   snake_hide_difficulty_menu();
 
   lv_obj_t *home = ui_get_home_screen();
-  lv_disp_load_scr(home);
+  lv_screen_load(home);
   if (!throttle_is_calibrated()) {
     ui_show_throttle_not_calibrated_text();
   }
@@ -1187,7 +1187,7 @@ bool ui_handle_easter_egg_button_event(int event_raw) {
 
         snake_build_screen_if_needed();
         snake.running = true;
-        lv_disp_load_scr(snake.screen);
+        lv_screen_load(snake.screen);
         lv_obj_invalidate(snake.screen);
         snake_show_difficulty_menu();
 

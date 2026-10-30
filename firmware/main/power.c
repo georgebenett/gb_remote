@@ -144,7 +144,7 @@ static void power_button_callback(button_event_t event, void *user_data) {
 
     if (arc_animation_active && !entering_power_off_mode) {
       if (take_lvgl_mutex()) {
-        lv_anim_del(ui_get_remote_arc(), set_arc_value);
+        lv_anim_delete(ui_get_remote_arc(), set_arc_value);
         ui_show_shutdown_progress(false); // back to the battery reading
         arc_animation_active = false;
         set_shutdown_armed(false);
@@ -196,8 +196,8 @@ static void power_button_callback(button_event_t event, void *user_data) {
       shutdown_armed = false;
       if (take_lvgl_mutex()) {
         lv_obj_t *home = ui_get_home_screen();
-        if (lv_scr_act() != home) {
-          lv_disp_load_scr(home);
+        if (lv_screen_active() != home) {
+          lv_screen_load(home);
         }
         lv_obj_invalidate(home);
         ui_show_shutdown_progress(true);
@@ -312,7 +312,7 @@ void power_run_charging_mode(void) {
   ESP_LOGI(TAG, "Charging mode: USB connected, button not held");
 
   if (take_lvgl_mutex()) {
-    lv_disp_load_scr(objects.charging_screen);
+    lv_screen_load(objects.charging_screen);
     lv_obj_invalidate(objects.charging_screen);
     ui_charging_arc_sweep();
     give_lvgl_mutex();

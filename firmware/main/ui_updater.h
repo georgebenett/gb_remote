@@ -23,17 +23,17 @@
 // UI Command Queue for thread-safe UI updates
 #define UI_CMD_QUEUE_SIZE 32
 
-extern const lv_img_dsc_t img_battery_charging;
-extern const lv_img_dsc_t img_battery;
-extern const lv_img_dsc_t img_connection_0;
-extern const lv_img_dsc_t img_33_connection;
-extern const lv_img_dsc_t img_66_connection;
-extern const lv_img_dsc_t img_100_connection;
-extern const lv_img_dsc_t img_skateboard_icon_connected;
-extern const lv_img_dsc_t img_skateboard_no_connection;
-extern const lv_img_dsc_t img_no_connection;
-extern const lv_img_dsc_t img_remote_icon;
-extern const lv_img_dsc_t img_power;
+extern const lv_image_dsc_t img_battery_charging;
+extern const lv_image_dsc_t img_battery;
+extern const lv_image_dsc_t img_connection_0;
+extern const lv_image_dsc_t img_33_connection;
+extern const lv_image_dsc_t img_66_connection;
+extern const lv_image_dsc_t img_100_connection;
+extern const lv_image_dsc_t img_skateboard_icon_connected;
+extern const lv_image_dsc_t img_skateboard_no_connection;
+extern const lv_image_dsc_t img_no_connection;
+extern const lv_image_dsc_t img_remote_icon;
+extern const lv_image_dsc_t img_power;
 
 void ui_updater_init(void);
 void ui_update_speed(int32_t value);
