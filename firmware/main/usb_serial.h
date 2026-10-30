@@ -72,6 +72,8 @@ typedef enum {
                                  // Rocket), speed limit km/h, 0 off or 20-50]
   CMD_GET_ALL = 0x2F,            // Everything the config tool shows, in one
                                  // tagged answer (see ALL_TAG_*)
+  CMD_START_PAIRING = 0x30,      // Accept a new receiver for 60 s
+  CMD_FORGET_RECEIVERS = 0x31,   // Delete all bonded receivers
 
   // Response IDs (Device -> Host)
   RSP_ACK = 0x80,                  // Acknowledge with result code

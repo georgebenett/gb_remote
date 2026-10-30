@@ -337,6 +337,8 @@ static bool cmd_needs_full_mode(uint8_t cmd_id) {
   case CMD_INCREASE_BLE_TRIM:
   case CMD_DECREASE_BLE_TRIM:
   case CMD_GET_BLE_TRIM:
+  case CMD_START_PAIRING:
+  case CMD_FORGET_RECEIVERS:
     return true;
   default:
     return false;
@@ -414,6 +416,14 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
 
   case CMD_GET_ALL:
     handle_cmd_get_all(packet);
+    break;
+  case CMD_START_PAIRING:
+    ble_start_pairing(BLE_PAIRING_WINDOW_S);
+    usb_serial_send_ack(CMD_START_PAIRING, ERR_OK);
+    break;
+  case CMD_FORGET_RECEIVERS:
+    ble_forget_receivers();
+    usb_serial_send_ack(CMD_FORGET_RECEIVERS, ERR_OK);
     break;
   case CMD_SET_BATTERY_CELLS:
     handle_cmd_set_battery_cells(packet);

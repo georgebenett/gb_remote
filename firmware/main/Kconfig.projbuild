@@ -44,5 +44,14 @@ menu "Hardware Target Configuration"
         help
             Y offset for LCD display (panel offset).
 
-endmenu
+    config GB_BLE_PASSKEY
+        int "BLE pairing passkey"
+        range 0 999999
+        default 483265
+        help
+            Static passkey for pairing with a receiver; gb_receiver must use
+            the same value. The default is public: set your own in
+            sdkconfig for builds you ship. Bonded receivers keep working
+            after a change, new pairings need the matching value.
 
+endmenu

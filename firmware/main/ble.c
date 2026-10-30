@@ -85,6 +85,10 @@ static bool pairing_adv_active = false;
 
 static void pairing_adv_apply(void);
 
+static _Atomic int64_t pairing_until_us;
+// Scratch for the bond list; only the BTC task and ble_forget_receivers use it.
+static esp_ble_bond_dev_t bond_list[CONFIG_BT_SMP_MAX_BONDS];
+
 // One link per receiver. Only the first slot is used unless the
 // dual_connection user preference is enabled.
 #define MAX_RECEIVER_LINKS BLE_MAX_RECEIVERS
@@ -101,7 +105,8 @@ typedef struct {
   uint32_t connect_ms; // Connection timestamp for the neutral hold period
   int8_t rssi;
   bool rssi_valid;
-  bool fw_seen; // Receiver answered GB_CMD_GET_FW_VERSION
+  bool fw_seen;   // Receiver answered GB_CMD_GET_FW_VERSION
+  bool encrypted; // SMP done; the receiver ignores writes until then
   float vesc_voltage;
   float bms_total_voltage;
   float bms_remaining_capacity;
@@ -182,7 +187,7 @@ static bool no_reverse_enabled = false;
  * discovery found a writable one. */
 static esp_err_t link_write_cmd(const receiver_link_t *link, const uint8_t *buf,
                                 uint16_t len) {
-  if (link == NULL || !link->ready ||
+  if (link == NULL || !link->ready || !link->encrypted ||
       !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
     return ESP_ERR_INVALID_STATE;
@@ -200,6 +205,46 @@ static esp_err_t write_cmd_all(const uint8_t *buf, uint16_t len) {
       ret = ESP_OK;
   }
   return ret;
+}
+
+static bool is_bonded(const esp_bd_addr_t bda) {
+  int n = esp_ble_get_bond_device_num();
+  if (n <= 0 || n > CONFIG_BT_SMP_MAX_BONDS ||
+      esp_ble_get_bond_device_list(&n, bond_list) != ESP_OK)
+    return false;
+  for (int i = 0; i < n; i++) {
+    if (memcmp(bond_list[i].bd_addr, bda, sizeof(esp_bd_addr_t)) == 0)
+      return true;
+  }
+  return false;
+}
+
+bool ble_is_pairing(void) {
+  return esp_timer_get_time() < pairing_until_us ||
+         esp_ble_get_bond_device_num() == 0;
+}
+
+void ble_start_pairing(uint32_t seconds) {
+  pairing_until_us = esp_timer_get_time() + (int64_t)seconds * 1000000;
+  ESP_LOGI(GATTC_TAG, "Pairing open for %lu s", (unsigned long)seconds);
+  resume_scan_if_needed();
+}
+
+void ble_forget_receivers(void) {
+  int n = CONFIG_BT_SMP_MAX_BONDS;
+  if (esp_ble_get_bond_device_list(&n, bond_list) == ESP_OK) {
+    for (int i = 0; i < n; i++) {
+      esp_ble_remove_bond_device(bond_list[i].bd_addr);
+    }
+  }
+  if (spp_gattc_if != ESP_GATT_IF_NONE) {
+    for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+      if (links[i].in_use) {
+        esp_ble_gattc_close(spp_gattc_if, links[i].conn_id);
+      }
+    }
+  }
+  ESP_LOGI(GATTC_TAG, "Forgot %d receiver(s)", n);
 }
 
 static void cmd_no_reverse(uint8_t out[2]) {
@@ -230,6 +275,17 @@ static void link_send_settings(const receiver_link_t *link) {
                  2);
   link_write_cmd(link, (uint8_t[]){GB_CMD_SET_CURRENT_SCALE, current_scale_pct},
                  2);
+}
+
+/* Settings and the version request go out once the link is both discovered
+ * and encrypted, whichever finishes last. */
+static void link_on_secure(receiver_link_t *link) {
+  if (!link->ready || !link->encrypted) {
+    return;
+  }
+  link_send_settings(link);
+  uint8_t req = GB_CMD_GET_FW_VERSION;
+  link_write_cmd(link, &req, 1);
 }
 
 esp_err_t ble_send_reset_odometer(void) {
@@ -499,7 +555,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
           esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
                                    ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
 
-      if (gb_adv_name_matches(adv_name, adv_name_len, device_name)) {
+      if (gb_adv_name_matches(adv_name, adv_name_len, device_name) &&
+          (ble_is_pairing() || is_bonded(scan_result->scan_rst.bda))) {
         if (connect_pending || link_by_bda(scan_result->scan_rst.bda) != NULL ||
             link_count_connected() >= desired_link_count()) {
           break;
@@ -566,30 +623,26 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
     break;
 
   case ESP_GAP_BLE_PASSKEY_REQ_EVT:
-    ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_PASSKEY_REQ_EVT - entering passkey: %06lu",
-             (unsigned long)BLE_PASSKEY);
     esp_ble_passkey_reply(param->ble_security.ble_req.bd_addr, true,
-                          BLE_PASSKEY);
-    break;
-
-  case ESP_GAP_BLE_PASSKEY_NOTIF_EVT:
-    ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_PASSKEY_NOTIF_EVT - passkey: %06lu",
-             (unsigned long)param->ble_security.key_notif.passkey);
+                          CONFIG_GB_BLE_PASSKEY);
     break;
 
   case ESP_GAP_BLE_NC_REQ_EVT:
-    // Numeric comparison - accept automatically
-    ESP_LOGI(GATTC_TAG, "ESP_GAP_BLE_NC_REQ_EVT - numeric comparison: %06lu",
-             (unsigned long)param->ble_security.key_notif.passkey);
+    // Only a peer we chose to connect to (bonded, or in a pairing window)
+    // gets this far.
     esp_ble_confirm_reply(param->ble_security.key_notif.bd_addr, true);
     break;
 
   case ESP_GAP_BLE_AUTH_CMPL_EVT:
     if (param->ble_security.auth_cmpl.success) {
-      ESP_LOGI(GATTC_TAG,
-               "Authentication SUCCESS, addr_type: %d, auth_mode: %d",
-               param->ble_security.auth_cmpl.addr_type,
-               param->ble_security.auth_cmpl.auth_mode);
+      ESP_LOGI(GATTC_TAG, "Receiver " BT_BD_ADDR_STR " encrypted",
+               BT_BD_ADDR_HEX(param->ble_security.auth_cmpl.bd_addr));
+      receiver_link_t *link =
+          link_by_bda(param->ble_security.auth_cmpl.bd_addr);
+      if (link != NULL) {
+        link->encrypted = true;
+        link_on_secure(link);
+      }
     } else {
       ESP_LOGW(GATTC_TAG, "Authentication FAILED, reason: 0x%x",
                param->ble_security.auth_cmpl.fail_reason);
@@ -813,7 +866,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
                link->db[i].properties, link->db[i].uuid.uuid.uuid16);
     }
     link->ready = true;
-    link_send_settings(link);
+    link_on_secure(link);
 
     reg_work_t work = {.link_idx = (uint8_t)(link - links),
                        .attr_idx = SPP_IDX_SPP_DATA_NTY_VAL};
@@ -903,7 +956,7 @@ static void ble_client_appRegister(void) {
   uint8_t key_size = 16;
   uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
   uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
-  uint32_t passkey = BLE_PASSKEY;
+  uint32_t passkey = CONFIG_GB_BLE_PASSKEY;
   uint8_t oob_support = ESP_BLE_OOB_DISABLE;
 
   esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, &passkey,
@@ -920,9 +973,6 @@ static void ble_client_appRegister(void) {
                                  sizeof(uint8_t));
   esp_ble_gap_set_security_param(ESP_BLE_SM_OOB_SUPPORT, &oob_support,
                                  sizeof(uint8_t));
-
-  ESP_LOGI(GATTC_TAG, "BLE Security configured with passkey: %06lu",
-           (unsigned long)passkey);
 
   cmd_reg_queue = xQueueCreate(10, sizeof(reg_work_t));
   ESP_ERROR_CHECK(xTaskCreate(spp_client_reg_task, "spp_client_reg_task", 2048,
@@ -1028,9 +1078,10 @@ static void adc_send_task(void *pvParameters) {
       uint32_t now_ms = esp_timer_get_time() / 1000;
       for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
         receiver_link_t *link = &links[i];
-        if (!link->ready || !(link->db[SPP_IDX_SPP_DATA_RECV_VAL].properties &
-                              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
-                               ESP_GATT_CHAR_PROP_BIT_WRITE))) {
+        if (!link->ready || !link->encrypted ||
+            !(link->db[SPP_IDX_SPP_DATA_RECV_VAL].properties &
+              (ESP_GATT_CHAR_PROP_BIT_WRITE_NR |
+               ESP_GATT_CHAR_PROP_BIT_WRITE))) {
           continue;
         }
         // Hold neutral for the first NEUTRAL_HOLD_MS after this link connects,
@@ -1220,8 +1271,8 @@ void ble_set_dual_connection(bool enabled) {
   dual_connection_enabled = enabled;
   ESP_LOGI(GATTC_TAG, "Dual connection %s", enabled ? "enabled" : "disabled");
   if (enabled) {
-    // Start looking for a second receiver right away
-    resume_scan_if_needed();
+    // The second receiver is not bonded yet: let it pair.
+    ble_start_pairing(BLE_PAIRING_WINDOW_S);
   } else if (spp_gattc_if != ESP_GATT_IF_NONE) {
     // Keep the first connected link, drop any extra
     bool kept = false;

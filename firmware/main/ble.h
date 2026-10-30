@@ -17,9 +17,6 @@
 #define RSSI_READ_INTERVAL_MS 1000 // RSSI polling rate
 #define NEUTRAL_HOLD_MS 1000       // Hold neutral after connection
 
-// BLE Security Configuration
-#define BLE_PASSKEY 483265 // Fixed passkey for pairing (must match server)
-
 // Maximum simultaneous receiver links. Only slot 0 is used unless the
 // dual connection preference is enabled.
 #define BLE_MAX_RECEIVERS 2
@@ -34,6 +31,16 @@ bool ble_is_connected(void);
 
 /** Start the BLE stack, scanning and the throttle sender. */
 void ble_init(void);
+
+/** Seconds a pairing window stays open (ble_start_pairing). */
+#define BLE_PAIRING_WINDOW_S 60
+/** Outside a pairing window the remote only connects to receivers it has
+ *  bonded with; with no bond at all it is always pairing. A receiver that
+ *  connects during the window bonds and is accepted from then on. */
+void ble_start_pairing(uint32_t seconds);
+bool ble_is_pairing(void);
+/** Delete every bonded receiver and drop their links. */
+void ble_forget_receivers(void);
 /* Telemetry from whichever receiver notified last. */
 float ble_get_vesc_voltage(void);
 int32_t ble_get_erpm(void);
