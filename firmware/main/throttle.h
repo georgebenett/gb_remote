@@ -51,25 +51,34 @@ bool throttle_is_calibrated(void);
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 bool throttle_should_use_neutral(void);
 
-/** Curve then trim, for everything that leaves the remote. */
-uint8_t throttle_shape_output(uint8_t value, int8_t trim);
+/** What the radio sends this sample. */
+typedef struct {
+  uint8_t value;   // oriented, curved, trimmed, ramped, low-battery clamped
+  uint8_t neutral; // a centred lever after trim: the post-connect hold value
+  int32_t throttle_raw, brake_raw; // last ADC averages, -1 = read error
+  bool low_battery;
+} throttle_cmd_t;
+
+/** The command for the latest sample. The sampler builds one per sample and
+ *  then wakes the sender (ble_notify_throttle_sample). */
+void throttle_get_command(throttle_cmd_t *out);
+
+/** Output trim, -127..127, saved in settings. */
+int8_t throttle_get_trim(void);
+/** Step the trim by +-1. ESP_ERR_INVALID_ARG at the limit. */
+esp_err_t throttle_step_trim(int delta);
+/** LITE: flip the lever direction (live, not only at boot). */
+void throttle_set_invert(bool inverted);
 
 /** Ride profile ramp: ms to go from neutral to full throttle, 0 = instant.
  *  Reloaded at adc_init() and on every config-tool change. */
 void throttle_set_ride_profile(uint16_t ramp_ms);
-
-/** Eases `value` up toward full throttle at the profile's rate. Stateful: call
- *  once per sample, with the (trimmed) neutral. Braking, release and neutral
- *  pass through instantly. */
-uint8_t throttle_apply_ramp(uint8_t value, uint8_t neutral);
 
 /** Throttle curve, owned by the config tool and reloaded at adc_init(). */
 void throttle_set_curve(int8_t acc, int8_t brake, uint8_t mode);
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 int32_t brake_read_value(void);
-uint8_t get_throttle_brake_ble_value(
-    void); // Combined throttle/brake value for BLE (0-255, 128=neutral)
 void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val);
 #endif
 

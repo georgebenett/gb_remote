@@ -156,7 +156,6 @@ static float bms_nominal_capacity = 0.0f;
 
 static bool aux_output_state = false;
 static bool receiver_aux_output_state = false;
-static int8_t ble_trim_offset = 0; // Trim offset for BLE output (-127 to +127)
 static float latest_trip_km = 0.0f;
 
 /** When true, BLE is suspended (not on home screen). Starts true;
@@ -182,11 +181,6 @@ static uint8_t current_scale_pct = 100;
 
 /** Reverse lockout (USB config tool). Sent to the receiver on connect. */
 static bool no_reverse_enabled = false;
-
-/** Throttle inversion (lite, USB config tool). Module scope, not cached in the
- * send task: a toggle has to reach the radio without a reboot, or the tool and
- * the board disagree about which way the lever points. */
-static bool invert_throttle_enabled = false;
 
 static void link_send_no_reverse(receiver_link_t *link) {
   if (!link->ready ||
@@ -299,39 +293,6 @@ static void aux_output_save_state(void) {
   settings_get(&cfg);
   cfg.aux_on = aux_output_state;
   settings_set(&cfg);
-}
-
-static esp_err_t ble_trim_save_offset(void) {
-  settings_t cfg;
-  settings_get(&cfg);
-  cfg.ble_trim = ble_trim_offset;
-  return settings_set(&cfg);
-}
-
-int8_t ble_get_trim_offset(void) { return ble_trim_offset; }
-
-esp_err_t ble_increase_trim_offset(void) {
-  if (ble_trim_offset < 127) {
-    ble_trim_offset++;
-    esp_err_t err = ble_trim_save_offset();
-    if (err == ESP_OK) {
-      ESP_LOGI(GATTC_TAG, "BLE trim offset increased to: %d", ble_trim_offset);
-    }
-    return err;
-  }
-  return ESP_ERR_INVALID_ARG; // Already at maximum
-}
-
-esp_err_t ble_decrease_trim_offset(void) {
-  if (ble_trim_offset > -127) {
-    ble_trim_offset--;
-    esp_err_t err = ble_trim_save_offset();
-    if (err == ESP_OK) {
-      ESP_LOGI(GATTC_TAG, "BLE trim offset decreased to: %d", ble_trim_offset);
-    }
-    return err;
-  }
-  return ESP_ERR_INVALID_ARG; // Already at minimum
 }
 
 void ble_toggle_aux_output(void) {
@@ -1034,13 +995,9 @@ void spp_client_demo_init(void) {
     settings_t cfg;
     settings_get(&cfg);
     aux_output_state = cfg.aux_on;
-    ble_trim_offset = cfg.ble_trim;
     dual_connection_enabled = cfg.dual_connection;
     smart_reverse_enabled = cfg.smart_reverse;
     no_reverse_enabled = cfg.no_reverse;
-#ifdef CONFIG_TARGET_LITE
-    invert_throttle_enabled = cfg.invert_throttle;
-#endif
     assist_push_enabled = cfg.assist_push;
     assist_strength = cfg.assist_strength;
     assist_decay = cfg.assist_decay;
@@ -1089,7 +1046,6 @@ static void adc_send_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint8_t data_buffer[3]; // throttle (2) + aux state (1)
-  bool low_batt_logged = false;
 
   while (1) {
     esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
@@ -1110,47 +1066,8 @@ static void adc_send_task(void *pvParameters) {
         continue;
       }
 
-      uint32_t adc_value;
-      bool throttle_inverted = false;
-
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-      adc_value = adc_get_latest_value();
-#elif defined(CONFIG_TARGET_LITE)
-      if (throttle_should_use_neutral()) {
-        adc_value = VESC_NEUTRAL_VALUE;
-      } else {
-        adc_value = adc_get_latest_value();
-      }
-
-      if (invert_throttle_enabled) {
-        adc_value = 255 - adc_value;
-        throttle_inverted = true;
-      }
-#endif
-
-      int8_t effective_trim =
-          throttle_inverted ? -ble_trim_offset : ble_trim_offset;
-      uint8_t final_ble_value =
-          throttle_shape_output((uint8_t)adc_value, effective_trim);
-      // Trimmed neutral: what the same mapping yields for a centered stick.
-      // Sent to a link during its post-connect neutral hold period.
-      uint8_t neutral_ble_value =
-          throttle_shape_output(VESC_NEUTRAL_VALUE, effective_trim);
-      final_ble_value = throttle_apply_ramp(final_ble_value, neutral_ble_value);
-
-      // Low battery cuts throttle but keeps the brake; last step, after
-      // inversion and shaping, so nothing can undo it.
-      bool low_batt = battery_is_low_voltage();
-      if (low_batt) {
-        final_ble_value =
-            throttle_brake_only(final_ble_value, neutral_ble_value);
-      }
-      if (low_batt != low_batt_logged) {
-        low_batt_logged = low_batt;
-        if (low_batt) {
-          ESP_LOGW(GATTC_TAG, "Low battery - throttle blocked, brake only");
-        }
-      }
+      throttle_cmd_t cmd;
+      throttle_get_command(&cmd);
 
       uint32_t now_ms = esp_timer_get_time() / 1000;
       for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
@@ -1164,8 +1081,8 @@ static void adc_send_task(void *pvParameters) {
         // and while a receiver takes a firmware update.
         uint8_t out_value =
             (now_ms - link->connect_ms < NEUTRAL_HOLD_MS || rx_ota_active())
-                ? neutral_ble_value
-                : final_ble_value;
+                ? cmd.neutral
+                : cmd.value;
         data_buffer[0] = out_value;
         data_buffer[1] = 0;
         data_buffer[2] = aux_output_state ? 1 : 0;
@@ -1393,12 +1310,6 @@ void ble_set_smart_reverse(bool enabled) {
   for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
     link_send_smart_reverse(&links[i]);
   }
-}
-
-void ble_set_invert_throttle(bool enabled) {
-  invert_throttle_enabled = enabled;
-  ESP_LOGI(GATTC_TAG, "Throttle inversion %s",
-           enabled ? "enabled" : "disabled");
 }
 
 void ble_set_no_reverse(bool enabled) {

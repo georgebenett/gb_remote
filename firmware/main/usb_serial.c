@@ -532,7 +532,7 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
   idx += put_u32(&payload[idx], (uint32_t)speed);
 
   // BLE trim offset (1 byte, signed)
-  int8_t trim_offset = ble_get_trim_offset();
+  int8_t trim_offset = throttle_get_trim();
   payload[idx++] =
       (uint8_t)trim_offset; // Cast to uint8_t for transmission (will be
                             // interpreted as int8_t on receive)
@@ -596,7 +596,7 @@ static void handle_cmd_get_all(const binary_packet_t *packet) {
                                 : 0);
   put_tlv(payload, &idx, ALL_TAG_SPEED, v, 4);
 
-  v[0] = (uint8_t)ble_get_trim_offset();
+  v[0] = (uint8_t)throttle_get_trim();
   put_tlv(payload, &idx, ALL_TAG_BLE_TRIM, v, 1);
 
   v[0] = viber_get_intensity();
@@ -755,13 +755,9 @@ static void handle_cmd_get_calibration(const binary_packet_t *packet) {
 
   idx += put_u32(&payload[idx], brake_min);
   idx += put_u32(&payload[idx], brake_max);
-
-  // Current BLE value
-  idx += put_u32(&payload[idx], (uint32_t)get_throttle_brake_ble_value());
-#else
-  // Current ADC value
-  idx += put_u32(&payload[idx], adc_get_latest_value());
 #endif
+  // Latest mapped value
+  idx += put_u32(&payload[idx], adc_get_latest_value());
 
   usb_serial_send_response(RSP_CALIBRATION, payload, idx);
 }
@@ -879,7 +875,7 @@ static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
   esp_err_t err = settings_set(&hand_controller_config);
   // Reaches the radio immediately: cached there, it would keep sending the old
   // orientation until reboot and smart reverse would arm off the wrong end.
-  ble_set_invert_throttle(hand_controller_config.invert_throttle);
+  throttle_set_invert(hand_controller_config.invert_throttle);
 
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_INVERT_THROTTLE, ERR_OK);
@@ -1082,10 +1078,15 @@ void usb_serial_start_streaming(uint16_t rate_hz) {
 
 void usb_serial_stop_streaming(void) { stream_config.enabled = false; }
 
+/* Reads the sampler's snapshot: the exact command the radio sends, with no
+ * NVS or ADC access of its own. */
 void usb_serial_send_stream_data(void) {
   if (!stream_config.enabled) {
     return;
   }
+
+  throttle_cmd_t cmd;
+  throttle_get_command(&cmd);
 
   uint8_t payload[32];
   uint16_t idx = 0;
@@ -1098,64 +1099,19 @@ void usb_serial_send_stream_data(void) {
     flags |= 0x01;
   if (throttle_is_calibrated())
     flags |= 0x02;
+  if (cmd.low_battery)
+    flags |= 0x04;
   payload[idx++] = flags;
 
-  // Throttle raw value (4 bytes, signed)
-  int32_t throttle_raw = throttle_read_value();
-  if (throttle_raw < 0)
-    throttle_raw = 0;
-  idx += put_u32(&payload[idx], (uint32_t)throttle_raw);
-
-  // Brake raw value (4 bytes, signed)
-  uint32_t brake_raw_uint = 0;
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-  int32_t brake_raw = brake_read_value();
-  if (brake_raw < 0)
-    brake_raw = 0;
-  brake_raw_uint = (uint32_t)brake_raw;
-#endif
-  idx += put_u32(&payload[idx], brake_raw_uint);
-
-  // Throttle/brake combination value sent to BLE (1 byte, 0-255)
-  uint8_t throttle_brake_ble = 0;
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-  throttle_brake_ble = get_throttle_brake_ble_value();
-  // Apply trim offset with range compensation to match what's actually sent via
-  // BLE
-  throttle_brake_ble =
-      throttle_shape_output(throttle_brake_ble, ble_get_trim_offset());
-#elif defined(CONFIG_TARGET_LITE)
-  bool throttle_inverted = false;
-  uint32_t adc_value = adc_get_latest_value();
-  if (throttle_should_use_neutral()) {
-    throttle_brake_ble = VESC_NEUTRAL_VALUE;
-  } else {
-    throttle_brake_ble = (uint8_t)adc_value;
-
-    settings_t config;
-    settings_get(&config);
-    if (config.invert_throttle) {
-      throttle_brake_ble = 255 - throttle_brake_ble;
-      throttle_inverted = true;
-    }
-  }
-
-  // Apply trim offset with range compensation to match what's actually sent via
-  // BLE (for lite mode) If throttle is inverted, we need to invert the trim
-  // offset direction to compensate
-  int8_t effective_trim =
-      throttle_inverted ? -ble_get_trim_offset() : ble_get_trim_offset();
-  throttle_brake_ble =
-      throttle_shape_output(throttle_brake_ble, effective_trim);
-#endif
-
-  payload[idx++] = throttle_brake_ble;
+  idx += put_u32(&payload[idx], cmd.throttle_raw < 0 ? 0 : cmd.throttle_raw);
+  idx += put_u32(&payload[idx], cmd.brake_raw < 0 ? 0 : cmd.brake_raw);
+  payload[idx++] = cmd.value;
 
   usb_serial_send_response(RSP_STREAM_DATA, payload, idx);
 }
 
 static void handle_cmd_increase_ble_trim(const binary_packet_t *packet) {
-  esp_err_t err = ble_increase_trim_offset();
+  esp_err_t err = throttle_step_trim(1);
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_INCREASE_BLE_TRIM, ERR_OK);
   } else if (err == ESP_ERR_INVALID_ARG) {
@@ -1166,7 +1122,7 @@ static void handle_cmd_increase_ble_trim(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet) {
-  esp_err_t err = ble_decrease_trim_offset();
+  esp_err_t err = throttle_step_trim(-1);
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_DECREASE_BLE_TRIM, ERR_OK);
   } else if (err == ESP_ERR_INVALID_ARG) {
@@ -1177,7 +1133,7 @@ static void handle_cmd_decrease_ble_trim(const binary_packet_t *packet) {
 }
 
 static void handle_cmd_get_ble_trim(const binary_packet_t *packet) {
-  int8_t trim_offset = ble_get_trim_offset();
+  int8_t trim_offset = throttle_get_trim();
   uint8_t payload[1];
   payload[0] = (uint8_t)trim_offset; // Cast to uint8_t for transmission
                                      // (interpret as int8_t on receive)

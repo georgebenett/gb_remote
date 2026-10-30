@@ -1,4 +1,5 @@
 #include "throttle.h"
+#include "battery.h"
 #include "ble.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
@@ -29,6 +30,12 @@ static uint32_t latest_adc_value = VESC_NEUTRAL_VALUE;
 static int8_t curve_acc = 0;
 static int8_t curve_brake = 0;
 static uint8_t curve_mode = THROTTLE_CURVE_EXPO;
+static atomic_int trim_offset;
+static atomic_bool invert_throttle;
+static atomic_int last_throttle_raw = -1, last_brake_raw = -1;
+static throttle_cmd_t last_cmd = {.value = VESC_NEUTRAL_VALUE,
+                                  .neutral = VESC_NEUTRAL_VALUE};
+static portMUX_TYPE cmd_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool adc_initialized = false;
 static int error_count = 0;
 static const int MAX_ERRORS = 5;
@@ -39,6 +46,7 @@ static settings_cal_t cal = {.throttle_max = ADC_INITIAL_MAX_VALUE,
 static portMUX_TYPE cal_lock = portMUX_INITIALIZER_UNLOCKED;
 static atomic_bool calibration_in_progress;
 static void load_calibration(void);
+static void update_command(void);
 static void adc_deinit(void);
 
 static settings_cal_t cal_snapshot(void) {
@@ -106,6 +114,8 @@ esp_err_t adc_init(void) {
   {
     settings_t cfg;
     settings_get(&cfg);
+    trim_offset = cfg.ble_trim;
+    invert_throttle = cfg.invert_throttle;
     throttle_set_curve(cfg.throttle_curve_acc, cfg.throttle_curve_brake,
                        cfg.throttle_curve_mode);
     throttle_set_ride_profile(settings_ride_profile_ramp_ms(cfg.ride_profile));
@@ -180,13 +190,12 @@ static void adc_task(void *pvParameters) {
   TickType_t last_wake = xTaskGetTickCount();
 
   while (1) {
-
-    /* Both channels read once per pass and mapped from the raws here. Calling
-     * get_throttle_brake_ble_value() would read them again, tripling the ADC
-     * cost of the loop. */
+    // Both channels read once per pass and mapped from the raws here.
     int32_t adc_raw = throttle_read_value();
+    last_throttle_raw = adc_raw;
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     int32_t brake_raw = brake_read_value();
+    last_brake_raw = brake_raw;
 #endif
 
 #ifdef CONFIG_TARGET_LITE
@@ -230,6 +239,7 @@ static void adc_task(void *pvParameters) {
 #endif
     // Update latest_adc_value so modules like snake can read current input
     latest_adc_value = mapped_value;
+    update_command();
     ble_notify_throttle_sample(); // one sample in, one packet out
 
     if (!ble_is_connected()) {
@@ -508,14 +518,6 @@ bool throttle_should_use_neutral(void) {
   return calibration_in_progress || !cal_snapshot().done;
 }
 
-/* Curve then trim, on a value the caller has already oriented. LITE inverts
- * before calling, so the accel curve always shapes the rider's accelerate
- * direction rather than whichever half of the ADC range that happens to be. */
-uint8_t throttle_shape_output(uint8_t value, int8_t trim) {
-  return throttle_apply_trim(
-      throttle_apply_curve(value, curve_acc, curve_brake, curve_mode), trim);
-}
-
 /* Counts per sample, averaged over the ramp; 0 = off (Rocket). ramp_value keeps
  * the slewed position between samples. */
 static float ramp_ms_total = 0.0f;
@@ -526,7 +528,7 @@ void throttle_set_ride_profile(uint16_t ramp_ms) {
   ESP_LOGI(TAG, "Ride profile ramp: %u ms", ramp_ms);
 }
 
-uint8_t throttle_apply_ramp(uint8_t value, uint8_t neutral) {
+static uint8_t throttle_apply_ramp(uint8_t value, uint8_t neutral) {
   if (value <= neutral) {
     ramp_value = value;
     return value;
@@ -558,23 +560,68 @@ void throttle_set_curve(int8_t acc, int8_t brake, uint8_t mode) {
            (int)acc, (int)brake);
 }
 
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-/* Reads both channels. Callers that already have the raws should use
- * throttle_map_ble_value() instead of paying for the reads twice. */
-uint8_t get_throttle_brake_ble_value(void) {
+static void update_command(void) {
+  static bool low_batt_logged = false;
+  uint8_t v = adc_get_latest_value();
+  int8_t trim = trim_offset;
+#ifdef CONFIG_TARGET_LITE
   if (throttle_should_use_neutral()) {
-    return VESC_NEUTRAL_VALUE;
+    v = VESC_NEUTRAL_VALUE;
   }
-
-  int32_t throttle_raw = throttle_read_value();
-  int32_t brake_raw = brake_read_value();
-
-  if (throttle_raw < 0 || brake_raw < 0) {
-    return VESC_NEUTRAL_VALUE;
+  /* Invert before the curve so the accel curve shapes the rider's accelerate
+   * direction; the trim flips with it. */
+  if (invert_throttle) {
+    v = 255 - v;
+    trim = -trim;
   }
-
-  settings_cal_t c = cal_snapshot();
-  return throttle_map_ble_value(throttle_raw, brake_raw, c.throttle_min,
-                                c.throttle_max, c.brake_min, c.brake_max);
-}
 #endif
+  throttle_cmd_t c = {
+      .neutral = throttle_apply_trim(VESC_NEUTRAL_VALUE, trim),
+      .throttle_raw = last_throttle_raw,
+      .brake_raw = last_brake_raw,
+      .low_battery = battery_is_low_voltage(),
+  };
+  c.value = throttle_apply_ramp(
+      throttle_apply_trim(
+          throttle_apply_curve(v, curve_acc, curve_brake, curve_mode), trim),
+      c.neutral);
+  // Last, so nothing after it can undo it: low battery keeps the brake only.
+  if (c.low_battery) {
+    c.value = throttle_brake_only(c.value, c.neutral);
+  }
+  if (c.low_battery != low_batt_logged) {
+    low_batt_logged = c.low_battery;
+    if (c.low_battery) {
+      ESP_LOGW(TAG, "Low battery - throttle blocked, brake only");
+    }
+  }
+  taskENTER_CRITICAL(&cmd_lock);
+  last_cmd = c;
+  taskEXIT_CRITICAL(&cmd_lock);
+}
+
+void throttle_get_command(throttle_cmd_t *out) {
+  taskENTER_CRITICAL(&cmd_lock);
+  *out = last_cmd;
+  taskEXIT_CRITICAL(&cmd_lock);
+}
+
+int8_t throttle_get_trim(void) { return trim_offset; }
+
+esp_err_t throttle_step_trim(int delta) {
+  int next = trim_offset + delta;
+  if (next < -127 || next > 127) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  trim_offset = next;
+  settings_t cfg;
+  settings_get(&cfg);
+  cfg.ble_trim = (int8_t)next;
+  ESP_LOGI(TAG, "Trim offset: %d", next);
+  return settings_set(&cfg);
+}
+
+void throttle_set_invert(bool inverted) {
+  invert_throttle = inverted;
+  ESP_LOGI(TAG, "Throttle inversion %s", inverted ? "enabled" : "disabled");
+}

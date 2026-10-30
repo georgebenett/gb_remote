@@ -53,11 +53,6 @@ esp_err_t ble_send_reset_odometer(void);
 // Send shutdown command to receiver over BLE (skips its failsafe on disconnect)
 esp_err_t ble_send_shutdown(void);
 
-// BLE trim offset control
-int8_t ble_get_trim_offset(void);
-esp_err_t ble_increase_trim_offset(void);
-esp_err_t ble_decrease_trim_offset(void);
-
 /** Apply the dual connection preference at runtime (also loaded from NVS at
  *  BLE init). Enabling starts scanning for a second receiver; disabling
  *  drops any link beyond the first. */
@@ -79,10 +74,6 @@ void ble_set_smart_reverse(bool enabled);
 
 /** Reverse lockout, sent to every receiver: they brake instead of reversing. */
 void ble_set_no_reverse(bool enabled);
-
-/** Throttle inversion (lite). Must be applied live: the USB stream reloads it
- *  per packet, so a cached copy here would disagree with the config tool. */
-void ble_set_invert_throttle(bool enabled);
 
 /** Apply the assistive push preference at runtime (also loaded from NVS at BLE
  *  init) and send it to every connected receiver, which runs the logic. */
