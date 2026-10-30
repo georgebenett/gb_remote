@@ -5,10 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// ESP32-S3 specific USB CDC settings
-#define USB_CDC_ENABLED 1
-#define USB_CDC_USE_PRIMARY_CONSOLE 1
-#define USB_CDC_USE_SECONDARY_CONSOLE 0
 #define USB_CDC_INIT_DELAY_MS 100
 #define USB_RX_POLL_MS 10          // read timeout; also the stream tick
 #define USB_RX_FRAME_TIMEOUT_MS 50 // max gap between bytes of one frame
@@ -17,9 +13,6 @@
 // Binary Protocol Configuration
 #define PACKET_START_BYTE 0xAA
 #define PACKET_MAX_PAYLOAD_SIZE 512
-#define PACKET_HEADER_SIZE                                                     \
-  5 // START(1) + CMD(1) + LEN(2) + CRC(2) = 6, but -CRC = 4, +payload = varies
-#define PACKET_MIN_SIZE 6 // START + CMD + LEN(2) + CRC(2)
 
 // Binary Protocol Packet Structure:
 // [START_BYTE] [CMD_ID] [LENGTH_LSB] [LENGTH_MSB] [PAYLOAD...] [CRC16_LSB]
@@ -136,39 +129,11 @@ typedef enum {
   ERR_NO_RECEIVER = 0x0F,           // BLE link to receiver is not connected
 } error_code_t;
 
-// Packet state machine
-typedef enum {
-  STATE_WAIT_START,
-  STATE_WAIT_CMD,
-  STATE_WAIT_LEN_LSB,
-  STATE_WAIT_LEN_MSB,
-  STATE_WAIT_PAYLOAD,
-  STATE_WAIT_CRC_LSB,
-  STATE_WAIT_CRC_MSB,
-} packet_state_t;
-
-// Packet structure for internal use
-typedef struct {
-  uint8_t cmd_id;
-  uint16_t payload_length;
-  uint8_t payload[PACKET_MAX_PAYLOAD_SIZE];
-  uint16_t crc;
-} binary_packet_t;
-
-// Streaming configuration
-typedef struct {
-  bool enabled;
-  uint16_t rate_hz;
-  uint32_t last_send_ms;
-} stream_config_t;
-
 // Function prototypes
 void usb_serial_init(void);
 void usb_serial_start_task(void);
-void usb_serial_init_esp32s3(void);
 
 // Binary protocol functions
-void usb_serial_process_packet(const binary_packet_t *packet);
 void usb_serial_send_response(uint8_t cmd_id, const uint8_t *payload,
                               uint16_t length);
 void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code);
@@ -177,6 +142,3 @@ void usb_serial_send_ack(uint8_t original_cmd, error_code_t error_code);
 void usb_serial_start_streaming(uint16_t rate_hz);
 void usb_serial_stop_streaming(void);
 void usb_serial_send_stream_data(void);
-
-// Utility functions
-uint16_t calculate_crc16(const uint8_t *data, uint16_t length);

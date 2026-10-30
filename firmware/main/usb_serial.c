@@ -26,6 +26,32 @@
 
 #define TAG "USB_SERIAL"
 
+// Packet state machine
+typedef enum {
+  STATE_WAIT_START,
+  STATE_WAIT_CMD,
+  STATE_WAIT_LEN_LSB,
+  STATE_WAIT_LEN_MSB,
+  STATE_WAIT_PAYLOAD,
+  STATE_WAIT_CRC_LSB,
+  STATE_WAIT_CRC_MSB,
+} packet_state_t;
+
+// Packet structure for internal use
+typedef struct {
+  uint8_t cmd_id;
+  uint16_t payload_length;
+  uint8_t payload[PACKET_MAX_PAYLOAD_SIZE];
+  uint16_t crc;
+} binary_packet_t;
+
+// Streaming configuration
+typedef struct {
+  bool enabled;
+  uint16_t rate_hz;
+  uint32_t last_send_ms;
+} stream_config_t;
+
 static bool usb_serial_initialized = false;
 static TaskHandle_t usb_task_handle = NULL;
 static packet_state_t rx_state = STATE_WAIT_START;
@@ -40,6 +66,8 @@ static stream_config_t stream_config = {.enabled = false,
 static settings_t hand_controller_config;
 
 static void usb_serial_task(void *pvParameters);
+static void usb_serial_init_esp32s3(void);
+static void usb_serial_process_packet(const binary_packet_t *packet);
 static void handle_cmd_ping(const binary_packet_t *packet);
 static void handle_cmd_get_firmware_version(const binary_packet_t *packet);
 static void handle_cmd_get_config(const binary_packet_t *packet);
@@ -87,7 +115,7 @@ static uint16_t put_u32(uint8_t *p, uint32_t v) {
 }
 
 // CRC-16-CCITT calculation (polynomial: 0x1021)
-uint16_t calculate_crc16(const uint8_t *data, uint16_t length) {
+static uint16_t usb_serial_crc16(const uint8_t *data, uint16_t length) {
   uint16_t crc = 0xFFFF;
   for (uint16_t i = 0; i < length; i++) {
     crc ^= (uint16_t)data[i] << 8;
@@ -110,13 +138,6 @@ void usb_serial_init(void) {
   usb_serial_initialized = true;
   ESP_LOGI(TAG, "Initializing USB Serial Handler");
   ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
-  ESP_LOGI(TAG, "USB CDC Enabled: %d", USB_CDC_ENABLED);
-
-  if (!USB_CDC_ENABLED) {
-    ESP_LOGW(TAG, "USB CDC not enabled for this target");
-    return;
-  }
-
   vTaskDelay(pdMS_TO_TICKS(USB_CDC_INIT_DELAY_MS));
 
   usb_serial_init_esp32s3();
@@ -130,11 +151,6 @@ void usb_serial_init(void) {
 }
 
 void usb_serial_start_task(void) {
-  if (!USB_CDC_ENABLED) {
-    ESP_LOGW(TAG, "USB CDC not enabled, skipping task creation");
-    return;
-  }
-
   if (usb_task_handle == NULL) {
     ESP_ERROR_CHECK(xTaskCreate(usb_serial_task, "usb_serial_task", 4096, NULL,
                                 5, &usb_task_handle) == pdPASS
@@ -143,7 +159,7 @@ void usb_serial_start_task(void) {
   }
 }
 
-void usb_serial_init_esp32s3(void) {
+static void usb_serial_init_esp32s3(void) {
   ESP_LOGI(TAG, "Setting up USB Serial JTAG interface for ESP32-S3");
 
   setvbuf(stdin, NULL, _IONBF, 0);
@@ -230,7 +246,7 @@ static void parse_byte(uint8_t data) {
     crc_buf[2] = (rx_packet.payload_length >> 8) & 0xFF;
     memcpy(&crc_buf[3], rx_packet.payload, rx_packet.payload_length);
 
-    rx_crc_calculated = calculate_crc16(crc_buf, 3 + rx_packet.payload_length);
+    rx_crc_calculated = usb_serial_crc16(crc_buf, 3 + rx_packet.payload_length);
 
     if (rx_crc_calculated == rx_packet.crc) {
       ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d", rx_packet.cmd_id,
@@ -306,7 +322,7 @@ void usb_serial_send_response(uint8_t cmd_id, const uint8_t *payload,
   }
 
   // Calculate CRC over [CMD][LEN][PAYLOAD]
-  uint16_t crc = calculate_crc16(&packet[1], 3 + length);
+  uint16_t crc = usb_serial_crc16(&packet[1], 3 + length);
   packet[idx++] = crc & 0xFF;
   packet[idx++] = (crc >> 8) & 0xFF;
 
@@ -345,7 +361,7 @@ static bool cmd_needs_full_mode(uint8_t cmd_id) {
   }
 }
 
-void usb_serial_process_packet(const binary_packet_t *packet) {
+static void usb_serial_process_packet(const binary_packet_t *packet) {
   if (power_get_mode() == POWER_MODE_CHARGING &&
       cmd_needs_full_mode(packet->cmd_id)) {
     usb_serial_send_ack(packet->cmd_id, ERR_NOT_SUPPORTED);
