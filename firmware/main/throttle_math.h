@@ -50,4 +50,7 @@ typedef enum {
 uint8_t throttle_apply_curve(uint8_t value, int8_t curve_acc,
                              int8_t curve_brake, uint8_t mode);
 
+/* Low remote battery: throttle is cut to `neutral`, braking passes through. */
+uint8_t throttle_brake_only(uint8_t value, uint8_t neutral);
+
 #endif // THROTTLE_MATH_H

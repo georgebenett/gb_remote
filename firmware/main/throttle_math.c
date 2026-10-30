@@ -116,3 +116,7 @@ uint8_t throttle_apply_curve(uint8_t value, int8_t curve_acc,
   return VESC_NEUTRAL_VALUE -
          (uint8_t)(curve_shape(a, curve_brake / 10.0f, mode) * span + 0.5f);
 }
+
+uint8_t throttle_brake_only(uint8_t value, uint8_t neutral) {
+  return value > neutral ? neutral : value;
+}

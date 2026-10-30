@@ -229,6 +229,15 @@ static void test_curve_then_trim_composes(void) {
   }
 }
 
+static void test_brake_only_keeps_braking(void) {
+  for (int n = 100; n <= 160; n += 30) {
+    for (int v = 0; v <= 255; v++) {
+      uint8_t out = throttle_brake_only((uint8_t)v, (uint8_t)n);
+      assert(out == (v > n ? n : v));
+    }
+  }
+}
+
 int main(void) {
   test_map_endpoints();
   test_map_clamps_out_of_range_readings();
@@ -245,6 +254,7 @@ int main(void) {
   test_curve_direction();
   test_curve_sides_are_independent();
   test_curve_then_trim_composes();
+  test_brake_only_keeps_braking();
   printf("throttle_math: all checks passed\n");
   return 0;
 }

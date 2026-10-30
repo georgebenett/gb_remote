@@ -1215,6 +1215,7 @@ static void adc_send_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint8_t data_buffer[3]; // throttle (2) + aux state (1)
+  bool low_batt_logged = false;
 
   while (1) {
     esp_task_wdt_reset(); // Reset every iteration so watchdog is fed when not
@@ -1238,26 +1239,20 @@ static void adc_send_task(void *pvParameters) {
       uint32_t adc_value;
       bool throttle_inverted = false;
 
-      // SAFETY: Block throttle on low battery - force neutral
-      if (battery_is_low_voltage()) {
-        adc_value = VESC_NEUTRAL_VALUE;
-        ESP_LOGW(GATTC_TAG, "Low battery - throttle blocked, sending neutral");
-      } else {
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-        adc_value = adc_get_latest_value();
+      adc_value = adc_get_latest_value();
 #elif defined(CONFIG_TARGET_LITE)
-        if (throttle_should_use_neutral()) {
-          adc_value = VESC_NEUTRAL_VALUE;
-        } else {
-          adc_value = adc_get_latest_value();
-        }
-
-        if (invert_throttle_enabled) {
-          adc_value = 255 - adc_value;
-          throttle_inverted = true;
-        }
-#endif
+      if (throttle_should_use_neutral()) {
+        adc_value = VESC_NEUTRAL_VALUE;
+      } else {
+        adc_value = adc_get_latest_value();
       }
+
+      if (invert_throttle_enabled) {
+        adc_value = 255 - adc_value;
+        throttle_inverted = true;
+      }
+#endif
 
       int8_t effective_trim =
           throttle_inverted ? -ble_trim_offset : ble_trim_offset;
@@ -1268,6 +1263,20 @@ static void adc_send_task(void *pvParameters) {
       uint8_t neutral_ble_value =
           throttle_shape_output(VESC_NEUTRAL_VALUE, effective_trim);
       final_ble_value = throttle_apply_ramp(final_ble_value, neutral_ble_value);
+
+      // Low battery cuts throttle but keeps the brake; last step, after
+      // inversion and shaping, so nothing can undo it.
+      bool low_batt = battery_is_low_voltage();
+      if (low_batt) {
+        final_ble_value =
+            throttle_brake_only(final_ble_value, neutral_ble_value);
+      }
+      if (low_batt != low_batt_logged) {
+        low_batt_logged = low_batt;
+        if (low_batt) {
+          ESP_LOGW(GATTC_TAG, "Low battery - throttle blocked, brake only");
+        }
+      }
 
       uint32_t now_ms = esp_timer_get_time() / 1000;
       for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
