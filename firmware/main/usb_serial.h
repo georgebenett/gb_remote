@@ -10,8 +10,9 @@
 #define USB_CDC_USE_PRIMARY_CONSOLE 1
 #define USB_CDC_USE_SECONDARY_CONSOLE 0
 #define USB_CDC_INIT_DELAY_MS 100
-#define USB_CDC_TASK_DELAY_MS 20
-#define USB_CDC_BUFFER_SIZE 2048 // Increased for binary protocol
+#define USB_RX_POLL_MS 10          // read timeout; also the stream tick
+#define USB_RX_FRAME_TIMEOUT_MS 50 // max gap between bytes of one frame
+#define USB_CDC_BUFFER_SIZE 2048   // Increased for binary protocol
 
 // Binary Protocol Configuration
 #define PACKET_START_BYTE 0xAA

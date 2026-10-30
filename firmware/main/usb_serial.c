@@ -184,11 +184,89 @@ void usb_serial_init_esp32s3(void) {
   ESP_LOGI(TAG, "USB Serial JTAG (Binary Mode) initialized successfully");
 }
 
+static void parse_byte(uint8_t data) {
+  static uint8_t crc_buf[PACKET_MAX_PAYLOAD_SIZE + 3]; // CMD + LEN(2) + PAYLOAD
+
+  switch (rx_state) {
+  case STATE_WAIT_START:
+    if (data == PACKET_START_BYTE) {
+      rx_state = STATE_WAIT_CMD;
+      rx_payload_index = 0;
+      memset(&rx_packet, 0, sizeof(rx_packet));
+    }
+    break;
+
+  case STATE_WAIT_CMD:
+    rx_packet.cmd_id = data;
+    rx_state = STATE_WAIT_LEN_LSB;
+    break;
+
+  case STATE_WAIT_LEN_LSB:
+    rx_packet.payload_length = data;
+    rx_state = STATE_WAIT_LEN_MSB;
+    break;
+
+  case STATE_WAIT_LEN_MSB:
+    rx_packet.payload_length |= ((uint16_t)data << 8);
+
+    if (rx_packet.payload_length > PACKET_MAX_PAYLOAD_SIZE) {
+      ESP_LOGW(TAG, "Invalid payload length: %d", rx_packet.payload_length);
+      rx_state = STATE_WAIT_START;
+    } else if (rx_packet.payload_length == 0) {
+      rx_state = STATE_WAIT_CRC_LSB;
+    } else {
+      rx_state = STATE_WAIT_PAYLOAD;
+      rx_payload_index = 0;
+    }
+    break;
+
+  case STATE_WAIT_PAYLOAD:
+    rx_packet.payload[rx_payload_index++] = data;
+    if (rx_payload_index >= rx_packet.payload_length) {
+      rx_state = STATE_WAIT_CRC_LSB;
+    }
+    break;
+
+  case STATE_WAIT_CRC_LSB:
+    rx_packet.crc = data;
+    rx_state = STATE_WAIT_CRC_MSB;
+    break;
+
+  case STATE_WAIT_CRC_MSB:
+    rx_packet.crc |= ((uint16_t)data << 8);
+
+    // Calculate CRC over [CMD][LEN_LSB][LEN_MSB][PAYLOAD]
+    crc_buf[0] = rx_packet.cmd_id;
+    crc_buf[1] = rx_packet.payload_length & 0xFF;
+    crc_buf[2] = (rx_packet.payload_length >> 8) & 0xFF;
+    memcpy(&crc_buf[3], rx_packet.payload, rx_packet.payload_length);
+
+    rx_crc_calculated = calculate_crc16(crc_buf, 3 + rx_packet.payload_length);
+
+    if (rx_crc_calculated == rx_packet.crc) {
+      ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d", rx_packet.cmd_id,
+               rx_packet.payload_length);
+      usb_serial_process_packet(&rx_packet);
+    } else {
+      ESP_LOGW(TAG, "CRC mismatch: expected 0x%04X, got 0x%04X",
+               rx_crc_calculated, rx_packet.crc);
+      usb_serial_send_ack(rx_packet.cmd_id, ERR_CRC_MISMATCH);
+    }
+
+    rx_state = STATE_WAIT_START;
+    break;
+
+  default:
+    rx_state = STATE_WAIT_START;
+    break;
+  }
+}
+
 static void usb_serial_task(void *pvParameters) {
   ESP_LOGI(TAG, "USB Serial task started");
 
-  uint8_t
-      temp_crc_buffer[PACKET_MAX_PAYLOAD_SIZE + 4]; // CMD + LEN(2) + PAYLOAD
+  uint8_t buf[64];
+  TickType_t last_rx = xTaskGetTickCount();
 
   for (;;) {
     if (stream_config.enabled) {
@@ -200,92 +278,20 @@ static void usb_serial_task(void *pvParameters) {
       }
     }
 
-    int byte = fgetc(stdin);
-    /* 0xFF is idle only between frames: inside one it is a real payload or CRC
-     * byte, and dropping it desyncs the parser and eats the next packet. */
-    if (byte == EOF || (byte == 0xFF && rx_state == STATE_WAIT_START)) {
-      vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
-      continue;
-    }
-
-    uint8_t data = (uint8_t)byte;
-
-    switch (rx_state) {
-    case STATE_WAIT_START:
-      if (data == PACKET_START_BYTE) {
-        rx_state = STATE_WAIT_CMD;
-        rx_payload_index = 0;
-        memset(&rx_packet, 0, sizeof(rx_packet));
-      }
-      break;
-
-    case STATE_WAIT_CMD:
-      rx_packet.cmd_id = data;
-      rx_state = STATE_WAIT_LEN_LSB;
-      break;
-
-    case STATE_WAIT_LEN_LSB:
-      rx_packet.payload_length = data;
-      rx_state = STATE_WAIT_LEN_MSB;
-      break;
-
-    case STATE_WAIT_LEN_MSB:
-      rx_packet.payload_length |= ((uint16_t)data << 8);
-
-      if (rx_packet.payload_length > PACKET_MAX_PAYLOAD_SIZE) {
-        ESP_LOGW(TAG, "Invalid payload length: %d", rx_packet.payload_length);
-        rx_state = STATE_WAIT_START;
-      } else if (rx_packet.payload_length == 0) {
-        rx_state = STATE_WAIT_CRC_LSB;
-      } else {
-        rx_state = STATE_WAIT_PAYLOAD;
-        rx_payload_index = 0;
-      }
-      break;
-
-    case STATE_WAIT_PAYLOAD:
-      rx_packet.payload[rx_payload_index++] = data;
-      if (rx_payload_index >= rx_packet.payload_length) {
-        rx_state = STATE_WAIT_CRC_LSB;
-      }
-      break;
-
-    case STATE_WAIT_CRC_LSB:
-      rx_packet.crc = data;
-      rx_state = STATE_WAIT_CRC_MSB;
-      break;
-
-    case STATE_WAIT_CRC_MSB:
-      rx_packet.crc |= ((uint16_t)data << 8);
-
-      // Calculate CRC over [CMD][LEN_LSB][LEN_MSB][PAYLOAD]
-      temp_crc_buffer[0] = rx_packet.cmd_id;
-      temp_crc_buffer[1] = rx_packet.payload_length & 0xFF;
-      temp_crc_buffer[2] = (rx_packet.payload_length >> 8) & 0xFF;
-      memcpy(&temp_crc_buffer[3], rx_packet.payload, rx_packet.payload_length);
-
-      rx_crc_calculated =
-          calculate_crc16(temp_crc_buffer, 3 + rx_packet.payload_length);
-
-      if (rx_crc_calculated == rx_packet.crc) {
-        ESP_LOGD(TAG, "Valid packet: CMD=0x%02X, LEN=%d", rx_packet.cmd_id,
-                 rx_packet.payload_length);
-        usb_serial_process_packet(&rx_packet);
-      } else {
-        ESP_LOGW(TAG, "CRC mismatch: expected 0x%04X, got 0x%04X",
-                 rx_crc_calculated, rx_packet.crc);
-        usb_serial_send_ack(rx_packet.cmd_id, ERR_CRC_MISMATCH);
-      }
-
+    int n = usb_serial_jtag_read_bytes(buf, sizeof(buf),
+                                       pdMS_TO_TICKS(USB_RX_POLL_MS));
+    TickType_t now = xTaskGetTickCount();
+    // A frame that stalls mid-way is dropped, so the next one parses cleanly.
+    if (rx_state != STATE_WAIT_START &&
+        now - last_rx > pdMS_TO_TICKS(USB_RX_FRAME_TIMEOUT_MS)) {
       rx_state = STATE_WAIT_START;
-      break;
-
-    default:
-      rx_state = STATE_WAIT_START;
-      break;
     }
-
-    vTaskDelay(USB_CDC_TASK_DELAY_MS / portTICK_PERIOD_MS);
+    if (n > 0) {
+      last_rx = now;
+    }
+    for (int i = 0; i < n; i++) {
+      parse_byte(buf[i]);
+    }
   }
 }
 
