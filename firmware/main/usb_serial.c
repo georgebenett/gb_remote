@@ -3,6 +3,7 @@
 #include "ble.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
+#include "esp_app_desc.h"
 #include "esp_core_dump.h"
 #include "esp_log.h"
 #include "esp_partition.h"
@@ -459,15 +460,14 @@ static void handle_cmd_get_firmware_version(const binary_packet_t *packet) {
   uint8_t payload[256];
   uint16_t idx = 0;
 
-  uint8_t major = 0, minor = 0, patch = 0;
-  sscanf(FW_VERSION, "%hhu.%hhu.%hhu", &major, &minor, &patch);
-  payload[idx++] = major;
-  payload[idx++] = minor;
-  payload[idx++] = patch;
+  payload[idx++] = FW_VERSION_MAJOR;
+  payload[idx++] = FW_VERSION_MINOR;
+  payload[idx++] = FW_VERSION_PATCH;
 
   // Build date string
+  const esp_app_desc_t *app = esp_app_get_description();
   char build_str[64];
-  snprintf(build_str, sizeof(build_str), "%s %s", BUILD_DATE, BUILD_TIME);
+  snprintf(build_str, sizeof(build_str), "%s %s", app->date, app->time);
   uint8_t build_len = strlen(build_str);
   payload[idx++] = build_len;
   memcpy(&payload[idx], build_str, build_len);

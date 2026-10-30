@@ -868,7 +868,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
   }
 }
 
-void spp_client_reg_task(void *arg) {
+static void spp_client_reg_task(void *arg) {
   reg_work_t work;
   for (;;) {
     vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -906,7 +906,7 @@ void spp_client_reg_task(void *arg) {
   }
 }
 
-void ble_client_appRegister(void) {
+static void ble_client_appRegister(void) {
   esp_err_t status;
   char err_msg[20];
 

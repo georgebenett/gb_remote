@@ -1,11 +1,8 @@
 #ifndef VERSION_H
 #define VERSION_H
 
-// Application version information
+// The one version source; CMakeLists.txt derives PROJECT_VER and
+// FW_VERSION_MAJOR/MINOR/PATCH from it.
 #define FW_VERSION "3.0.7"
-
-// Build information
-#define BUILD_DATE __DATE__
-#define BUILD_TIME __TIME__
 
 #endif // VERSION_H

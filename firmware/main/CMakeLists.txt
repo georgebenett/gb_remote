@@ -15,14 +15,19 @@ else()
         endif()
     endif()
 
-    if(UI_DIR STREQUAL "")
-        message(FATAL_ERROR "No target configuration selected. Please set CONFIG_TARGET_DUAL_THROTTLE or CONFIG_TARGET_LITE in sdkconfig.\nRun: idf.py reconfigure or use ./dual_throttle_build.sh / ./lite_build.sh")
+    # IDF's early requirements pass runs this file without CONFIG_* values.
+    if(NOT UI_DIR AND NOT CMAKE_BUILD_EARLY_EXPANSION)
+        message(FATAL_ERROR "No target configuration selected. Please set CONFIG_TARGET_DUAL_THROTTLE or CONFIG_TARGET_LITE in sdkconfig.\nUse ./build.sh <lite|dual_throttle>")
     endif()
 endif()
 
-file(GLOB_RECURSE UI_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/${UI_DIR}/*.c"
-)
+# CONFIGURE_DEPENDS re-globs when EEZ adds or drops a file; it is not allowed
+# in the early (script mode) pass, which only needs the requirements.
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    file(GLOB_RECURSE UI_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${UI_DIR}/*.c"
+    )
+endif()
 
 idf_component_register(
     SRCS
@@ -46,8 +51,6 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "${UI_DIR}"
-        "ui_dual_throttle"
-        "ui_lite"
     REQUIRES driver nvs_flash bt esp_adc spi_flash esp_lcd lvgl espcoredump
              esp_partition esp_app_format bootloader_support
 )

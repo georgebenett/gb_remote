@@ -4,15 +4,26 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
+# main/version.h is the one version source: it names the app descriptor
+# (PROJECT_VER) and gives C the numeric parts.
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/main/version.h" _fw_ver REGEX "#define FW_VERSION ")
+string(REGEX REPLACE ".*\"(.*)\".*" "\\1" PROJECT_VER "${_fw_ver}")
+string(REPLACE "." ";" _fw_parts "${PROJECT_VER}")
+list(GET _fw_parts 0 _major)
+list(GET _fw_parts 1 _minor)
+list(GET _fw_parts 2 _patch)
+idf_build_set_property(COMPILE_DEFINITIONS "-DFW_VERSION_MAJOR=${_major}" APPEND)
+idf_build_set_property(COMPILE_DEFINITIONS "-DFW_VERSION_MINOR=${_minor}" APPEND)
+idf_build_set_property(COMPILE_DEFINITIONS "-DFW_VERSION_PATCH=${_patch}" APPEND)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/main/version.h")
+
 # LVGL's object pool (CONFIG_LV_MEM_SIZE_KILOBYTES) is malloc'd at lv_init()
 # instead of being a static array in internal RAM, which Bluetooth needs.
 # Blocks over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL go to PSRAM.
 idf_build_set_property(COMPILE_DEFINITIONS "-DLV_MEM_POOL_INCLUDE=<stdlib.h>" APPEND)
 idf_build_set_property(COMPILE_DEFINITIONS "-DLV_MEM_POOL_ALLOC=malloc" APPEND)
 
-project(gb_controller_lite)
-
-set(PARTITION_TABLE_CSV "partitions.csv")
+project(gb_remote)
 
 # Receiver image the remote pushes over BLE (main/rx_ota.c). gb_receiver/bundle_to_remotes.sh
 # puts gb_receiver_v<ver>.bin here; pack_rx_fw.py compresses it and idf.py flash writes
@@ -33,5 +44,3 @@ elseif(RX_FW_BIN)
 else()
     message(WARNING "No receiver_fw/gb_receiver_v*.bin: this remote will not update receivers")
 endif()
-#fix wrong spi host defined in the hagl library
-idf_build_set_property(COMPILE_DEFINITIONS "-DCONFIG_MIPI_DISPLAY_SPI_HOST=SPI2_HOST" APPEND)

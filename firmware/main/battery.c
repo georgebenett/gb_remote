@@ -235,8 +235,6 @@ esp_err_t battery_init(void) {
   ESP_LOGI(TAG, "Battery charging status GPIO %d initialized",
            BATTERY_IS_CHARGING_GPIO);
 
-  esp_log_level_set("gpio", ESP_LOG_WARN);
-
   battery_initialized = true;
   ESP_LOGI(TAG, "Battery monitoring initialized successfully for ADC1_CH%d",
            BATTERY_VOLTAGE_PIN);

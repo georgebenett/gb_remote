@@ -24,6 +24,7 @@
 #define TAG "APP_INIT"
 
 static void init_system(void) {
+  esp_log_level_set("gpio", ESP_LOG_WARN);
   if (settings_init() != ESP_OK) {
     ESP_LOGW(TAG, "Settings init failed, using defaults");
   }
@@ -50,7 +51,6 @@ static void init_ui(void) {
 void app_init_log_startup(void) {
   ESP_LOGI(TAG, "Starting Application");
   ESP_LOGI(TAG, "Firmware version: %s", FW_VERSION);
-  ESP_LOGI(TAG, "Build date: %s %s", BUILD_DATE, BUILD_TIME);
   ESP_LOGI(TAG, "Target: %s", CONFIG_IDF_TARGET);
   ESP_LOGI(TAG, "IDF version: %s", esp_get_idf_version());
 }
@@ -79,8 +79,6 @@ void app_init_after_charging(void) {
   if (!throttle_is_calibrated()) {
     ESP_LOGW(TAG, "No throttle calibration, proceeding uncalibrated");
   }
-  usb_serial_init();
-  usb_serial_start_task();
   rx_ota_init();
   spp_client_demo_init();
   ESP_LOGI(TAG, "BLE initialization complete");
