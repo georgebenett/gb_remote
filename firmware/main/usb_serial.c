@@ -10,14 +10,12 @@
 #include "esp_vfs_usb_serial_jtag.h"
 #include "fcntl.h"
 #include "lcd.h"
-#include "nvs.h"
-#include "nvs_flash.h"
 #include "power.h"
+#include "settings.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "ui_updater.h"
 #include "version.h"
-#include "vesc_config.h"
 #include "viber.h"
 #include <assert.h>
 #include <inttypes.h>
@@ -26,9 +24,6 @@
 #include <string.h>
 
 #define TAG "USB_SERIAL"
-
-#define NVS_NAMESPACE_LCD "lcd_cfg"
-#define NVS_KEY_BACKLIGHT "backlight"
 
 static bool usb_serial_initialized = false;
 static TaskHandle_t usb_task_handle = NULL;
@@ -41,7 +36,7 @@ static stream_config_t stream_config = {.enabled = false,
                                         .rate_hz = 10, // Default 10Hz
                                         .last_send_ms = 0};
 
-static vesc_config_t hand_controller_config;
+static settings_t hand_controller_config;
 
 static void usb_serial_task(void *pvParameters);
 static void handle_cmd_ping(const binary_packet_t *packet);
@@ -128,15 +123,6 @@ void usb_serial_init(void) {
   rx_state = STATE_WAIT_START;
   rx_payload_index = 0;
   memset(&rx_packet, 0, sizeof(rx_packet));
-
-  esp_err_t err = vesc_config_load(&hand_controller_config);
-  if (err != ESP_OK) {
-    // TODO: fix this default behaviour
-    hand_controller_config.motor_poles = 14;
-    hand_controller_config.gear_ratio_x1000 = 2200; // 2.2 gear ratio
-    hand_controller_config.wheel_diameter_mm = 115;
-    hand_controller_config.speed_unit_mph = false; // Default to km/h
-  }
 
   ESP_LOGI(TAG, "usb communication ready");
   ESP_LOGI(TAG, "Max payload size: %d bytes", PACKET_MAX_PAYLOAD_SIZE);
@@ -360,6 +346,8 @@ void usb_serial_process_packet(const binary_packet_t *packet) {
     usb_serial_send_ack(packet->cmd_id, ERR_NOT_SUPPORTED);
     return;
   }
+  // Fresh copy: the on-device menu may have changed settings since.
+  settings_get(&hand_controller_config);
 
   switch (packet->cmd_id) {
   case CMD_PING:
@@ -523,20 +511,13 @@ static uint8_t config_flags(void) {
 }
 
 static void handle_cmd_get_config(const binary_packet_t *packet) {
-  // Reload configuration to ensure we have the latest settings
-  esp_err_t err = vesc_config_load(&hand_controller_config);
-  if (err != ESP_OK) {
-    usb_serial_send_ack(CMD_GET_CONFIG, ERR_SAVE_FAILED);
-    return;
-  }
-
   uint8_t payload[256];
   uint16_t idx = 0;
 
   uint8_t flags = config_flags();
   payload[idx++] = flags;
 
-  payload[idx++] = lcd_load_saved_brightness();
+  payload[idx++] = hand_controller_config.backlight_pct;
 
   // Motor configuration (2 bytes each, little-endian)
   payload[idx++] = hand_controller_config.motor_poles;
@@ -546,7 +527,7 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
   // Current speed (4 bytes, little-endian, signed)
   int32_t speed = 0;
   if (ble_is_connected()) {
-    speed = vesc_config_get_speed(&hand_controller_config);
+    speed = settings_speed(&hand_controller_config, get_latest_erpm());
   }
   idx += put_u32(&payload[idx], (uint32_t)speed);
 
@@ -594,11 +575,7 @@ static void put_tlv(uint8_t *p, uint16_t *idx, uint8_t tag, const uint8_t *val,
 }
 
 static void handle_cmd_get_all(const binary_packet_t *packet) {
-  if (vesc_config_load(&hand_controller_config) != ESP_OK) {
-    usb_serial_send_ack(CMD_GET_ALL, ERR_SAVE_FAILED);
-    return;
-  }
-  const vesc_config_t *c = &hand_controller_config;
+  const settings_t *c = &hand_controller_config;
   uint8_t payload[128];
   uint16_t idx = 0;
   uint8_t v[20];
@@ -607,7 +584,7 @@ static void handle_cmd_get_all(const binary_packet_t *packet) {
   v[0] = config_flags();
   put_tlv(payload, &idx, ALL_TAG_FLAGS, v, 1);
 
-  v[0] = lcd_load_saved_brightness();
+  v[0] = c->backlight_pct;
   put_tlv(payload, &idx, ALL_TAG_BACKLIGHT, v, 1);
 
   v[0] = c->motor_poles;
@@ -615,7 +592,8 @@ static void handle_cmd_get_all(const binary_packet_t *packet) {
   put_u16(&v[3], c->wheel_diameter_mm);
   put_tlv(payload, &idx, ALL_TAG_MOTOR, v, 5);
 
-  put_u32(v, ble_is_connected() ? (uint32_t)vesc_config_get_speed(c) : 0);
+  put_u32(v, ble_is_connected() ? (uint32_t)settings_speed(c, get_latest_erpm())
+                                : 0);
   put_tlv(payload, &idx, ALL_TAG_SPEED, v, 4);
 
   v[0] = (uint8_t)ble_get_trim_offset();
@@ -802,9 +780,8 @@ static void handle_cmd_set_speed_unit(const binary_packet_t *packet) {
   }
 
   hand_controller_config.speed_unit_mph = (unit == 1);
-  esp_err_t err = vesc_config_save(&hand_controller_config);
+  esp_err_t err = settings_set(&hand_controller_config);
   ui_update_speed_unit(hand_controller_config.speed_unit_mph);
-  ui_force_config_reload();
 
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_SET_SPEED_UNIT, ERR_OK);
@@ -837,8 +814,7 @@ static void handle_cmd_set_battery_cells(const binary_packet_t *packet) {
   }
 
   hand_controller_config.battery_cells = cells;
-  esp_err_t err = vesc_config_save(&hand_controller_config);
-  ui_force_config_reload();
+  esp_err_t err = settings_set(&hand_controller_config);
 
   usb_serial_send_ack(CMD_SET_BATTERY_CELLS,
                       (err == ESP_OK) ? ERR_OK : ERR_SAVE_FAILED);
@@ -862,15 +838,8 @@ static void handle_cmd_set_backlight(const binary_packet_t *packet) {
   lcd_fade_backlight(lcd_get_backlight(), pwm_value,
                      LCD_BACKLIGHT_FADE_DURATION_MS);
 
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open(NVS_NAMESPACE_LCD, NVS_READWRITE, &nvs_handle);
-  if (err == ESP_OK) {
-    err = nvs_set_u8(nvs_handle, NVS_KEY_BACKLIGHT, brightness);
-    if (err == ESP_OK) {
-      err = nvs_commit(nvs_handle);
-    }
-    nvs_close(nvs_handle);
-  }
+  hand_controller_config.backlight_pct = brightness;
+  esp_err_t err = settings_set(&hand_controller_config);
 
   if (err == ESP_OK) {
     usb_serial_send_ack(CMD_SET_BACKLIGHT, ERR_OK);
@@ -907,8 +876,7 @@ static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
 #ifdef CONFIG_TARGET_LITE
   hand_controller_config.invert_throttle =
       !hand_controller_config.invert_throttle;
-  esp_err_t err = vesc_config_save(&hand_controller_config);
-  ui_force_config_reload();
+  esp_err_t err = settings_set(&hand_controller_config);
   // Reaches the radio immediately: cached there, it would keep sending the old
   // orientation until reboot and smart reverse would arm off the wrong end.
   ble_set_invert_throttle(hand_controller_config.invert_throttle);
@@ -926,7 +894,7 @@ static void handle_cmd_invert_throttle(const binary_packet_t *packet) {
 static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
   hand_controller_config.dual_connection =
       !hand_controller_config.dual_connection;
-  esp_err_t err = vesc_config_save(&hand_controller_config);
+  esp_err_t err = settings_set(&hand_controller_config);
 
   if (err == ESP_OK) {
     // Takes effect immediately: starts scanning for a second receiver or
@@ -941,7 +909,7 @@ static void handle_cmd_toggle_dual_connection(const binary_packet_t *packet) {
 
 static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet) {
   hand_controller_config.smart_reverse = !hand_controller_config.smart_reverse;
-  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+  if (settings_set(&hand_controller_config) == ESP_OK) {
     // Takes effect immediately on every connected receiver.
     ble_set_smart_reverse(hand_controller_config.smart_reverse);
     usb_serial_send_ack(CMD_TOGGLE_SMART_REVERSE, ERR_OK);
@@ -953,7 +921,7 @@ static void handle_cmd_toggle_smart_reverse(const binary_packet_t *packet) {
 /* Reverse lockout: the receiver runs it, we own and forward the setting. */
 static void handle_cmd_toggle_no_reverse(const binary_packet_t *packet) {
   hand_controller_config.no_reverse = !hand_controller_config.no_reverse;
-  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+  if (settings_set(&hand_controller_config) == ESP_OK) {
     ble_set_no_reverse(hand_controller_config.no_reverse);
     usb_serial_send_ack(CMD_TOGGLE_NO_REVERSE, ERR_OK);
   } else {
@@ -980,7 +948,7 @@ static void handle_cmd_set_throttle_curve(const binary_packet_t *packet) {
   hand_controller_config.throttle_curve_mode = mode;
   hand_controller_config.throttle_curve_acc = acc;
   hand_controller_config.throttle_curve_brake = brake;
-  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+  if (settings_set(&hand_controller_config) == ESP_OK) {
     throttle_set_curve(acc, brake, mode); // live on the next sample
     usb_serial_send_ack(CMD_SET_THROTTLE_CURVE, ERR_OK);
   } else {
@@ -1002,13 +970,13 @@ static void handle_cmd_set_ride_settings(const binary_packet_t *packet) {
 
   hand_controller_config.ride_profile = profile;
   hand_controller_config.speed_limit_kmh = speed_kmh;
-  if (vesc_config_save(&hand_controller_config) != ESP_OK) {
+  if (settings_set(&hand_controller_config) != ESP_OK) {
     usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_SAVE_FAILED);
     return;
   }
   // Live now: the ramp on the next sample, the rest at the receiver
-  throttle_set_ride_profile(vesc_config_ride_profile_ramp_ms(profile));
-  ble_set_current_scale(vesc_config_ride_profile_current_pct(profile));
+  throttle_set_ride_profile(settings_ride_profile_ramp_ms(profile));
+  ble_set_current_scale(settings_ride_profile_current_pct(profile));
   ble_set_speed_limit(speed_kmh);
   usb_serial_send_ack(CMD_SET_RIDE_SETTINGS, ERR_OK);
 }
@@ -1022,7 +990,7 @@ static void handle_cmd_get_throttle_curve(const binary_packet_t *packet) {
 
 static void handle_cmd_toggle_assist_push(const binary_packet_t *packet) {
   hand_controller_config.assist_push = !hand_controller_config.assist_push;
-  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+  if (settings_set(&hand_controller_config) == ESP_OK) {
     // Takes effect immediately on every connected receiver.
     ble_set_assist_push(hand_controller_config.assist_push);
     usb_serial_send_ack(CMD_TOGGLE_ASSIST_PUSH, ERR_OK);
@@ -1048,7 +1016,7 @@ static void handle_cmd_set_assist_params(const binary_packet_t *packet) {
 
   hand_controller_config.assist_strength = strength;
   hand_controller_config.assist_decay = decay;
-  if (vesc_config_save(&hand_controller_config) == ESP_OK) {
+  if (settings_set(&hand_controller_config) == ESP_OK) {
     ble_set_assist_params(strength, decay); // live on every connected receiver
     usb_serial_send_ack(CMD_SET_ASSIST_PARAMS, ERR_OK);
   } else {
@@ -1164,9 +1132,9 @@ void usb_serial_send_stream_data(void) {
   } else {
     throttle_brake_ble = (uint8_t)adc_value;
 
-    vesc_config_t config;
-    esp_err_t err = vesc_config_load(&config);
-    if (err == ESP_OK && config.invert_throttle) {
+    settings_t config;
+    settings_get(&config);
+    if (config.invert_throttle) {
       throttle_brake_ble = 255 - throttle_brake_ble;
       throttle_inverted = true;
     }

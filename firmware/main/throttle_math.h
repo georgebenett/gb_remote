@@ -27,6 +27,10 @@ uint8_t throttle_map_ble_value(int32_t throttle_raw, int32_t brake_raw,
                                uint32_t throttle_min, uint32_t throttle_max,
                                uint32_t brake_min, uint32_t brake_max);
 
+/* LITE single lever: its calibrated range spans 0..255 (brake..throttle). An
+ * empty or inverted calibration returns neutral. */
+uint8_t throttle_map_single(int32_t raw, uint32_t min, uint32_t max);
+
 /* Snap to neutral inside the deadband; outside it, ramp from the trimmed centre
  * at the deadband edge to the rail, so the output keeps the full 0-255 span
  * with no step at the deadband boundary. */

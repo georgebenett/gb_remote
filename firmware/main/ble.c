@@ -27,13 +27,11 @@
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 #include "gb_protocol.h"
-#include "nvs.h"
-#include "nvs_flash.h"
 #include "rx_ota.h"
+#include "settings.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "ui_updater.h"
-#include "vesc_config.h"
 
 enum {
   SPP_IDX_SVC,
@@ -297,58 +295,17 @@ esp_err_t ble_send_shutdown(void) {
 }
 
 static void aux_output_save_state(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open(AUX_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-  if (err == ESP_OK) {
-    nvs_set_u8(nvs_handle, AUX_NVS_KEY_STATE, aux_output_state ? 1 : 0);
-    nvs_commit(nvs_handle);
-    nvs_close(nvs_handle);
-  }
-}
-
-static void aux_output_load_state(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open(AUX_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
-  if (err == ESP_OK) {
-    uint8_t state = 0;
-    if (nvs_get_u8(nvs_handle, AUX_NVS_KEY_STATE, &state) == ESP_OK) {
-      aux_output_state = (state != 0);
-      ESP_LOGI(GATTC_TAG, "Aux output state loaded from NVS: %s",
-               aux_output_state ? "ON" : "OFF");
-    }
-    nvs_close(nvs_handle);
-  }
-}
-
-static void ble_trim_load_offset(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open(BLE_TRIM_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
-  if (err == ESP_OK) {
-    int8_t offset = 0;
-    if (nvs_get_i8(nvs_handle, BLE_TRIM_NVS_KEY_OFFSET, &offset) == ESP_OK) {
-      if (offset < -127)
-        offset = -127;
-      ble_trim_offset = offset;
-      ESP_LOGI(GATTC_TAG, "BLE trim offset loaded from NVS: %d",
-               ble_trim_offset);
-    }
-    nvs_close(nvs_handle);
-  }
+  settings_t cfg;
+  settings_get(&cfg);
+  cfg.aux_on = aux_output_state;
+  settings_set(&cfg);
 }
 
 static esp_err_t ble_trim_save_offset(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open(BLE_TRIM_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-  if (err != ESP_OK) {
-    return err;
-  }
-
-  err = nvs_set_i8(nvs_handle, BLE_TRIM_NVS_KEY_OFFSET, ble_trim_offset);
-  if (err == ESP_OK) {
-    err = nvs_commit(nvs_handle);
-  }
-  nvs_close(nvs_handle);
-  return err;
+  settings_t cfg;
+  settings_get(&cfg);
+  cfg.ble_trim = ble_trim_offset;
+  return settings_set(&cfg);
 }
 
 int8_t ble_get_trim_offset(void) { return ble_trim_offset; }
@@ -468,8 +425,8 @@ static void notify_event_handler(esp_ble_gattc_cb_param_t *p_data) {
     link->bms_nominal_capacity = bms_nominal_capacity;
 
     // Motor config from the VESC, kept in RAM only
-    vesc_config_update_motor(t.motor_poles, t.gear_ratio_x1000,
-                             t.wheel_diameter_mm);
+    settings_update_motor(t.motor_poles, t.gear_ratio_x1000,
+                          t.wheel_diameter_mm);
 
     receiver_aux_output_state = t.aux_on != 0;
     ui_update_aux_output_indicator();
@@ -1073,29 +1030,22 @@ void spp_client_demo_init(void) {
 
   esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 
-  nvs_flash_init();
-
-  aux_output_load_state();
-
-  ble_trim_load_offset();
-
-  // Load dual connection preference (set via the USB config tool)
   {
-    vesc_config_t cfg;
-    if (vesc_config_load(&cfg) == ESP_OK) {
-      dual_connection_enabled = cfg.dual_connection;
-      smart_reverse_enabled = cfg.smart_reverse;
-      no_reverse_enabled = cfg.no_reverse;
+    settings_t cfg;
+    settings_get(&cfg);
+    aux_output_state = cfg.aux_on;
+    ble_trim_offset = cfg.ble_trim;
+    dual_connection_enabled = cfg.dual_connection;
+    smart_reverse_enabled = cfg.smart_reverse;
+    no_reverse_enabled = cfg.no_reverse;
 #ifdef CONFIG_TARGET_LITE
-      invert_throttle_enabled = cfg.invert_throttle;
+    invert_throttle_enabled = cfg.invert_throttle;
 #endif
-      assist_push_enabled = cfg.assist_push;
-      assist_strength = cfg.assist_strength;
-      assist_decay = cfg.assist_decay;
-      speed_limit_cap_kmh = cfg.speed_limit_kmh;
-      current_scale_pct =
-          vesc_config_ride_profile_current_pct(cfg.ride_profile);
-    }
+    assist_push_enabled = cfg.assist_push;
+    assist_strength = cfg.assist_strength;
+    assist_decay = cfg.assist_decay;
+    speed_limit_cap_kmh = cfg.speed_limit_kmh;
+    current_scale_pct = settings_ride_profile_current_pct(cfg.ride_profile);
     ESP_LOGI(GATTC_TAG, "Dual connection %s",
              dual_connection_enabled ? "enabled" : "disabled");
   }

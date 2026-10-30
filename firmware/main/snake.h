@@ -27,9 +27,6 @@
 #define SNAKE_INPUT_POLL_MS 25
 #define SNAKE_TURN_QUEUE_SIZE 3
 
-#define SNAKE_NVS_NAMESPACE "snake"
-#define SNAKE_NVS_HIGH_SCORE_KEY "high_score"
-
 typedef enum {
   SNAKE_DIFFICULTY_EASY = 0,
   SNAKE_DIFFICULTY_NORMAL = 1,

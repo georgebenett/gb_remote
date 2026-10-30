@@ -238,6 +238,23 @@ static void test_brake_only_keeps_braking(void) {
   }
 }
 
+static void test_map_single(void) {
+  assert(throttle_map_single(T_MIN, T_MIN, T_MAX) == 0);
+  assert(throttle_map_single(T_MAX, T_MIN, T_MAX) == 255);
+  assert(throttle_map_single(-1, T_MIN, T_MAX) == 0);
+  assert(throttle_map_single(4095, T_MIN, T_MAX) == 255);
+  /* Half-written or inverted calibration: neutral, never a rail. */
+  assert(throttle_map_single(T_MAX, T_MAX, T_MIN) == VESC_NEUTRAL_VALUE);
+  assert(throttle_map_single(T_MAX, T_MAX, T_MAX) == VESC_NEUTRAL_VALUE);
+  assert(throttle_map_single(2000, 0, 4095) == 124);
+  int last = -1;
+  for (int32_t raw = 0; raw <= 4095; raw++) {
+    int out = throttle_map_single(raw, T_MIN, T_MAX);
+    assert(out >= last);
+    last = out;
+  }
+}
+
 int main(void) {
   test_map_endpoints();
   test_map_clamps_out_of_range_readings();
@@ -255,6 +272,7 @@ int main(void) {
   test_curve_sides_are_independent();
   test_curve_then_trim_composes();
   test_brake_only_keeps_braking();
+  test_map_single();
   printf("throttle_math: all checks passed\n");
   return 0;
 }

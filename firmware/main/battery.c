@@ -166,9 +166,6 @@ int32_t adc_read_battery_voltage(uint8_t channel) {
         valid_samples++;
       }
     }
-
-    // Small delay between samples for ADC settling
-    vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
   }
 
   if (valid_samples < MIN_VALID_SAMPLES) {

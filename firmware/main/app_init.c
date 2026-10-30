@@ -11,33 +11,21 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lcd.h"
-#include "nvs_flash.h"
 #include "power.h"
 #include "rx_ota.h"
+#include "settings.h"
 #include "throttle.h"
 #include "ui.h"
 #include "ui_updater.h"
 #include "usb_serial.h"
 #include "version.h"
-#include "vesc_config.h"
 #include "viber.h"
 
 #define TAG "APP_INIT"
 
-static void init_nvs(void) {
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(ret);
-}
-
 static void init_system(void) {
-  init_nvs();
-  if (vesc_config_init() != ESP_OK) {
-    ESP_LOGW(TAG, "VESC config init failed, using defaults");
+  if (settings_init() != ESP_OK) {
+    ESP_LOGW(TAG, "Settings init failed, using defaults");
   }
   if (viber_init() != ESP_OK) {
     ESP_LOGW(TAG, "Viber init failed, haptic feedback disabled");
@@ -51,17 +39,12 @@ static void init_ui(void) {
   xSemaphoreTake(get_lvgl_mutex_handle(), portMAX_DELAY);
   ui_init();
   give_lvgl_mutex();
-  vesc_config_t config;
-  bool have_config = (vesc_config_load(&config) == ESP_OK);
+  settings_t config;
+  settings_get(&config);
   // Bind the home-screen widgets before anything tries to update them.
-  ui_set_dual_home_screen(have_config && config.dual_connection);
+  ui_set_dual_home_screen(config.dual_connection);
   ui_update_aux_output_indicator();
-  if (have_config) {
-    ui_update_speed_unit(config.speed_unit_mph);
-    ESP_LOGI(TAG, "Speed unit: %s", config.speed_unit_mph ? "mph" : "km/h");
-  } else {
-    ui_update_speed_unit(false);
-  }
+  ui_update_speed_unit(config.speed_unit_mph);
 }
 
 void app_init_log_startup(void) {

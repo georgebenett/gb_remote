@@ -7,12 +7,11 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "nvs.h"
 #include "power.h"
+#include "settings.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "ui_updater.h"
-#include "vesc_config.h"
 #include "viber.h"
 
 #define TAG "SNAKE"
@@ -167,30 +166,18 @@ static void snake_update_menu_selection(void) {
 }
 
 static void snake_load_high_score(void) {
-  nvs_handle_t nvs_handle;
-  uint16_t stored_high_score = 0;
-
-  if (nvs_open(SNAKE_NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
-    if (nvs_get_u16(nvs_handle, SNAKE_NVS_HIGH_SCORE_KEY, &stored_high_score) ==
-        ESP_OK) {
-      snake.high_score = stored_high_score;
-    }
-    nvs_close(nvs_handle);
-  }
+  settings_t cfg;
+  settings_get(&cfg);
+  snake.high_score = cfg.snake_high_score;
 }
 
 static void snake_save_high_score(void) {
-  nvs_handle_t nvs_handle;
-
-  if (nvs_open(SNAKE_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) != ESP_OK) {
-    return;
+  settings_t cfg;
+  settings_get(&cfg);
+  if (cfg.snake_high_score != snake.high_score) {
+    cfg.snake_high_score = snake.high_score;
+    settings_set(&cfg);
   }
-
-  if (nvs_set_u16(nvs_handle, SNAKE_NVS_HIGH_SCORE_KEY, snake.high_score) ==
-      ESP_OK) {
-    nvs_commit(nvs_handle);
-  }
-  nvs_close(nvs_handle);
 }
 
 static void snake_update_score_labels(void) {

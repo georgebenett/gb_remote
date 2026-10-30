@@ -36,6 +36,18 @@ uint8_t throttle_map_ble_value(int32_t throttle_raw, int32_t brake_raw,
   return (uint8_t)(throttle_ble_value * (1.0f - brake_factor));
 }
 
+uint8_t throttle_map_single(int32_t raw, uint32_t min, uint32_t max) {
+  int32_t lo = (int32_t)min, hi = (int32_t)max;
+  if (hi <= lo) {
+    return VESC_NEUTRAL_VALUE;
+  }
+  if (raw < lo)
+    raw = lo;
+  if (raw > hi)
+    raw = hi;
+  return (uint8_t)((raw - lo) * 255 / (hi - lo));
+}
+
 uint8_t throttle_apply_trim(uint8_t value, int8_t trim_offset) {
   /* trim_offset is int8_t, so centre spans 1..255 and cannot leave the
    * output range - no clamp needed here. Asserted in the host tests. */

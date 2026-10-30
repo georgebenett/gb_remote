@@ -10,12 +10,10 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "nvs.h"
-#include "nvs_flash.h"
+#include "settings.h"
 #include "throttle.h"
 #include "ui.h"
 #include "ui_updater.h"
-#include "vesc_config.h"
 
 #define TAG "LCD"
 static uint8_t current_backlight_pwm =
@@ -221,20 +219,9 @@ void lcd_fade_backlight(uint8_t start, uint8_t end, uint16_t duration_ms) {
 }
 
 uint8_t lcd_load_saved_brightness(void) {
-  uint8_t brightness = LCD_BACKLIGHT_DEFAULT;
-  nvs_handle_t nvs_handle;
-
-  if (nvs_open("lcd_cfg", NVS_READONLY, &nvs_handle) == ESP_OK) {
-    uint8_t saved_brightness;
-    if (nvs_get_u8(nvs_handle, "backlight", &saved_brightness) == ESP_OK) {
-      brightness = saved_brightness;
-      ESP_LOGI(TAG, "Loaded saved backlight brightness: %d%%",
-               saved_brightness);
-    }
-    nvs_close(nvs_handle);
-  }
-
-  return brightness;
+  settings_t cfg;
+  settings_get(&cfg);
+  return cfg.backlight_pct;
 }
 
 void lcd_fade_to_saved_brightness(void) {

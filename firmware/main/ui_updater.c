@@ -13,11 +13,11 @@
 #include "hw_config.h"
 #include "lcd.h"
 #include "power.h"
+#include "settings.h"
 #include "snake.h"
 #include "target_config.h"
 #include "throttle.h"
 #include "version.h"
-#include "vesc_config.h"
 #include "viber.h"
 #include <stdio.h>
 #include <string.h>
@@ -96,10 +96,6 @@ static SemaphoreHandle_t lvgl_mutex = NULL;
 static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(50);
 static lv_timer_t *splash_transition_timer = NULL;
 static bool splash_transition_active = false;
-
-// Bumped on every config change; each consumer task tracks its own last-seen
-// value so one task reloading doesn't swallow the notification for the others.
-static volatile uint32_t config_epoch = 0;
 
 // Shared UI state (volatile ensures visibility across tasks)
 static volatile bool speed_unit_mph = false;
@@ -703,32 +699,23 @@ void ui_update_speed_unit(bool is_mph) {
 static void speed_update_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
-  vesc_config_t config;
-  ESP_ERROR_CHECK(vesc_config_load(&config));
+  settings_t config;
+  settings_get(&config);
+  uint32_t seen_epoch = settings_epoch();
 
   TickType_t last_wake_time = xTaskGetTickCount();
   const TickType_t frequency = pdMS_TO_TICKS(SPEED_UPDATE_MS);
-  uint32_t config_reload_counter = 0;
-  uint32_t seen_config_epoch = config_epoch;
-  const uint32_t CONFIG_RELOAD_INTERVAL = 50;
 
   while (1) {
     vTaskDelayUntil(&last_wake_time, frequency);
 
-    config_reload_counter++;
-    if (config_reload_counter >= CONFIG_RELOAD_INTERVAL ||
-        seen_config_epoch != config_epoch) {
-      seen_config_epoch = config_epoch;
-      esp_err_t err = vesc_config_load(&config);
-      if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to reload configuration: %s",
-                 esp_err_to_name(err));
-      }
-      config_reload_counter = 0;
+    if (seen_epoch != settings_epoch()) {
+      seen_epoch = settings_epoch();
+      settings_get(&config);
     }
 
     if (ble_is_connected()) {
-      int32_t speed = vesc_config_get_speed(&config);
+      int32_t speed = settings_speed(&config, get_latest_erpm());
       if (speed >= 0) {
         ui_update_speed(speed);
         ui_update_speed_unit(config.speed_unit_mph);
@@ -746,16 +733,14 @@ static void battery_update_task(void *pvParameters) {
   const uint32_t RATE_LIMIT_MS = 5000;
   bool was_connected[UI_MAX_RECEIVERS] = {false};
 
-  vesc_config_t config;
-  if (vesc_config_load(&config) != ESP_OK) {
-    config.battery_cells = 0;
-  }
-  uint32_t seen_config_epoch = config_epoch;
+  settings_t config;
+  settings_get(&config);
+  uint32_t seen_epoch = settings_epoch();
 
   while (1) {
-    if (seen_config_epoch != config_epoch) {
-      seen_config_epoch = config_epoch;
-      vesc_config_load(&config);
+    if (seen_epoch != settings_epoch()) {
+      seen_epoch = settings_epoch();
+      settings_get(&config);
     }
 
     int battery_percentage = battery_get_percentage();
@@ -1032,8 +1017,6 @@ void ui_start_update_tasks(void) {
   vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
   xTaskCreate(connection_update_task, "conn_update", 4096, NULL, 2, NULL);
 }
-
-void ui_force_config_reload(void) { config_epoch++; }
 
 void ui_hide_throttle_not_calibrated_text(void) {
   if (home_ui.throttle_warning == NULL)

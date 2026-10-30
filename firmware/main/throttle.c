@@ -6,12 +6,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "nvs.h"
-#include "nvs_flash.h"
 #include "power.h"
+#include "settings.h"
 #include "target_config.h"
-#include "vesc_config.h"
 #include <math.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -33,19 +32,27 @@ static uint8_t curve_mode = THROTTLE_CURVE_EXPO;
 static bool adc_initialized = false;
 static int error_count = 0;
 static const int MAX_ERRORS = 5;
-static uint32_t adc_input_max_value = ADC_INITIAL_MAX_VALUE;
-static uint32_t adc_input_min_value = ADC_INITIAL_MIN_VALUE;
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-static uint32_t brake_input_max_value = ADC_INITIAL_MAX_VALUE;
-static uint32_t brake_input_min_value = ADC_INITIAL_MIN_VALUE;
-#endif
-static bool calibration_done = false;
-static bool calibration_in_progress = false;
-static esp_err_t load_calibration_from_nvs(void);
+/* The active calibration. Replaced whole under cal_lock, so the sampler never
+ * maps with a half-updated min/max pair. */
+static settings_cal_t cal = {.throttle_max = ADC_INITIAL_MAX_VALUE,
+                             .brake_max = ADC_INITIAL_MAX_VALUE};
+static portMUX_TYPE cal_lock = portMUX_INITIALIZER_UNLOCKED;
+static atomic_bool calibration_in_progress;
+static void load_calibration(void);
 static void adc_deinit(void);
-#ifdef CONFIG_TARGET_LITE
-static uint8_t map_throttle_value(uint32_t adc_value);
-#endif
+
+static settings_cal_t cal_snapshot(void) {
+  taskENTER_CRITICAL(&cal_lock);
+  settings_cal_t c = cal;
+  taskEXIT_CRITICAL(&cal_lock);
+  return c;
+}
+
+static void cal_publish(const settings_cal_t *c) {
+  taskENTER_CRITICAL(&cal_lock);
+  cal = *c;
+  taskEXIT_CRITICAL(&cal_lock);
+}
 
 // Getter function for battery module to access ADC handle
 adc_oneshot_unit_handle_t adc_get_handle(void) { return adc1_handle; }
@@ -97,13 +104,11 @@ esp_err_t adc_init(void) {
 #endif
 
   {
-    vesc_config_t cfg;
-    if (vesc_config_load(&cfg) == ESP_OK) {
-      throttle_set_curve(cfg.throttle_curve_acc, cfg.throttle_curve_brake,
-                         cfg.throttle_curve_mode);
-      throttle_set_ride_profile(
-          vesc_config_ride_profile_ramp_ms(cfg.ride_profile));
-    }
+    settings_t cfg;
+    settings_get(&cfg);
+    throttle_set_curve(cfg.throttle_curve_acc, cfg.throttle_curve_brake,
+                       cfg.throttle_curve_mode);
+    throttle_set_ride_profile(settings_ride_profile_ramp_ms(cfg.ride_profile));
   }
 
   adc_initialized = true;
@@ -135,9 +140,6 @@ static int32_t adc_read_avg(adc_channel_t channel, const char *what) {
         valid_samples++;
       }
     }
-
-    // Small delay between samples for ADC settling
-    vTaskDelay(pdMS_TO_TICKS(ADC_SAMPLE_MS));
   }
 
   if (valid_samples < MIN_VALID_SAMPLES) {
@@ -215,16 +217,16 @@ static void adc_task(void *pvParameters) {
     }
     error_count = 0; // Reset error count on successful read
 
+    settings_cal_t c = cal_snapshot();
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
     uint8_t mapped_value =
         throttle_should_use_neutral()
             ? VESC_NEUTRAL_VALUE
-            : throttle_map_ble_value(adc_raw, brake_raw, adc_input_min_value,
-                                     adc_input_max_value, brake_input_min_value,
-                                     brake_input_max_value);
+            : throttle_map_ble_value(adc_raw, brake_raw, c.throttle_min,
+                                     c.throttle_max, c.brake_min, c.brake_max);
 #elif defined(CONFIG_TARGET_LITE)
-    // Single throttle mapping (lite mode)
-    uint8_t mapped_value = map_throttle_value(adc_value);
+    uint8_t mapped_value =
+        throttle_map_single(adc_value, c.throttle_min, c.throttle_max);
 #endif
     // Update latest_adc_value so modules like snake can read current input
     latest_adc_value = mapped_value;
@@ -259,23 +261,9 @@ void adc_start_task(void) {
 
   vTaskDelay(pdMS_TO_TICKS(CALIBRATION_STEP_DELAY_MS));
 
-#if CALIBRATE_THROTTLE
-  ESP_LOGI(TAG, "Force calibration flag set, performing calibration");
-  nvs_handle_t nvs_handle;
-  if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-    nvs_erase_key(nvs_handle, NVS_KEY_CALIBRATED);
-    nvs_commit(nvs_handle);
-    nvs_close(nvs_handle);
-  }
-  throttle_calibrate(NULL);
-#else
-  // Only calibrate if valid calibration exists in NVS; on first flash skip
-  // calibration and leave calibration_done = false so the uncalibrated status
-  // is reported over the binary protocol.
-  if (load_calibration_from_nvs() != ESP_OK) {
-    ESP_LOGI(TAG, "No calibration data found, starting uncalibrated");
-  }
-#endif
+  // Uncalibrated (first flash) is reported over the binary protocol and
+  // sends neutral until the config tool calibrates.
+  load_calibration();
 
   xTaskCreate(adc_task, "adc_task", 4096, NULL, 10, NULL);
 }
@@ -320,127 +308,36 @@ static bool validate_calibration_values(uint32_t min_val, uint32_t max_val) {
   return true;
 }
 
-static esp_err_t load_calibration_from_nvs(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err;
-
-  err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
-  if (err != ESP_OK) {
-    return err;
+static void load_calibration(void) {
+  settings_cal_t c;
+  settings_get_cal(&c);
+  if (!c.done) {
+    ESP_LOGI(TAG, "No calibration data found, starting uncalibrated");
+    return;
   }
-
-  uint8_t is_calibrated = 0;
-  err = nvs_get_u8(nvs_handle, NVS_KEY_CALIBRATED, &is_calibrated);
-  if (err != ESP_OK || !is_calibrated) {
-    nvs_close(nvs_handle);
-    return ESP_ERR_NOT_FOUND;
-  }
-
-  uint32_t temp_min, temp_max;
-  err = nvs_get_u32(nvs_handle, NVS_KEY_MIN, &temp_min);
-  if (err != ESP_OK) {
-    nvs_close(nvs_handle);
-    return err;
-  }
-
-  err = nvs_get_u32(nvs_handle, NVS_KEY_MAX, &temp_max);
-  if (err != ESP_OK) {
-    nvs_close(nvs_handle);
-    return err;
-  }
-
-  if (!validate_calibration_values(temp_min, temp_max)) {
+  if (!validate_calibration_values(c.throttle_min, c.throttle_max)) {
     ESP_LOGW(TAG, "Invalid throttle calibration in NVS, re-calibration needed");
-    nvs_close(nvs_handle);
-    return ESP_ERR_INVALID_STATE;
+    return;
   }
-
-  adc_input_min_value = temp_min;
-  adc_input_max_value = temp_max;
-
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
-  uint32_t brake_temp_min, brake_temp_max;
-  err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MIN, &brake_temp_min);
-  if (err != ESP_OK) {
-    brake_temp_min = ADC_INITIAL_MIN_VALUE;
-  }
-
-  err = nvs_get_u32(nvs_handle, NVS_KEY_BRAKE_MAX, &brake_temp_max);
-  if (err != ESP_OK) {
-    brake_temp_max = ADC_INITIAL_MAX_VALUE;
-  }
-
-  if (validate_calibration_values(brake_temp_min, brake_temp_max)) {
-    brake_input_min_value = brake_temp_min;
-    brake_input_max_value = brake_temp_max;
-  } else {
+  if (!validate_calibration_values(c.brake_min, c.brake_max)) {
     ESP_LOGW(TAG, "Invalid brake calibration in NVS, using defaults");
-    brake_input_min_value = ADC_INITIAL_MIN_VALUE;
-    brake_input_max_value = ADC_INITIAL_MAX_VALUE;
+    c.brake_min = ADC_INITIAL_MIN_VALUE;
+    c.brake_max = ADC_INITIAL_MAX_VALUE;
   }
 #endif
-
-  nvs_close(nvs_handle);
-  calibration_done = true;
-  ESP_LOGI(TAG, "Loaded calibration: throttle %lu-%lu", adc_input_min_value,
-           adc_input_max_value);
-  return ESP_OK;
-}
-
-static esp_err_t save_calibration_to_nvs(void) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err;
-
-  err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-  if (err != ESP_OK) {
-    return err;
-  }
-
-  err = nvs_set_u32(nvs_handle, NVS_KEY_MIN, adc_input_min_value);
-  if (err != ESP_OK) {
-    nvs_close(nvs_handle);
-    return err;
-  }
-
-  err = nvs_set_u32(nvs_handle, NVS_KEY_MAX, adc_input_max_value);
-  if (err != ESP_OK) {
-    nvs_close(nvs_handle);
-    return err;
-  }
-
-#ifdef CONFIG_TARGET_DUAL_THROTTLE
-  err = nvs_set_u32(nvs_handle, NVS_KEY_BRAKE_MIN, brake_input_min_value);
-  if (err != ESP_OK) {
-    nvs_close(nvs_handle);
-    return err;
-  }
-
-  err = nvs_set_u32(nvs_handle, NVS_KEY_BRAKE_MAX, brake_input_max_value);
-  if (err != ESP_OK) {
-    nvs_close(nvs_handle);
-    return err;
-  }
-#endif
-
-  err = nvs_set_u8(nvs_handle, NVS_KEY_CALIBRATED, 1);
-  if (err != ESP_OK) {
-    nvs_close(nvs_handle);
-    return err;
-  }
-
-  err = nvs_commit(nvs_handle);
-  nvs_close(nvs_handle);
-  return err;
+  cal_publish(&c);
+  ESP_LOGI(TAG, "Loaded calibration: throttle %lu-%lu", c.throttle_min,
+           c.throttle_max);
 }
 
 calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
   ESP_LOGI(TAG, "Starting ADC calibration...");
 
+  // Held until the new range is committed, so the sampler sends neutral
+  // instead of mapping with a half-written one.
   calibration_in_progress = true;
-
-  // Save the previous calibration state so we can restore it if calibration
-  // fails
-  bool had_previous_calibration = calibration_done;
+  settings_cal_t next = cal_snapshot();
 
   uint32_t throttle_min = UINT32_MAX;
   uint32_t throttle_max = 0;
@@ -498,11 +395,8 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
 #endif
     }
 
-    // Use a longer delay to ensure 6 seconds total
     vTaskDelay(pdMS_TO_TICKS(ADC_CALIBRATION_DELAY_MS));
   }
-
-  calibration_in_progress = false;
 
   bool throttle_valid = (throttle_min != UINT32_MAX && throttle_max != 0);
   bool throttle_range_ok = false;
@@ -519,11 +413,10 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
                throttle_range);
     } else {
       throttle_range_ok = true;
-      // Use measured values directly without margins
-      adc_input_min_value = throttle_min;
-      adc_input_max_value = throttle_max;
-      ESP_LOGI(TAG, "Throttle calibrated: %lu - %lu", adc_input_min_value,
-               adc_input_max_value);
+      next.throttle_min = throttle_min;
+      next.throttle_max = throttle_max;
+      ESP_LOGI(TAG, "Throttle calibrated: %lu - %lu", throttle_min,
+               throttle_max);
     }
   } else {
     ESP_LOGE(TAG, "Throttle: no valid readings");
@@ -538,11 +431,9 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
       ESP_LOGW(TAG, "Brake: insufficient range %lu (need 150+)", brake_range);
     } else {
       brake_range_ok = true;
-      // Use measured values directly without margins
-      brake_input_min_value = brake_min;
-      brake_input_max_value = brake_max;
-      ESP_LOGI(TAG, "Brake calibrated: %lu - %lu", brake_input_min_value,
-               brake_input_max_value);
+      next.brake_min = brake_min;
+      next.brake_max = brake_max;
+      ESP_LOGI(TAG, "Brake calibrated: %lu - %lu", brake_min, brake_max);
     }
   } else {
     ESP_LOGE(TAG, "Brake: no valid readings");
@@ -558,22 +449,22 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
 #endif
 
   if (calibration_passed) {
-    calibration_done = true;
-    if (save_calibration_to_nvs() != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to save calibration to NVS");
-      calibration_done = had_previous_calibration;
+    next.done = true;
+    if (settings_set_cal(&next) != ESP_OK) {
+      calibration_in_progress = false;
       return CAL_FAIL_SAVE;
     }
-    ESP_LOGI(TAG, "Calibration saved to NVS");
+    cal_publish(&next);
+    calibration_in_progress = false;
+    ESP_LOGI(TAG, "Calibration saved");
     return CAL_OK;
   }
 
-  // Restore previous calibration state - don't lose working calibration on
-  // failed attempt
-  calibration_done = had_previous_calibration;
+  // A failed attempt keeps whatever calibration was active.
+  calibration_in_progress = false;
   ESP_LOGW(TAG, "Calibration failed - %s",
-           had_previous_calibration ? "previous calibration active"
-                                    : "no calibration");
+           cal_snapshot().done ? "previous calibration active"
+                               : "no calibration");
 
   // Return specific failure reason (throttle checked first, then brake)
   if (!throttle_valid) {
@@ -593,26 +484,28 @@ calibration_result_t throttle_calibrate(calibration_progress_cb_t progress_cb) {
   return CAL_FAIL_THROTTLE_RANGE; // Fallback (should not reach)
 }
 
-bool throttle_is_calibrated(void) { return calibration_done; }
+bool throttle_is_calibrated(void) { return cal_snapshot().done; }
 
 void throttle_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
+  settings_cal_t c = cal_snapshot();
   if (min_val)
-    *min_val = adc_input_min_value;
+    *min_val = c.throttle_min;
   if (max_val)
-    *max_val = adc_input_max_value;
+    *max_val = c.throttle_max;
 }
 
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 void brake_get_calibration_values(uint32_t *min_val, uint32_t *max_val) {
+  settings_cal_t c = cal_snapshot();
   if (min_val)
-    *min_val = brake_input_min_value;
+    *min_val = c.brake_min;
   if (max_val)
-    *max_val = brake_input_max_value;
+    *max_val = c.brake_max;
 }
 #endif
 
 bool throttle_should_use_neutral(void) {
-  return calibration_in_progress || !calibration_done;
+  return calibration_in_progress || !cal_snapshot().done;
 }
 
 /* Curve then trim, on a value the caller has already oriented. LITE inverts
@@ -665,25 +558,6 @@ void throttle_set_curve(int8_t acc, int8_t brake, uint8_t mode) {
            (int)acc, (int)brake);
 }
 
-#ifdef CONFIG_TARGET_LITE
-/* Dual-throttle builds never call this: get_throttle_brake_ble_value() does
- * its own throttle+brake mapping. */
-static uint8_t map_throttle_value(uint32_t adc_value) {
-  uint32_t range = adc_input_max_value - adc_input_min_value;
-  if (range == 0) {
-    return VESC_NEUTRAL_VALUE;
-  }
-
-  if (adc_value < adc_input_min_value)
-    adc_value = adc_input_min_value;
-  if (adc_value > adc_input_max_value)
-    adc_value = adc_input_max_value;
-
-  return (uint8_t)((adc_value - adc_input_min_value) *
-                   (ADC_OUTPUT_MAX_VALUE - ADC_OUTPUT_MIN_VALUE) / range);
-}
-#endif
-
 #ifdef CONFIG_TARGET_DUAL_THROTTLE
 /* Reads both channels. Callers that already have the raws should use
  * throttle_map_ble_value() instead of paying for the reads twice. */
@@ -699,8 +573,8 @@ uint8_t get_throttle_brake_ble_value(void) {
     return VESC_NEUTRAL_VALUE;
   }
 
-  return throttle_map_ble_value(throttle_raw, brake_raw, adc_input_min_value,
-                                adc_input_max_value, brake_input_min_value,
-                                brake_input_max_value);
+  settings_cal_t c = cal_snapshot();
+  return throttle_map_ble_value(throttle_raw, brake_raw, c.throttle_min,
+                                c.throttle_max, c.brake_min, c.brake_max);
 }
 #endif

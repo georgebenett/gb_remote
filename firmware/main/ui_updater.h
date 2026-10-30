@@ -65,7 +65,6 @@ bool take_lvgl_mutex(void);
 void give_lvgl_mutex(void);
 SemaphoreHandle_t get_lvgl_mutex_handle(void);
 void ui_start_update_tasks(void);
-void ui_force_config_reload(void);
 void ui_update_speed_unit(bool is_mph);
 
 // Throttle calibration status

@@ -1,22 +1,17 @@
-#ifndef ADC_H
-#define ADC_H
+#ifndef THROTTLE_H
+#define THROTTLE_H
 
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "hw_config.h"
-#include "nvs.h"
-#include "nvs_flash.h"
 #include "target_config.h"
 #include "throttle_math.h"
 #include <stdint.h>
 
 // Timing constants
-#define ADC_SAMPLE_MS 1               // Delay between ADC samples for settling
 #define CALIBRATION_STEP_DELAY_MS 100 // Delay between calibration steps
-#define CALIBRATE_THROTTLE 0
 /* One fresh sample per BLE connection event: match ADC_SEND_INTERVAL_MS in
  * ble.h, and keep the sampling burst well inside it. */
 #define ADC_SAMPLE_PERIOD_MS 20
@@ -24,21 +19,10 @@
 #define ADC_INITIAL_MAX_VALUE 4095 // 12-bit ADC max
 #define ADC_INITIAL_MIN_VALUE 0
 
-#define ADC_OUTPUT_MAX_VALUE 255
-#define ADC_OUTPUT_MIN_VALUE 0
-
 // Calibration settings
-#define ADC_CALIBRATION_SAMPLES                                                \
-  600 // 600 samples over 6 seconds = 1 sample every 10ms
-#define ADC_CALIBRATION_DELAY_MS                                               \
-  10 // 10ms between samples for more accurate timing
-
-#define NVS_NAMESPACE "adc_cal"
-#define NVS_KEY_MIN "min_val"
-#define NVS_KEY_MAX "max_val"
-#define NVS_KEY_BRAKE_MIN "brake_min_val"
-#define NVS_KEY_BRAKE_MAX "brake_max_val"
-#define NVS_KEY_CALIBRATED "cal_done"
+// About 6 s: the reads between the delays take microseconds.
+#define ADC_CALIBRATION_SAMPLES 600
+#define ADC_CALIBRATION_DELAY_MS 10
 // Progress callback invoked periodically during calibration.
 // Parameters: sample index, total samples, throttle current/min/max, brake
 // current/min/max. Brake values are only meaningful for
@@ -94,4 +78,4 @@ adc_oneshot_unit_handle_t adc_get_handle(void);
 SemaphoreHandle_t adc_get_mutex(void);
 bool adc_is_initialized(void);
 
-#endif // ADC_H
+#endif // THROTTLE_H

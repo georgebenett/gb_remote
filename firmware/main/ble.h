@@ -7,10 +7,6 @@
 
 #define GATTC_TAG "GATTC_SPP_DEMO"
 
-#define AUX_NVS_NAMESPACE "aux_cfg"
-#define AUX_NVS_KEY_STATE "aux_state"
-#define BLE_TRIM_NVS_NAMESPACE "ble_cfg"
-#define BLE_TRIM_NVS_KEY_OFFSET "trim_offset"
 // Task timing constants
 /* BLE connection interval: the fastest a throttle packet can leave. Sends are
  * driven by the ADC task; ADC_SAMPLE_PERIOD_MS (throttle.h) matches this. */

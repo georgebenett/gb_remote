@@ -15,7 +15,7 @@
 #define BATTERY_LOW_VOLTAGE_THRESHOLD 2.95f
 #define BATTERY_VOLTAGE_SAMPLES 10
 
-// Timing constants (ADC_SAMPLE_MS comes from throttle.h)
+// Timing constants
 #define BATTERY_TASK_STARTUP_DELAY_MS 100 // Delay for task initialization
 #define BATTERY_MONITOR_INTERVAL_MS 500   // Battery monitoring poll rate
 #define LOW_BATTERY_ALERT_DELAY_MS 500    // Haptic feedback delay

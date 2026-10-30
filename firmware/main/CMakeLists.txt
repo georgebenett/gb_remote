@@ -39,7 +39,8 @@ idf_component_register(
         "throttle_math.c"
         "ui_updater.c"
         "usb_serial.c"
-        "vesc_config.c"
+        "settings.c"
+        "settings_rules.c"
         "viber.c"
         ${UI_SOURCES}
     INCLUDE_DIRS

@@ -4,13 +4,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hw_config.h"
-#include "nvs.h"
+#include "settings.h"
 
 #define TAG "VIBER"
-
-#define NVS_NAMESPACE_HAPTIC "haptic_cfg"
-#define NVS_KEY_INTENSITY "intensity"
-#define HAPTIC_INTENSITY_DEFAULT 100
 
 // LEDC configuration — use Timer 1 / Channel 1 (Timer 0 / Channel 0 are LCD)
 #define BUZZER_LEDC_MODE LEDC_LOW_SPEED_MODE
@@ -43,7 +39,7 @@ static const song_note_t startup_song[] = {
 };
 
 static bool viber_initialized = false;
-static uint8_t haptic_intensity = HAPTIC_INTENSITY_DEFAULT; // 0-100%
+static uint8_t haptic_intensity = SETTINGS_HAPTIC_DEFAULT; // 0-100%
 
 typedef struct {
   const uint32_t *durations;
@@ -133,11 +129,9 @@ esp_err_t viber_init(void) {
   };
   ESP_ERROR_CHECK(ledc_channel_config(&channel_conf));
 
-  nvs_handle_t nvs_handle;
-  if (nvs_open(NVS_NAMESPACE_HAPTIC, NVS_READONLY, &nvs_handle) == ESP_OK) {
-    nvs_get_u8(nvs_handle, NVS_KEY_INTENSITY, &haptic_intensity);
-    nvs_close(nvs_handle);
-  }
+  settings_t cfg;
+  settings_get(&cfg);
+  haptic_intensity = cfg.haptic_pct;
 
   task_params.is_running = false;
   task_params.durations = NULL;
@@ -218,17 +212,10 @@ esp_err_t viber_set_intensity(uint8_t percent) {
     return ESP_ERR_INVALID_ARG;
   }
   haptic_intensity = percent;
-
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open(NVS_NAMESPACE_HAPTIC, NVS_READWRITE, &nvs_handle);
-  if (err == ESP_OK) {
-    err = nvs_set_u8(nvs_handle, NVS_KEY_INTENSITY, percent);
-    if (err == ESP_OK) {
-      err = nvs_commit(nvs_handle);
-    }
-    nvs_close(nvs_handle);
-  }
-  return err;
+  settings_t cfg;
+  settings_get(&cfg);
+  cfg.haptic_pct = percent;
+  return settings_set(&cfg);
 }
 
 uint8_t viber_get_intensity(void) { return haptic_intensity; }
