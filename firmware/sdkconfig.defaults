@@ -45,6 +45,10 @@ CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
 CONFIG_FREERTOS_HZ=1000
+# Dynamic frequency scaling, 80-240 MHz (app_init.c). The LVGL task holds the
+# CPU at 240 while it renders. No automatic light sleep yet: measure first.
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
 # Bluetooth Configuration
 CONFIG_BT_ENABLED=y

@@ -8,6 +8,7 @@
 #include "ble.h"
 #include "button.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lcd.h"
@@ -25,6 +26,10 @@
 
 static void init_system(void) {
   esp_log_level_set("gpio", ESP_LOG_WARN);
+  esp_pm_config_t pm = {.max_freq_mhz = 240, .min_freq_mhz = 80};
+  if (esp_pm_configure(&pm) != ESP_OK) {
+    ESP_LOGW(TAG, "Power management not configured, staying at 240 MHz");
+  }
   if (settings_init() != ESP_OK) {
     ESP_LOGW(TAG, "Settings init failed, using defaults");
   }
