@@ -85,7 +85,7 @@ void app_init_after_charging(void) {
     ESP_LOGW(TAG, "No throttle calibration, proceeding uncalibrated");
   }
   rx_ota_init();
-  spp_client_demo_init();
+  ble_init();
   ESP_LOGI(TAG, "BLE initialization complete");
   xSemaphoreTake(get_lvgl_mutex_handle(), portMAX_DELAY);
   ui_show_splash_screen();

@@ -529,7 +529,7 @@ static void handle_cmd_get_config(const binary_packet_t *packet) {
   // Current speed (4 bytes, little-endian, signed)
   int32_t speed = 0;
   if (ble_is_connected()) {
-    speed = settings_speed(&hand_controller_config, get_latest_erpm());
+    speed = settings_speed(&hand_controller_config, ble_get_erpm());
   }
   idx += put_u32(&payload[idx], (uint32_t)speed);
 
@@ -594,8 +594,8 @@ static void handle_cmd_get_all(const binary_packet_t *packet) {
   put_u16(&v[3], c->wheel_diameter_mm);
   put_tlv(payload, &idx, ALL_TAG_MOTOR, v, 5);
 
-  put_u32(v, ble_is_connected() ? (uint32_t)settings_speed(c, get_latest_erpm())
-                                : 0);
+  put_u32(v,
+          ble_is_connected() ? (uint32_t)settings_speed(c, ble_get_erpm()) : 0);
   put_tlv(payload, &idx, ALL_TAG_SPEED, v, 4);
 
   v[0] = (uint8_t)throttle_get_trim();

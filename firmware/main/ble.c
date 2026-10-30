@@ -42,10 +42,6 @@ enum {
   SPP_IDX_SPP_COMMAND_VAL,
   SPP_IDX_SPP_STATUS_VAL,
   SPP_IDX_SPP_STATUS_CFG,
-#ifdef SUPPORT_HEARTBEAT
-  SPP_IDX_SPP_HEARTBEAT_VAL,
-  SPP_IDX_SPP_HEARTBEAT_CFG,
-#endif
   SPP_IDX_NB,
 };
 
@@ -182,110 +178,80 @@ static uint8_t current_scale_pct = 100;
 /** Reverse lockout (USB config tool). Sent to the receiver on connect. */
 static bool no_reverse_enabled = false;
 
-static void link_send_no_reverse(receiver_link_t *link) {
-  if (!link->ready ||
+/* Write to a link's command characteristic. ESP_ERR_INVALID_STATE until
+ * discovery found a writable one. */
+static esp_err_t link_write_cmd(const receiver_link_t *link, const uint8_t *buf,
+                                uint16_t len) {
+  if (link == NULL || !link->ready ||
       !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
         (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
-    return;
-  uint8_t cmd[2] = {GB_CMD_SET_NO_REVERSE, no_reverse_enabled ? 1 : 0};
-  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
-                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
-                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
-                           ESP_GATT_AUTH_REQ_NONE);
+    return ESP_ERR_INVALID_STATE;
+  return esp_ble_gattc_write_char(
+      spp_gattc_if, link->conn_id,
+      link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle, len, (uint8_t *)buf,
+      ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
 }
 
-static void link_send_smart_reverse(receiver_link_t *link) {
-  if (!link->ready ||
-      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
-        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
-    return;
-  uint8_t cmd[2] = {GB_CMD_SET_SMART_REVERSE, smart_reverse_enabled ? 1 : 0};
-  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
-                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
-                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
-                           ESP_GATT_AUTH_REQ_NONE);
+/* ESP_OK if at least one receiver took it. */
+static esp_err_t write_cmd_all(const uint8_t *buf, uint16_t len) {
+  esp_err_t ret = ESP_ERR_NOT_SUPPORTED;
+  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
+    if (link_write_cmd(&links[i], buf, len) == ESP_OK)
+      ret = ESP_OK;
+  }
+  return ret;
 }
 
-static void link_send_assist_push(receiver_link_t *link) {
-  if (!link->ready ||
-      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
-        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
-    return;
-  uint8_t cmd[4] = {GB_CMD_SET_ASSIST_PUSH, assist_push_enabled ? 1 : 0,
-                    assist_strength, assist_decay};
-  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
-                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
-                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
-                           ESP_GATT_AUTH_REQ_NONE);
+static void cmd_no_reverse(uint8_t out[2]) {
+  out[0] = GB_CMD_SET_NO_REVERSE;
+  out[1] = no_reverse_enabled;
+}
+static void cmd_smart_reverse(uint8_t out[2]) {
+  out[0] = GB_CMD_SET_SMART_REVERSE;
+  out[1] = smart_reverse_enabled;
+}
+static void cmd_assist(uint8_t out[4]) {
+  out[0] = GB_CMD_SET_ASSIST_PUSH;
+  out[1] = assist_push_enabled;
+  out[2] = assist_strength;
+  out[3] = assist_decay;
 }
 
-static void link_send_byte_cmd(receiver_link_t *link, uint8_t cmd_id,
-                               uint8_t value) {
-  if (!link->ready ||
-      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
-        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
-    return;
-  uint8_t cmd[2] = {cmd_id, value};
-  esp_ble_gattc_write_char(spp_gattc_if, link->conn_id,
-                           link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle,
-                           sizeof(cmd), cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
-                           ESP_GATT_AUTH_REQ_NONE);
+/* The receiver resets these to off on every connect until we send ours. */
+static void link_send_settings(const receiver_link_t *link) {
+  uint8_t cmd[4];
+  cmd_smart_reverse(cmd);
+  link_write_cmd(link, cmd, 2);
+  cmd_no_reverse(cmd);
+  link_write_cmd(link, cmd, 2);
+  cmd_assist(cmd);
+  link_write_cmd(link, cmd, 4);
+  link_write_cmd(link, (uint8_t[]){GB_CMD_SET_SPEED_LIMIT, speed_limit_cap_kmh},
+                 2);
+  link_write_cmd(link, (uint8_t[]){GB_CMD_SET_CURRENT_SCALE, current_scale_pct},
+                 2);
 }
 
 esp_err_t ble_send_reset_odometer(void) {
   if (!ble_is_connected()) {
     return ESP_ERR_INVALID_STATE;
   }
-  uint8_t cmd[1] = {GB_CMD_RESET_ODOMETER};
-  bool sent = false;
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    receiver_link_t *link = &links[i];
-    if (!link->ready)
-      continue;
-    if (!(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
-          (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
-      continue;
-    if (esp_ble_gattc_write_char(
-            spp_gattc_if, link->conn_id,
-            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle, sizeof(cmd),
-            cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
-            ESP_GATT_AUTH_REQ_NONE) == ESP_OK) {
-      sent = true;
-    }
+  esp_err_t err = write_cmd_all((uint8_t[]){GB_CMD_RESET_ODOMETER}, 1);
+  if (err == ESP_OK) {
+    ESP_LOGI(GATTC_TAG, "Reset odometer command sent to receiver(s)");
   }
-  if (!sent) {
-    return ESP_ERR_NOT_SUPPORTED;
-  }
-  ESP_LOGI(GATTC_TAG, "Reset odometer command sent to receiver(s)");
-  return ESP_OK;
+  return err;
 }
 
 esp_err_t ble_send_shutdown(void) {
   if (!ble_is_connected()) {
     return ESP_ERR_INVALID_STATE;
   }
-  uint8_t cmd[1] = {GB_CMD_SHUTDOWN};
-  bool sent = false;
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    receiver_link_t *link = &links[i];
-    if (!link->ready)
-      continue;
-    if (!(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
-          (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
-      continue;
-    if (esp_ble_gattc_write_char(
-            spp_gattc_if, link->conn_id,
-            link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle, sizeof(cmd),
-            cmd, ESP_GATT_WRITE_TYPE_NO_RSP,
-            ESP_GATT_AUTH_REQ_NONE) == ESP_OK) {
-      sent = true;
-    }
+  esp_err_t err = write_cmd_all((uint8_t[]){GB_CMD_SHUTDOWN}, 1);
+  if (err == ESP_OK) {
+    ESP_LOGI(GATTC_TAG, "Shutdown command sent to receiver(s)");
   }
-  if (!sent) {
-    return ESP_ERR_NOT_SUPPORTED;
-  }
-  ESP_LOGI(GATTC_TAG, "Shutdown command sent to receiver(s)");
-  return ESP_OK;
+  return err;
 }
 
 static void aux_output_save_state(void) {
@@ -473,7 +439,7 @@ static void resume_scan_if_needed(void) {
     return;
   if (link_count_connected() >= desired_link_count())
     return;
-  esp_ble_gap_start_scanning(SCAN_ALL_THE_TIME);
+  esp_ble_gap_start_scanning(0); // until stopped
 }
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event,
@@ -847,12 +813,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event,
                link->db[i].properties, link->db[i].uuid.uuid.uuid16);
     }
     link->ready = true;
-    // Receiver resets smart reverse to off on connect until we send ours.
-    link_send_smart_reverse(link);
-    link_send_no_reverse(link);
-    link_send_assist_push(link);
-    link_send_byte_cmd(link, GB_CMD_SET_SPEED_LIMIT, speed_limit_cap_kmh);
-    link_send_byte_cmd(link, GB_CMD_SET_CURRENT_SCALE, current_scale_pct);
+    link_send_settings(link);
 
     reg_work_t work = {.link_idx = (uint8_t)(link - links),
                        .attr_idx = SPP_IDX_SPP_DATA_NTY_VAL};
@@ -970,7 +931,7 @@ static void ble_client_appRegister(void) {
                       : ESP_ERR_NO_MEM);
 }
 
-void spp_client_demo_init(void) {
+void ble_init(void) {
   esp_err_t ret;
 
   esp_log_level_set(GATTC_TAG, ESP_LOG_WARN);
@@ -1104,11 +1065,11 @@ static void adc_send_task(void *pvParameters) {
   }
 }
 
-float get_latest_voltage(void) { return latest_voltage; }
+float ble_get_vesc_voltage(void) { return latest_voltage; }
 
-int32_t get_latest_erpm(void) { return latest_erpm; }
+int32_t ble_get_erpm(void) { return latest_erpm; }
 
-float get_bms_total_voltage(void) { return bms_total_voltage; }
+float ble_get_bms_total_voltage(void) { return bms_total_voltage; }
 
 static void read_rssi_cb(void *arg) {
   if (ble_suspended || !is_connect || spp_gattc_if == ESP_GATT_IF_NONE) {
@@ -1135,7 +1096,7 @@ static int bms_capacity_to_percentage(float remaining, float nominal) {
   return (int)percentage;
 }
 
-int get_bms_battery_percentage(void) {
+int ble_get_bms_battery_percentage(void) {
   return bms_capacity_to_percentage(bms_remaining_capacity,
                                     bms_nominal_capacity);
 }
@@ -1152,15 +1113,7 @@ bool ble_receiver_is_connected(int idx) {
 }
 
 esp_err_t ble_receiver_write_cmd(int idx, const uint8_t *data, uint16_t len) {
-  const receiver_link_t *link = link_for_idx(idx);
-  if (link == NULL || !link->ready ||
-      !(link->db[SPP_IDX_SPP_COMMAND_VAL].properties &
-        (ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_WRITE)))
-    return ESP_ERR_INVALID_STATE;
-  return esp_ble_gattc_write_char(
-      spp_gattc_if, link->conn_id,
-      link->db[SPP_IDX_SPP_COMMAND_VAL].attribute_handle, len, (uint8_t *)data,
-      ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+  return link_write_cmd(link_for_idx(idx), data, len);
 }
 
 bool ble_receiver_can_send(int idx) {
@@ -1295,25 +1248,25 @@ void ble_notify_throttle_sample(void) {
 void ble_set_smart_reverse(bool enabled) {
   smart_reverse_enabled = enabled;
   ESP_LOGI(GATTC_TAG, "Smart reverse %s", enabled ? "enabled" : "disabled");
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_smart_reverse(&links[i]);
-  }
+  uint8_t cmd[2];
+  cmd_smart_reverse(cmd);
+  write_cmd_all(cmd, sizeof(cmd));
 }
 
 void ble_set_no_reverse(bool enabled) {
   no_reverse_enabled = enabled;
   ESP_LOGI(GATTC_TAG, "Reverse %s", enabled ? "disabled" : "enabled");
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_no_reverse(&links[i]);
-  }
+  uint8_t cmd[2];
+  cmd_no_reverse(cmd);
+  write_cmd_all(cmd, sizeof(cmd));
 }
 
 void ble_set_assist_push(bool enabled) {
   assist_push_enabled = enabled;
   ESP_LOGI(GATTC_TAG, "Assistive push %s", enabled ? "enabled" : "disabled");
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_assist_push(&links[i]);
-  }
+  uint8_t cmd[4];
+  cmd_assist(cmd);
+  write_cmd_all(cmd, sizeof(cmd));
 }
 
 void ble_set_assist_params(uint8_t strength_pct, uint8_t decay_rpm_s) {
@@ -1321,25 +1274,21 @@ void ble_set_assist_params(uint8_t strength_pct, uint8_t decay_rpm_s) {
   assist_decay = decay_rpm_s;
   ESP_LOGI(GATTC_TAG, "Assist params: strength %d%%, decay %d rpm/s",
            strength_pct, decay_rpm_s);
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_assist_push(&links[i]);
-  }
+  uint8_t cmd[4];
+  cmd_assist(cmd);
+  write_cmd_all(cmd, sizeof(cmd));
 }
 
 void ble_set_speed_limit(uint8_t cap_kmh) {
   speed_limit_cap_kmh = cap_kmh;
   ESP_LOGI(GATTC_TAG, "Speed limit: %u km/h", cap_kmh);
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_byte_cmd(&links[i], GB_CMD_SET_SPEED_LIMIT, cap_kmh);
-  }
+  write_cmd_all((uint8_t[]){GB_CMD_SET_SPEED_LIMIT, cap_kmh}, 2);
 }
 
 void ble_set_current_scale(uint8_t pct) {
   current_scale_pct = pct;
   ESP_LOGI(GATTC_TAG, "Drive current scale: %u%%", pct);
-  for (int i = 0; i < MAX_RECEIVER_LINKS; i++) {
-    link_send_byte_cmd(&links[i], GB_CMD_SET_CURRENT_SCALE, pct);
-  }
+  write_cmd_all((uint8_t[]){GB_CMD_SET_CURRENT_SCALE, pct}, 2);
 }
 
 bool ble_dual_connection_is_enabled(void) { return dual_connection_enabled; }

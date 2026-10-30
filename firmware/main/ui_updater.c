@@ -218,18 +218,18 @@ static bool receiver_get_rssi(int idx, int8_t *out_rssi) {
 }
 
 static float receiver_bms_voltage(int idx) {
-  return home_ui.receiver_count <= 1 ? get_bms_total_voltage()
+  return home_ui.receiver_count <= 1 ? ble_get_bms_total_voltage()
                                      : ble_receiver_get_bms_total_voltage(idx);
 }
 
 static int receiver_bms_percentage(int idx) {
   return home_ui.receiver_count <= 1
-             ? get_bms_battery_percentage()
+             ? ble_get_bms_battery_percentage()
              : ble_receiver_get_bms_battery_percentage(idx);
 }
 
 static float receiver_vesc_voltage(int idx) {
-  return home_ui.receiver_count <= 1 ? get_latest_voltage()
+  return home_ui.receiver_count <= 1 ? ble_get_vesc_voltage()
                                      : ble_receiver_get_vesc_voltage(idx);
 }
 
@@ -708,7 +708,7 @@ static void speed_timer_cb(lv_timer_t *t) {
     ui_update_speed_unit(config.speed_unit_mph);
   }
   if (ble_is_connected()) {
-    ui_update_speed(settings_speed(&config, get_latest_erpm()));
+    ui_update_speed(settings_speed(&config, ble_get_erpm()));
   }
 }
 

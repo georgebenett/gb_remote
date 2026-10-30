@@ -1,11 +1,11 @@
-#ifndef SPP_CLIENT_DEMO_H
-#define SPP_CLIENT_DEMO_H
+#ifndef BLE_H
+#define BLE_H
 
 #include "esp_err.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-#define GATTC_TAG "GATTC_SPP_DEMO"
+#define GATTC_TAG "BLE"
 
 // Task timing constants
 /* BLE connection interval: the fastest a throttle packet can leave. Sends are
@@ -28,16 +28,17 @@
 #define BT_BD_ADDR_STR "%02x:%02x:%02x:%02x:%02x:%02x"
 #define BT_BD_ADDR_HEX(addr)                                                   \
   addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
-#define SCAN_ALL_THE_TIME 0
 
 // Thread-safe connection status check
 bool ble_is_connected(void);
 
-void spp_client_demo_init(void);
-float get_latest_voltage(void);
-int32_t get_latest_erpm(void);
-float get_bms_total_voltage(void);
-int get_bms_battery_percentage(void);
+/** Start the BLE stack, scanning and the throttle sender. */
+void ble_init(void);
+/* Telemetry from whichever receiver notified last. */
+float ble_get_vesc_voltage(void);
+int32_t ble_get_erpm(void);
+float ble_get_bms_total_voltage(void);
+int ble_get_bms_battery_percentage(void);
 
 // Auxiliary output control
 void ble_toggle_aux_output(void);
@@ -117,4 +118,4 @@ void ble_suspend(void);
  *  Called when arriving at home screen. */
 void ble_resume(void);
 
-#endif // SPP_CLIENT_DEMO_H
+#endif // BLE_H
