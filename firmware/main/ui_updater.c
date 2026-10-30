@@ -19,6 +19,7 @@
 #include "throttle.h"
 #include "version.h"
 #include "viber.h"
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -97,9 +98,9 @@ static const TickType_t LVGL_MUTEX_TIMEOUT = pdMS_TO_TICKS(50);
 static lv_timer_t *splash_transition_timer = NULL;
 static bool splash_transition_active = false;
 
-// Shared UI state (volatile ensures visibility across tasks)
-static volatile bool speed_unit_mph = false;
-static volatile float total_trip_km = 0.0f;
+// Written by the BLE/UI tasks, read when drawing.
+static atomic_bool speed_unit_mph;
+static _Atomic float total_trip_km;
 /* Per widget column, the last distance, so a unit change can redraw it. */
 static float column_km[UI_MAX_RECEIVERS];
 static int8_t rendered_unit = -1; // unit shown on the bound screen, -1 = stale
@@ -167,15 +168,9 @@ lv_obj_t *ui_get_home_screen(void) {
 
 void ui_set_dual_home_screen(bool enabled) {
   /* Rebinding and the screen swap belong in the same critical section: the
-   * command processor reads home_ui under this mutex, and leaving the bindings
-   * pointing at a screen other than the one on display would stall every
-   * update. Toggling is a rare, user-initiated action, so retrying is cheap. */
-  bool locked = false;
-  for (int attempt = 0; attempt < 5 && !locked; attempt++) {
-    locked = take_lvgl_mutex();
-    if (!locked)
-      vTaskDelay(pdMS_TO_TICKS(MUTEX_RETRY_DELAY_MS));
-  }
+   * command processor reads home_ui under this mutex. Waits, rather than
+   * rebinding unlocked; callers are init and the USB task, never LVGL. */
+  xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
 
   lv_obj_t *previous = home_ui.screen;
 
@@ -193,8 +188,7 @@ void ui_set_dual_home_screen(bool enabled) {
     lv_obj_invalidate(home_ui.screen);
   }
 
-  if (locked)
-    give_lvgl_mutex();
+  give_lvgl_mutex();
 
   // The other layout's widgets are stale; refresh what won't update soon.
   ui_update_speed_unit(speed_unit_mph); // also redraws the distances
@@ -1008,14 +1002,26 @@ void ui_start_update_tasks(void) {
 
   // Start the UI command processor task first (highest priority for UI
   // responsiveness)
-  xTaskCreate(ui_cmd_processor_task, "ui_cmd_proc", 3072, NULL, 5, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(ui_cmd_processor_task, "ui_cmd_proc", 3072, NULL,
+                              5, NULL) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
   vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
 
-  xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(speed_update_task, "speed_update", 4096, NULL, 4,
+                              NULL) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
   vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
-  xTaskCreate(battery_update_task, "battery_update", 4096, NULL, 2, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(battery_update_task, "battery_update", 4096, NULL,
+                              2, NULL) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
   vTaskDelay(pdMS_TO_TICKS(UI_TASK_STARTUP_DELAY_MS));
-  xTaskCreate(connection_update_task, "conn_update", 4096, NULL, 2, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(connection_update_task, "conn_update", 4096, NULL,
+                              2, NULL) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
 }
 
 void ui_hide_throttle_not_calibrated_text(void) {

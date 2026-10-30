@@ -14,6 +14,7 @@
 #include "ui.h"
 #include "ui_updater.h"
 #include "viber.h"
+#include <stdatomic.h>
 
 #define TAG "POWER"
 
@@ -27,17 +28,17 @@ static power_mode_t current_mode = POWER_MODE_FULL;
 
 static lv_anim_t arc_anim;
 static bool arc_animation_active = false;
-static volatile bool entering_power_off_mode = false;
+static atomic_bool entering_power_off_mode;
 static bool button_released_since_boot = false;
 static bool shutdown_armed = false;
 static bool woke_from_sleep_with_long_press = false;
 
 /** Set by button callback when long-press in charging mode; breaks charging
  * loop. */
-static volatile bool charging_mode_long_press_received = false;
+static atomic_bool charging_mode_long_press_received;
 
 /** Set by USB command handler to request full boot from charging mode. */
-static volatile bool charging_mode_usb_boot_requested = false;
+static atomic_bool charging_mode_usb_boot_requested;
 
 bool power_is_entering_off_mode(void) { return entering_power_off_mode; }
 power_mode_t power_get_mode(void) { return current_mode; }
@@ -388,9 +389,18 @@ void power_reset_inactivity_timer(void) {
   }
 }
 
+static bool charging_screen_shown(void) {
+  if (!take_lvgl_mutex()) {
+    return false;
+  }
+  bool shown = lv_screen_active() == objects.charging_screen;
+  give_lvgl_mutex();
+  return shown;
+}
+
 void power_check_inactivity(bool is_ble_connected) {
   /* No timeout while charging screen is visible */
-  if (lv_scr_act() == objects.charging_screen) {
+  if (charging_screen_shown()) {
     return;
   }
 
@@ -409,10 +419,7 @@ void power_check_inactivity(bool is_ble_connected) {
 /* Full mode: when charging screen is visible (e.g. after bar filled + USB),
  * USB disconnect → sleep. */
 void power_check_charging_screen_usb(void) {
-  if (lv_scr_act() != objects.charging_screen) {
-    return;
-  }
-  if (gpio_get_level(USB_DETECT_GPIO) != 0) {
+  if (gpio_get_level(USB_DETECT_GPIO) != 0 || !charging_screen_shown()) {
     return;
   }
   ESP_LOGI(TAG, "USB disconnected on charging screen - powering off");

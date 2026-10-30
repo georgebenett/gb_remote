@@ -20,12 +20,10 @@ static TickType_t last_release_time = 0;
 static bool first_press_registered = false;
 static TaskHandle_t button_task_handle = NULL;
 static button_callback_entry_t callbacks[MAX_CALLBACKS] = {0};
-static volatile bool isr_triggered = false;
 
 // ISR handler - runs in IRAM, minimal work
 static void IRAM_ATTR button_isr_handler(void *arg) {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  isr_triggered = true;
   if (button_task_handle != NULL) {
     vTaskNotifyGiveFromISR(button_task_handle, &xHigherPriorityTaskWoken);
   }
@@ -78,8 +76,12 @@ static void button_monitor_task(void *pvParameters) {
     notify_callbacks(BUTTON_EVENT_RELEASED);
   }
 
-  gpio_install_isr_service(0);
-  gpio_isr_handler_add(button_cfg.gpio_num, button_isr_handler, NULL);
+  esp_err_t err = gpio_install_isr_service(0);
+  if (err != ESP_ERR_INVALID_STATE) { // already installed is fine
+    ESP_ERROR_CHECK(err);
+  }
+  ESP_ERROR_CHECK(
+      gpio_isr_handler_add(button_cfg.gpio_num, button_isr_handler, NULL));
 
   ESP_LOGI(TAG, "Button interrupt handler installed on GPIO %d",
            button_cfg.gpio_num);
@@ -106,13 +108,11 @@ static void button_monitor_task(void *pvParameters) {
 
     esp_task_wdt_reset();
 
-    if (notification > 0 || isr_triggered) {
-      isr_triggered = false;
+    if (notification > 0) {
       vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
 
       // Clear any notifications that came during debounce
       ulTaskNotifyTake(pdTRUE, 0);
-      isr_triggered = false;
     }
 
     bool current_state_pressed = read_button_state();
@@ -244,6 +244,9 @@ void button_start_monitoring(void) {
   if (button_task_handle != NULL) {
     return; // Already started (e.g. before charging screen)
   }
-  xTaskCreate(button_monitor_task, "button_monitor", TASK_STACK_SIZE, NULL,
-              TASK_PRIORITY, &button_task_handle);
+  ESP_ERROR_CHECK(xTaskCreate(button_monitor_task, "button_monitor",
+                              TASK_STACK_SIZE, NULL, TASK_PRIORITY,
+                              &button_task_handle) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
 }

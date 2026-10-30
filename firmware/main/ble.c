@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -117,8 +118,7 @@ static receiver_link_t links[MAX_RECEIVER_LINKS];
 static receiver_link_t *link_by_conn_id(uint16_t conn_id);
 static receiver_link_t *link_by_bda(const esp_bd_addr_t bda);
 
-static bool is_connect = false; // True while at least one link is connected
-static SemaphoreHandle_t is_connect_mutex = NULL;
+static atomic_bool is_connect; // True while at least one link is connected
 static const char device_name[] = GB_RECEIVER_ADV_NAME;
 /* Interface handed to us by ESP_GATTC_REG_EVT; ESP_GATT_IF_NONE until then. */
 static esp_gatt_if_t spp_gattc_if = ESP_GATT_IF_NONE;
@@ -160,7 +160,7 @@ static float latest_trip_km = 0.0f;
 
 /** When true, BLE is suspended (not on home screen). Starts true;
  *  resumed only when the home screen is reached. */
-static volatile bool ble_suspended = true;
+static atomic_bool ble_suspended = true;
 
 float ble_get_latest_trip_km(void) { return latest_trip_km; }
 
@@ -414,15 +414,7 @@ static void pairing_adv_apply(void) {
   }
 }
 
-static void set_is_connect(bool value) {
-  if (is_connect_mutex != NULL &&
-      xSemaphoreTake(is_connect_mutex, portMAX_DELAY) == pdTRUE) {
-    is_connect = value;
-    xSemaphoreGive(is_connect_mutex);
-  } else {
-    is_connect = value;
-  }
-}
+static void set_is_connect(bool value) { is_connect = value; }
 
 static int link_count_connected(void) {
   int n = 0;
@@ -918,13 +910,6 @@ void ble_client_appRegister(void) {
   esp_err_t status;
   char err_msg[20];
 
-  if (is_connect_mutex == NULL) {
-    is_connect_mutex = xSemaphoreCreateMutex();
-    if (is_connect_mutex == NULL) {
-      ESP_LOGE(GATTC_TAG, "Failed to create is_connect mutex");
-    }
-  }
-
   ESP_LOGI(GATTC_TAG, "register callback");
 
   if ((status = esp_ble_gap_register_callback(esp_gap_cb)) != ESP_OK) {
@@ -979,7 +964,10 @@ void ble_client_appRegister(void) {
            (unsigned long)passkey);
 
   cmd_reg_queue = xQueueCreate(10, sizeof(reg_work_t));
-  xTaskCreate(spp_client_reg_task, "spp_client_reg_task", 2048, NULL, 10, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(spp_client_reg_task, "spp_client_reg_task", 2048,
+                              NULL, 10, NULL) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
 }
 
 void spp_client_demo_init(void) {
@@ -1037,9 +1025,14 @@ void spp_client_demo_init(void) {
   }
 
   ble_client_appRegister();
-  xTaskCreate(adc_send_task, "adc_send_task", 4096, NULL, 8,
-              &adc_send_task_handle);
-  xTaskCreate(log_rssi_task, "log_rssi_task", 2048, NULL, 4, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(adc_send_task, "adc_send_task", 4096, NULL, 8,
+                              &adc_send_task_handle) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
+  ESP_ERROR_CHECK(
+      xTaskCreate(log_rssi_task, "log_rssi_task", 2048, NULL, 4, NULL) == pdPASS
+          ? ESP_OK
+          : ESP_ERR_NO_MEM);
 }
 
 static void adc_send_task(void *pvParameters) {
@@ -1356,17 +1349,4 @@ void ble_set_current_scale(uint8_t pct) {
 
 bool ble_dual_connection_is_enabled(void) { return dual_connection_enabled; }
 
-bool ble_is_connected(void) {
-  if (ble_suspended) {
-    return false;
-  }
-  bool result = false;
-  if (is_connect_mutex != NULL &&
-      xSemaphoreTake(is_connect_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-    result = is_connect;
-    xSemaphoreGive(is_connect_mutex);
-  } else {
-    result = is_connect;
-  }
-  return result;
-}
+bool ble_is_connected(void) { return !ble_suspended && is_connect; }

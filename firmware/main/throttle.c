@@ -275,7 +275,10 @@ void adc_start_task(void) {
   // sends neutral until the config tool calibrates.
   load_calibration();
 
-  xTaskCreate(adc_task, "adc_task", 4096, NULL, 10, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(adc_task, "adc_task", 4096, NULL, 10, NULL) ==
+                          pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
 }
 
 uint32_t adc_get_latest_value(void) { return latest_adc_value; }

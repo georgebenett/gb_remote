@@ -135,8 +135,10 @@ void usb_serial_start_task(void) {
   }
 
   if (usb_task_handle == NULL) {
-    xTaskCreate(usb_serial_task, "usb_serial_task", 4096, NULL, 5,
-                &usb_task_handle);
+    ESP_ERROR_CHECK(xTaskCreate(usb_serial_task, "usb_serial_task", 4096, NULL,
+                                5, &usb_task_handle) == pdPASS
+                        ? ESP_OK
+                        : ESP_ERR_NO_MEM);
   }
 }
 

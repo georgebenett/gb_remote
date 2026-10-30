@@ -8,6 +8,7 @@
 #include "gb_protocol.h"
 #include "power.h"
 #include "ui_updater.h"
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -42,7 +43,7 @@ typedef struct {
 } reply_t;
 
 static QueueHandle_t replies = NULL;
-static volatile bool active = false;
+static atomic_bool active;
 static bool attempted = false; // one try per boot: a bad image must not loop
 static const esp_partition_t *part = NULL;
 static uint32_t image_len = 0; // zlib stream bytes
@@ -254,7 +255,10 @@ void rx_ota_on_version(int link_idx, uint8_t major, uint8_t minor,
            bundled[2]);
   ESP_LOGW(TAG, "Receiver %d on %s, updating to %s", link_idx, from_str,
            to_str);
-  xTaskCreate(rx_ota_task, "rx_ota", 4096, NULL, 5, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(rx_ota_task, "rx_ota", 4096, NULL, 5, NULL) ==
+                          pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
 }
 
 void rx_ota_on_reply(const uint8_t *v, uint16_t len) {

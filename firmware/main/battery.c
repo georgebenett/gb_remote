@@ -244,7 +244,10 @@ esp_err_t battery_init(void) {
 }
 
 void battery_start_monitoring(void) {
-  xTaskCreate(battery_monitoring_task, "battery_monitor", 4096, NULL, 5, NULL);
+  ESP_ERROR_CHECK(xTaskCreate(battery_monitoring_task, "battery_monitor", 4096,
+                              NULL, 5, NULL) == pdPASS
+                      ? ESP_OK
+                      : ESP_ERR_NO_MEM);
 }
 
 float battery_read_voltage(void) {
