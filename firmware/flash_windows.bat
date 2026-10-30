@@ -60,10 +60,10 @@ exit /b 1
 
 :usage
 echo Usage:
-  %~n0 COMx
+echo   %~n0 COMx
 
 echo Example:
-  %~n0 COM5
+echo   %~n0 COM5
 
 echo.
 echo Available serial ports:
