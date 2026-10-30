@@ -4,8 +4,11 @@
 *.swo
 *~
 
-gb_*
-# ...except the receiver image bundled into rx_fw
+# Release artifacts (build_and_release.sh), except the receiver image bundled
+# into rx_fw
+gb_*.zip
+gb_*.bin
+gb_*.elf
 !receiver_fw/gb_receiver_v*.bin
 
 # Build artifacts
