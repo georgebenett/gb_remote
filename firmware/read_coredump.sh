@@ -17,10 +17,19 @@
 
 set -e
 
-# Configuration
-COREDUMP_OFFSET=0x2F0000
-COREDUMP_SIZE=0x010000
-ELF_FILE="build/gb_controller_lite.elf"
+# Needs an exported ESP-IDF environment (. $IDF_PATH/export.sh) for parttool
+# and esp-coredump.
+if [ -z "$IDF_PATH" ] || ! command -v python >/dev/null; then
+    echo "Error: export an ESP-IDF environment first (. \$IDF_PATH/export.sh)"
+    exit 1
+fi
+
+case "$(uname -s)" in
+    Darwin) DEFAULT_PORT=/dev/tty.usbmodem1101 ;;
+    Linux) DEFAULT_PORT=/dev/ttyACM0 ;;
+    *) DEFAULT_PORT=COM3 ;;
+esac
+
 RAW_DUMP_FILE="coredump_raw.bin"
 DECODED_DUMP_FILE="coredump_decoded.txt"
 
@@ -29,7 +38,7 @@ if [ $# -lt 1 ]; then
     echo "Usage: $0 <coredump_name> [serial_port]"
     echo ""
     echo "  coredump_name  e.g. coredump_2026-03-01T19-07-08-246Z_Dual_Throttle_v2.0.4 (with or without .bin)"
-    echo "  serial_port   optional, for reading from device if coredump file not found (default: /dev/tty.usbmodem1101)"
+    echo "  serial_port   optional, for reading from device if coredump file not found (default: $DEFAULT_PORT)"
     echo ""
     echo "The script parses product (Lite / Dual_Throttle) and version from the filename,"
     echo "then downloads the ELF from the GitHub release (gh CLI) and decodes."
@@ -37,7 +46,7 @@ if [ $# -lt 1 ]; then
 fi
 
 COREDUMP_INPUT="$1"
-SERIAL_PORT="${2:-/dev/tty.usbmodem1101}"
+SERIAL_PORT="${2:-$DEFAULT_PORT}"
 
 # Script and repo paths
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -135,24 +144,9 @@ if [ -n "$COREDUMP_ABS" ] && [ -f "$COREDUMP_ABS" ]; then
 else
     echo "Coredump file not found, reading from flash..."
     echo "Serial port: $SERIAL_PORT"
-    ESPTOOL=""
-    if command -v esptool.py &>/dev/null; then
-        ESPTOOL="esptool.py"
-    elif python3 -m esptool --help &>/dev/null; then
-        ESPTOOL="python3 -m esptool"
-    elif [ -f "$HOME/esp/v5.3/esp-idf/components/esptool_py/esptool/esptool.py" ]; then
-        ESPTOOL="python3 $HOME/esp/v5.3/esp-idf/components/esptool_py/esptool/esptool.py"
-    elif [ -f "$HOME/esp/esp-idf/components/esptool_py/esptool/esptool.py" ]; then
-        ESPTOOL="python3 $HOME/esp/esp-idf/components/esptool_py/esptool/esptool.py"
-    elif [ -f "$HOME/.espressif/python_env/idf5.3_py3.14_env/bin/esptool.py" ]; then
-        ESPTOOL="$HOME/.espressif/python_env/idf5.3_py3.14_env/bin/esptool.py"
-    elif [ -f "$HOME/.espressif/python_env/idf5.3_py3.9_env/bin/esptool.py" ]; then
-        ESPTOOL="$HOME/.espressif/python_env/idf5.3_py3.9_env/bin/esptool.py"
-    else
-        echo "Error: esptool not found. Install ESP-IDF or: pip3 install esptool"
-        exit 1
-    fi
-    $ESPTOOL --port "$SERIAL_PORT" read_flash $COREDUMP_OFFSET $COREDUMP_SIZE "$RAW_DUMP_FILE"
+    # By name, so it follows partitions.csv wherever coredump lives.
+    python "$IDF_PATH/components/partition_table/parttool.py" --port "$SERIAL_PORT" \
+        read_partition --partition-name coredump --output "$RAW_DUMP_FILE"
 fi
 
 if [ ! -f "$RAW_DUMP_FILE" ]; then
@@ -167,22 +161,7 @@ if [ ! -f "$ELF_FILE" ]; then
     exit 1
 fi
 
-ESPCOREDUMP=""
-if command -v espcoredump.py &>/dev/null; then
-    ESPCOREDUMP="espcoredump.py"
-elif [ -f "$HOME/esp/v5.3/esp-idf/components/espcoredump/espcoredump.py" ]; then
-    ESPCOREDUMP="python3 $HOME/esp/v5.3/esp-idf/components/espcoredump/espcoredump.py"
-elif [ -f "$HOME/esp/esp-idf/components/espcoredump/espcoredump.py" ]; then
-    ESPCOREDUMP="python3 $HOME/esp/esp-idf/components/espcoredump/espcoredump.py"
-elif [ -f "$HOME/.espressif/python_env/idf5.3_py3.14_env/bin/espcoredump.py" ]; then
-    ESPCOREDUMP="$HOME/.espressif/python_env/idf5.3_py3.14_env/bin/espcoredump.py"
-elif [ -f "$HOME/.espressif/python_env/idf5.3_py3.9_env/bin/espcoredump.py" ]; then
-    ESPCOREDUMP="$HOME/.espressif/python_env/idf5.3_py3.9_env/bin/espcoredump.py"
-else
-    echo "Warning: espcoredump.py not found. Raw dump saved to $RAW_DUMP_FILE"
-    echo "To decode: espcoredump.py info_corefile -t elf -c $RAW_DUMP_FILE $ELF_FILE"
-    exit 0
-fi
+ESPCOREDUMP="python -m esp_coredump"
 
 echo "Decoding crash dump..."
 if $ESPCOREDUMP info_corefile -t elf -c "$RAW_DUMP_FILE" "$ELF_FILE" > "$DECODED_DUMP_FILE" 2>&1; then
