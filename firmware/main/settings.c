@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "settings.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "usb_serial.h"
 #include "battery.h"
 #include "ble.h"

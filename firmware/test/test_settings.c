@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 /*
  * Host tests for the settings rules: whatever NVS hands back, the remote runs
  * on in-range values, and the speed readout matches the motor config.

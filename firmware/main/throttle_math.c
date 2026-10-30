@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "throttle_math.h"
 #include <math.h>
 

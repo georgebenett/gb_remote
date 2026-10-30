@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 /**
  * @file app_init.h
  * @brief Application initialization stages (used by main.c)

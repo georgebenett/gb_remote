@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "button.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"

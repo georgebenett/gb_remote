@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
@@ -62,8 +63,8 @@ typedef struct {
   bool invert_throttle;    // LITE: lever direction
   uint8_t backlight_pct;
   uint8_t haptic_pct;
-  bool aux_on;      // Aux output requested by the remote
-  int8_t ble_trim;  // Output trim, -127..127
+  bool aux_on;     // Aux output requested by the remote
+  int8_t ble_trim; // Output trim, -127..127
   uint16_t snake_high_score;
 } settings_t;
 

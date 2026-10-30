@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "battery.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_cali.h"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "viber.h"
 #include "driver/ledc.h"
 #include "esp_log.h"

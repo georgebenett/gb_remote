@@ -59,3 +59,7 @@ Thumbs.db
 *.eez-project-ui-state
 *.eez-project.bak
 firmware/main/ui_*/CMakeLists.txt
+
+# Satoshi (ITF Free Font License) may not be redistributed; download it from
+# fontshare.com into the EEZ assets folders (see THIRD_PARTY_NOTICES.md).
+UI/eez_*/assets/Satoshi-*

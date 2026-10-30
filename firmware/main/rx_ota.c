@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "rx_ota.h"
 #include "ble.h"
 #include "esp_log.h"

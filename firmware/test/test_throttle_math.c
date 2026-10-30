@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 /*
  * Host tests for the throttle math. These two functions decide what the motor
  * does, so the properties below matter more than the point checks: output is

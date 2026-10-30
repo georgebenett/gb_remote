@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include "snake.h"
 
 #ifdef CONFIG_GB_SNAKE_GAME

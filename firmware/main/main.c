@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 /**
  * @file main.c
  * @brief Main entry point for the GB Remote firmware

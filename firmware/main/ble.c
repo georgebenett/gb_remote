@@ -2,6 +2,9 @@
  * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ *
+ * Changes since: Copyright (c) George Benett
+ * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
 #include <stdatomic.h>
