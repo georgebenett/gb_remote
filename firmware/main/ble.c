@@ -302,8 +302,19 @@ esp_err_t ble_send_reset_odometer(void) {
   return err;
 }
 
+/* Below this the board is being walked or dragged by hand, not ridden. */
+#define SHUTDOWN_MAX_KMH 6
+
 esp_err_t ble_send_shutdown(void) {
   if (!ble_is_connected()) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  /* Riding: say nothing, so the receiver treats the power-off as a lost link
+   * and runs its failsafe brake ramp instead of letting the board coast. */
+  settings_t s;
+  settings_get(&s);
+  s.speed_unit_mph = false;
+  if (settings_speed(&s, ble_get_erpm()) >= SHUTDOWN_MAX_KMH) {
     return ESP_ERR_INVALID_STATE;
   }
   esp_err_t err = write_cmd_all((uint8_t[]){GB_CMD_SHUTDOWN}, 1);

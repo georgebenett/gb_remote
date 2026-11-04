@@ -52,6 +52,13 @@ static bool power_check_wake_from_sleep(void);
 static void power_sleep_immediate(void);
 static void power_enter_sleep(void);
 
+/* Tell the receiver this power-off is on purpose so it skips its failsafe. */
+static void notify_receiver_off(void) {
+  if (ble_send_shutdown() == ESP_OK) {
+    vTaskDelay(pdMS_TO_TICKS(BLE_SHUTDOWN_TX_DELAY_MS));
+  }
+}
+
 /* One-shot timer callback: fade backlight up after charging screen is drawn */
 static void charging_screen_fade_up_timer_cb(lv_timer_t *timer) {
   (void)timer;
@@ -79,6 +86,7 @@ static void shutdown_completion_timer_cb(lv_timer_t *timer) {
   if (usb_connected) {
     arc_animation_active = false;
     current_mode = POWER_MODE_CHARGING;
+    notify_receiver_off();
     ble_suspend();
     // The home screen we return to later shows the battery again, not "shut
     // off".
@@ -446,6 +454,7 @@ void power_check_battery(void) {
   ui_show_low_battery_screen();
   vTaskDelay(pdMS_TO_TICKS(LOW_BATTERY_WARNING_MS));
   lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);
+  notify_receiver_off();
   // Cut the power hold before the cell over-discharges; deep sleep if the
   // USB supply keeps us up.
   gpio_set_level(POWER_HOLD_GPIO, 0);
@@ -476,8 +485,7 @@ static void power_enter_sleep(void) {
 void power_shutdown(void) {
   ESP_LOGI(TAG, "Preparing for shutdown");
 
-  ble_send_shutdown(); // Lets receiver skip its failsafe brake ramp on
-                       // disconnect
+  notify_receiver_off();
 
   // NVS writes are synchronous: nothing is pending once they return.
   lcd_fade_backlight(0, LCD_BACKLIGHT_FADE_DURATION_MS, true);

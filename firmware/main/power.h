@@ -21,6 +21,7 @@ typedef enum {
 #define LOW_BATTERY_ALERT_DELAY_MS 500 // Haptic feedback delay
 #define LOW_BATTERY_WARNING_MS 2000    // Show warning before shutdown
 #define POWER_OFF_SETTLE_MS 100        // Delay after power pin toggle
+#define BLE_SHUTDOWN_TX_DELAY_MS 500   // Let the shutdown command leave
 
 bool power_is_entering_off_mode(void);
 power_mode_t power_get_mode(void);
