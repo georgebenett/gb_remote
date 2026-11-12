@@ -138,8 +138,14 @@ static inline bool gb_telemetry_decode(const uint8_t *buf, uint16_t len,
   return true;
 }
 
-/* Exact advertised-name match: a prefix or an empty name is not a match. */
+/* Exact advertised-name match: a prefix or an empty name is not a match.
+ * Receivers in the field pad the name field with zero bytes ("GS-THUMB" plus
+ * five NULs), so trailing zeros are not part of the name. */
 static inline bool gb_adv_name_matches(const uint8_t *name, uint8_t len,
                                        const char *want) {
-  return name != NULL && len == strlen(want) && memcmp(name, want, len) == 0;
+  if (name == NULL)
+    return false;
+  while (len > 0 && name[len - 1] == 0)
+    len--;
+  return len == strlen(want) && memcmp(name, want, len) == 0;
 }
