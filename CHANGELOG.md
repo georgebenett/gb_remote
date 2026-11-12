@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 3.0.8
+
+Bundles receiver v3.0.8.
 
 Safety
 - Low remote battery cuts throttle but keeps the brake (was: neutral, which also blocked braking).
