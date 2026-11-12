@@ -660,6 +660,15 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
     } else {
       ESP_LOGW(GATTC_TAG, "Authentication FAILED, reason: 0x%x",
                param->ble_security.auth_cmpl.fail_reason);
+      /* A bonded receiver that won't authenticate lost its half of the keys
+       * (re-paired, pair list cleared). Retrying the old key never works:
+       * forget it and open pairing so the next connect bonds afresh. */
+      if (is_bonded(param->ble_security.auth_cmpl.bd_addr)) {
+        ESP_LOGW(GATTC_TAG, "Stale bond for " BT_BD_ADDR_STR ": re-pairing",
+                 BT_BD_ADDR_HEX(param->ble_security.auth_cmpl.bd_addr));
+        esp_ble_remove_bond_device(param->ble_security.auth_cmpl.bd_addr);
+        ble_start_pairing(BLE_PAIRING_WINDOW_S);
+      }
     }
     break;
 
