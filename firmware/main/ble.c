@@ -222,6 +222,14 @@ static bool is_bonded(const esp_bd_addr_t bda) {
   return false;
 }
 
+// The receiver names us in its advert once it has us in its paired list.
+static bool adv_invites_us(uint8_t *adv) {
+  uint8_t len = 0;
+  uint8_t *m = esp_ble_resolve_adv_data(
+      adv, ESP_BLE_AD_MANUFACTURER_SPECIFIC_TYPE, &len);
+  return m != NULL && len == 6 && memcmp(m, esp_bt_dev_get_address(), 6) == 0;
+}
+
 bool ble_is_pairing(void) {
   return esp_timer_get_time() < pairing_until_us ||
          esp_ble_get_bond_device_num() == 0;
@@ -570,7 +578,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event,
                                    ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
 
       if (gb_adv_name_matches(adv_name, adv_name_len, device_name) &&
-          (ble_is_pairing() || is_bonded(scan_result->scan_rst.bda))) {
+          (ble_is_pairing() || is_bonded(scan_result->scan_rst.bda) ||
+           adv_invites_us(scan_result->scan_rst.ble_adv))) {
         if (connect_pending || link_by_bda(scan_result->scan_rst.bda) != NULL ||
             link_count_connected() >= desired_link_count()) {
           break;

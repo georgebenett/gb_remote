@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.9
+
+Bundles receiver v3.0.9.
+
+Fixes
+- A bonded remote now bonds to a newly paired receiver: the receiver advertises the remote's MAC and the remote connects when it sees its own.
+
 ## 3.0.8
 
 Bundles receiver v3.0.8.
