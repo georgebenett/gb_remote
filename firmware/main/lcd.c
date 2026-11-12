@@ -146,9 +146,10 @@ static uint32_t lv_tick_ms(void) {
 static void lvgl_handler_task(void *pvParameters) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
   ESP_ERROR_CHECK(esp_task_wdt_reset());
-  // Rendering runs at full clock; between frames the CPU may drop to 80 MHz.
-  esp_pm_lock_handle_t cpu_max;
-  ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "lvgl", &cpu_max));
+  esp_pm_lock_handle_t cpu_max = NULL;
+  if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "lvgl", &cpu_max) != ESP_OK) {
+    cpu_max = NULL;
+  }
 
   while (1) {
     uint32_t sleep_ms = LVGL_MAX_SLEEP_MS;
@@ -156,9 +157,11 @@ static void lvgl_handler_task(void *pvParameters) {
 
     SemaphoreHandle_t mutex = get_lvgl_mutex_handle();
     if (mutex != NULL && xSemaphoreTake(mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      esp_pm_lock_acquire(cpu_max);
+      if (cpu_max)
+        esp_pm_lock_acquire(cpu_max);
       sleep_ms = lv_timer_handler(); // until the next LVGL timer is due
-      esp_pm_lock_release(cpu_max);
+      if (cpu_max)
+        esp_pm_lock_release(cpu_max);
       give_lvgl_mutex();
     } else {
       static uint32_t mutex_fail_count = 0;
